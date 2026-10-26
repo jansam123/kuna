@@ -3,9 +3,10 @@ import { describeActivity, shortActivity } from '@shared/activity'
 import { baseModelId, contextInfo, contextLevel, contextWindowSize, modelFlag } from '@shared/context'
 import { compactBlocker, hasInputBox, screenState } from '@shared/input'
 import { parseJsonc } from '@shared/jsonc'
-import { cleanTypedPath, pastePath } from '@shared/paths'
+import { cleanTypedPath, pastePath, wslPath } from '@shared/paths'
 import { gridRows, neighbor } from '@shared/layout'
 import { extractMediaPaths, mediaKind, normalizePosix, resolveAgainst, viewerOrder } from '@shared/media'
+import { cmdKeyOf, keyLabelFor, typesCharacter } from '@shared/shortcuts'
 import { parseSshConfig } from '@shared/sshConfig'
 import { applyPatch, diffShared, mergePatch } from '@shared/sync'
 import { hasMath, splitMath, texToText } from '@shared/tex'
@@ -202,6 +203,15 @@ describe('paths typed or pasted in the folder dialog', () => {
     expect(pastePath('/x/', 'file:///Users/me/plots', 3, 3).value).toBe('/Users/me/plots')
     // a relative piece is inserted where the caret is
     expect(pastePath('/project/', 'exp/users', 9, 9)).toEqual({ value: '/project/exp/users', caret: 18 })
+  })
+  it('turns Windows paths into the ones WSL sees', () => {
+    expect(wslPath('C:\\Users\\George Scriven\\Documents\\GitHub')).toBe('/mnt/c/Users/George Scriven/Documents/GitHub')
+    expect(wslPath('d:/data')).toBe('/mnt/d/data')
+    expect(wslPath('C:')).toBe('/mnt/c/')
+    expect(wslPath('~/work')).toBe('~/work')
+    expect(cleanTypedPath('C:\\Users\\me\\')).toBe('/mnt/c/Users/me/')
+    expect(pastePath('~/', '"C:\\Users\\me\\repo"', 2, 2).value).toBe('/mnt/c/Users/me/repo')
+    expect(pastePath('~/', 'file:///C:/Users/me/repo', 2, 2).value).toBe('/mnt/c/Users/me/repo')
   })
 })
 
@@ -479,6 +489,50 @@ describe('validate', () => {
     expect(isTmuxKeys(['-l', 'rm -rf ~'])).toBe(false)
     expect(isTmuxKeys(['-X', 'copy-pipe', 'sh'])).toBe(false)
     expect(isTmuxKeys([])).toBe(false)
+  })
+})
+
+describe('shortcuts on Mac and Windows keyboards', () => {
+  const press = (key: string, code: string, mods: Partial<Record<'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey', boolean>> = {}) => ({
+    key,
+    code,
+    metaKey: false,
+    ctrlKey: false,
+    altKey: false,
+    shiftKey: false,
+    ...mods
+  })
+
+  it('reads ⌘ as Command on a Mac', () => {
+    expect(cmdKeyOf(press('w', 'KeyW', { metaKey: true }), true)).toEqual({ key: 'w', shift: false })
+    expect(cmdKeyOf(press('r', 'KeyR', { metaKey: true, shiftKey: true }), true)).toEqual({ key: 'r', shift: true })
+    expect(cmdKeyOf(press('w', 'KeyW', { ctrlKey: true }), true)).toBeUndefined()
+  })
+
+  it('reads ⌘ as Ctrl+Shift elsewhere, leaving plain Ctrl to the terminal', () => {
+    expect(cmdKeyOf(press('W', 'KeyW', { ctrlKey: true, shiftKey: true }), false)).toEqual({ key: 'w', shift: false })
+    expect(cmdKeyOf(press('!', 'Digit1', { ctrlKey: true, shiftKey: true }), false)).toEqual({ key: '1', shift: false })
+    expect(cmdKeyOf(press('?', 'Slash', { ctrlKey: true, shiftKey: true }), false)).toEqual({ key: '/', shift: false })
+    expect(cmdKeyOf(press('ArrowLeft', 'ArrowLeft', { ctrlKey: true, shiftKey: true, altKey: true }), false)).toEqual({ key: 'ArrowLeft', shift: true })
+    expect(cmdKeyOf(press('r', 'KeyR', { ctrlKey: true }), false)).toBeUndefined()
+    expect(cmdKeyOf(press('r', 'KeyR', { metaKey: true }), false)).toBeUndefined()
+  })
+
+  it('lets AltGr type characters outside macOS', () => {
+    expect(typesCharacter(press('@', 'KeyQ', { ctrlKey: true, altKey: true }), false)).toBe(true)
+    expect(typesCharacter(press('@', 'KeyQ', { ctrlKey: true, altKey: true }), true)).toBe(false)
+    expect(typesCharacter(press('a', 'KeyA', { ctrlKey: true }), false)).toBe(false)
+    expect(typesCharacter(press('a', 'KeyA'), false)).toBe(true)
+  })
+
+  it('writes shortcuts for the keyboard at hand', () => {
+    expect(keyLabelFor('⇧⌘R resume', true)).toBe('⇧⌘R resume')
+    expect(keyLabelFor('⇧⌘R resume', false)).toBe('Ctrl+Shift+Alt+R resume')
+    expect(keyLabelFor('⌘W close · Ctrl+X kill', false)).toBe('Ctrl+Shift+W close · Ctrl+X kill')
+    expect(keyLabelFor('⇧Enter new line · ⌥ arrows', false)).toBe('Shift+Enter new line · Alt arrows')
+    expect(keyLabelFor('⌥ drag', false)).toBe('Shift+drag')
+    expect(keyLabelFor('⌘⌫', false)).toBe('Ctrl+Shift+Backspace')
+    expect(keyLabelFor('⌘← ⌘→ windows · ⌥⌘← carry', false)).toBe('Ctrl+Shift+← Ctrl+Shift+→ windows · Ctrl+Alt+← carry')
   })
 })
 

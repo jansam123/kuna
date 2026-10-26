@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
+import { cmdKey, keyLabel } from '../platform'
 import { get } from '../store'
 import { termFont } from '../terminals'
 import { themeById } from '../themes'
@@ -42,7 +43,7 @@ export function LoginDialog({ host }: { host: string }): React.JSX.Element {
     void window.kuna.pty.login(host, term.cols, term.rows).then((id) => (ptyId = id))
 
     const onKey = (ev: KeyboardEvent): void => {
-      if (ev.key === 'Escape' && ev.metaKey) closeOverlay()
+      if (cmdKey(ev)?.key === 'Escape') closeOverlay()
     }
     window.addEventListener('keydown', onKey, true)
     return () => {
@@ -60,7 +61,7 @@ export function LoginDialog({ host }: { host: string }): React.JSX.Element {
         <h2>Sign in to {host}</h2>
         <p className="dim">
           Kuna needs one interactive login to open a shared SSH connection. Answer the prompts below; the window closes when you are
-          in. ⌘Esc cancels.
+          in. {keyLabel('⌘Esc')} cancels.
         </p>
         <div className="login-term" ref={ref} />
         {done != null && done !== 0 && (

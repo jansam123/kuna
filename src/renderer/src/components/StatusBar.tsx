@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { PlanUsage, UsageWindow } from '@shared/types'
 import { useKuna } from '../store'
+import { keyLabel, localName } from '../platform'
 
 /**
  * A report older than this is shown as such: it only refreshes when an agent
@@ -49,7 +50,7 @@ function Usage({ usage }: { usage: PlanUsage | null }): React.JSX.Element {
       </span>
     )
   }
-  const from = usage.host === 'local' ? 'this Mac' : usage.host
+  const from = usage.host === 'local' ? localName : usage.host
   const at = new Date(usage.updatedAt * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   const stale = Date.now() / 1000 - usage.updatedAt > STALE_S
   return (
@@ -93,11 +94,11 @@ export function StatusBar(): React.JSX.Element {
     <footer className="statusbar">
       <span className={`sb-mode sb-${modeName}`}>{modeName}</span>
       {windows.count > 1 && (
-        <span className="sb-window" title={`Window ${windows.index + 1} of ${windows.count}: ⌘← ⌘→ go to the others`}>
+        <span className="sb-window" title={keyLabel(`Window ${windows.index + 1} of ${windows.count}: ⌘← ⌘→ go to the others`)}>
           {windows.index + 1}/{windows.count}
         </span>
       )}
-      <span className="sb-hint">{hint}</span>
+      <span className="sb-hint">{keyLabel(hint)}</span>
       <span className="sb-spacer" />
       {waiting > 0 && <span className="sb-count st-waiting">{waiting} need you</span>}
       {working > 0 && <span className="sb-count st-working">{working} working</span>}

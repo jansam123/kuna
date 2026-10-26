@@ -8,15 +8,25 @@ import type { FontPrefs } from '@shared/types'
 
 const run = promisify(execFile)
 
-/** VS Code's own interface font on macOS, and its default sizes. */
-const SYSTEM_UI = '-apple-system, BlinkMacSystemFont, sans-serif'
+const WINDOWS = process.platform === 'win32'
+/** VS Code's own interface font (on macOS, on Windows), and its default sizes. */
+const SYSTEM_UI = WINDOWS ? '"Segoe UI", sans-serif' : '-apple-system, BlinkMacSystemFont, sans-serif'
+/** the system's monospace fonts, behind whatever the user picked */
+const MONO = WINDOWS ? '"Cascadia Mono", Consolas, monospace' : 'Menlo, monospace'
+
+/** Where VS Code and its forks keep their settings on this system. */
+function settingsDir(): string {
+  if (process.platform === 'darwin') return join(homedir(), 'Library', 'Application Support')
+  if (WINDOWS) return process.env.APPDATA || join(homedir(), 'AppData', 'Roaming')
+  return process.env.XDG_CONFIG_HOME || join(homedir(), '.config')
+}
 
 type Json = Record<string, unknown>
 
 async function vscodeSettings(): Promise<Json> {
   for (const app of ['Code', 'Code - Insiders', 'Cursor', 'VSCodium']) {
     try {
-      const text = await readFile(join(homedir(), 'Library', 'Application Support', app, 'User', 'settings.json'), 'utf8')
+      const text = await readFile(join(settingsDir(), app, 'User', 'settings.json'), 'utf8')
       return (parseJsonc(text) as Json) ?? {}
     } catch {
       /* next */
@@ -56,6 +66,30 @@ async function itermFont(): Promise<{ face: string; size: number; vertical: numb
   return undefined
 }
 
+/**
+ * Windows Terminal's default profile font (`profiles.defaults.font`, or the
+ * older `fontFace`/`fontSize`), from the Store or the unpackaged install.
+ */
+async function windowsTerminalFont(): Promise<{ face: string; size?: number; lineHeight?: number } | undefined> {
+  const local = process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local')
+  for (const dir of [join(local, 'Packages', 'Microsoft.WindowsTerminal_8wekyb3d8bbwe', 'LocalState'), join(local, 'Microsoft', 'Windows Terminal')]) {
+    try {
+      const json = (parseJsonc(await readFile(join(dir, 'settings.json'), 'utf8')) as Json) ?? {}
+      const profiles = json.profiles as Json | undefined
+      const defaults = (profiles && !Array.isArray(profiles) ? (profiles.defaults as Json) : undefined) ?? {}
+      const font = (defaults.font as Json | undefined) ?? {}
+      const face = font.face ?? defaults.fontFace
+      if (typeof face !== 'string' || !face.trim()) return undefined
+      const size = Number(font.size ?? defaults.fontSize) || undefined
+      const lineHeight = Number(font.cellHeight) || undefined
+      return { face, size, lineHeight: lineHeight && lineHeight < 3 ? lineHeight : undefined }
+    } catch {
+      /* next */
+    }
+  }
+  return undefined
+}
+
 /** "MesloLGS-NF-Regular" → "MesloLGS NF", a guess at the family behind a PostScript name. */
 function familyOf(postscript: string): string {
   return postscript.replace(/-(Regular|Book|Roman|Medium)$/i, '').replace(/-/g, ' ')
@@ -67,30 +101,42 @@ function familyOf(postscript: string): string {
  * profile, else VS Code's integrated terminal) for the agent panes.
  */
 export async function detectFonts(): Promise<FontPrefs> {
-  const [vs, iterm] = await Promise.all([vscodeSettings(), process.platform === 'darwin' ? itermFont() : undefined])
+  const [vs, iterm, wt] = await Promise.all([
+    vscodeSettings(),
+    process.platform === 'darwin' ? itermFont() : undefined,
+    WINDOWS ? windowsTerminalFont() : undefined
+  ])
   const zoom = Math.pow(1.2, Number(vs['window.zoomLevel']) || 0)
   const str = (k: string): string | undefined => (typeof vs[k] === 'string' && (vs[k] as string).trim() ? (vs[k] as string) : undefined)
   const num = (k: string): number | undefined => (typeof vs[k] === 'number' && (vs[k] as number) > 0 ? (vs[k] as number) : undefined)
-  const editorFamily = str('editor.fontFamily') ?? 'Menlo, Monaco, "Courier New", monospace'
+  const editorFamily = str('editor.fontFamily') ?? (WINDOWS ? 'Consolas, "Courier New", monospace' : 'Menlo, Monaco, "Courier New", monospace')
   const editorSize = num('editor.fontSize') ?? 12
   const prefs: FontPrefs = {
     ui: { family: SYSTEM_UI, size: Math.round(13 * zoom * 10) / 10 },
     mono: { family: editorFamily, size: Math.round(editorSize * zoom * 10) / 10 },
-    terminal: { family: 'Menlo, monospace', size: 12, lineHeight: 1, letterSpacing: 0, source: 'default' }
+    terminal: { family: MONO, size: 12, lineHeight: 1, letterSpacing: 0, source: 'default' }
   }
   if (iterm) {
     const bold = /-Regular$/i.test(iterm.face) ? iterm.face.replace(/-Regular$/i, '-Bold') : undefined
     prefs.terminal = {
-      family: `"${familyOf(iterm.face)}", Menlo, monospace`,
+      family: `"${familyOf(iterm.face)}", ${MONO}`,
       faces: { regular: iterm.face, bold },
       size: iterm.size,
       lineHeight: iterm.vertical,
       letterSpacing: Math.round((iterm.horizontal - 1) * iterm.size * 0.6 * 10) / 10,
       source: 'iTerm2'
     }
+  } else if (wt) {
+    prefs.terminal = {
+      family: `"${wt.face}", ${MONO}`,
+      size: wt.size ?? 12,
+      lineHeight: wt.lineHeight ?? 1,
+      letterSpacing: 0,
+      source: 'Windows Terminal'
+    }
   } else if (str('terminal.integrated.fontFamily') || num('terminal.integrated.fontSize')) {
     prefs.terminal = {
-      family: `${str('terminal.integrated.fontFamily') ?? editorFamily}, Menlo, monospace`,
+      family: `${str('terminal.integrated.fontFamily') ?? editorFamily}, ${MONO}`,
       size: num('terminal.integrated.fontSize') ?? editorSize,
       lineHeight: num('terminal.integrated.lineHeight') ?? 1,
       letterSpacing: num('terminal.integrated.letterSpacing') ?? 0,

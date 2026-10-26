@@ -10,6 +10,25 @@ import { KUNA_SCRIPT, KUNA_VERSION } from './script'
 
 const LOCAL_KUNA = join(homedir(), '.kuna', 'bin', 'kuna')
 const REMOTE_KUNA = '.kuna/bin/kuna' // ssh commands start in $HOME
+/**
+ * Windows has no tmux, so there "this PC" is WSL: the helper, tmux and the
+ * agents live in the default WSL distribution and Kuna talks to it through
+ * wsl.exe the way it talks to a remote host through ssh.
+ */
+const WINDOWS = process.platform === 'win32'
+const SSH = WINDOWS ? 'ssh.exe' : 'ssh'
+/**
+ * `wsl.exe --exec` skips the login, so $SHELL (kuna.sh asks the login shell
+ * where tmux and claude are) and $LANG (tmux draws UTF-8 only in a UTF-8
+ * locale) may be missing: fill them in, then run the command in $HOME.
+ */
+const WSL_PRELUDE = ': "${SHELL:=$(getent passwd "$(id -un)" | cut -d: -f7)}"; : "${LANG:=C.UTF-8}"; export SHELL LANG; exec "$@"'
+function wslArgs(cmd: string[]): string[] {
+  return ['--cd', '~', '--exec', 'sh', '-c', WSL_PRELUDE, 'kuna', ...cmd]
+}
+/** Writes the helper from stdin into ~/.kuna/bin, replacing the old one in one step. */
+const INSTALL_SH =
+  'mkdir -p "$HOME/.kuna/bin" && chmod 700 "$HOME/.kuna" && cat > "$HOME/.kuna/bin/kuna.tmp" && chmod 755 "$HOME/.kuna/bin/kuna.tmp" && mv -f "$HOME/.kuna/bin/kuna.tmp" "$HOME/.kuna/bin/kuna"'
 const WATCH_STALL_MS = 50_000
 /** Commands in flight per host; the rest wait their turn instead of bursting. */
 const MAX_PARALLEL_EXEC = 2
@@ -32,12 +51,8 @@ const PANES_ON_CONTROL = 6
  */
 function sshOptions(slot: string): string[] {
   return [
-    '-o',
-    'ControlMaster=auto',
-    '-o',
-    `ControlPath=${SSH_DIR}/%C-${slot}`,
-    '-o',
-    'ControlPersist=600',
+    // Windows' OpenSSH can't share connections (no Unix sockets for ControlPath): each command logs in anew
+    ...(WINDOWS ? [] : ['-o', 'ControlMaster=auto', '-o', `ControlPath=${SSH_DIR}/%C-${slot}`, '-o', 'ControlPersist=600']),
     '-o',
     'ClearAllForwardings=yes',
     '-o',
@@ -48,7 +63,7 @@ function sshOptions(slot: string): string[] {
 }
 
 /**
- * One machine we run agents on: this Mac or an SSH alias.
+ * One machine we run agents on: this Mac (WSL on Windows) or an SSH alias.
  * Owns the helper install, a long-lived `kuna watch` stream and command execution.
  *
  * Events: 'state' (HostState), 'agents' (AgentRuntime[]), 'usage' (PlanUsage)
@@ -96,11 +111,11 @@ export class Host extends EventEmitter {
 
   /** Run `kuna <args>` on the host (queued: at most two at a time per host). */
   async exec(args: string[], opts: ExecOptions = {}): Promise<ExecResult> {
-    if (this.local) return run('sh', [LOCAL_KUNA, ...args], opts)
+    if (this.local) return WINDOWS ? run('wsl.exe', wslArgs(['sh', REMOTE_KUNA, ...args]), opts) : run('sh', [LOCAL_KUNA, ...args], opts)
     if (this.running >= MAX_PARALLEL_EXEC) await new Promise<void>((go) => this.queue.push(go))
     this.running++
     try {
-      return await run('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', ...this.sshArgs(), '--', this.id, ['sh', REMOTE_KUNA, ...args].map(shq).join(' ')], opts)
+      return await run(SSH, ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', ...this.sshArgs(), '--', this.id, ['sh', REMOTE_KUNA, ...args].map(shq).join(' ')], opts)
     } finally {
       this.running--
       this.queue.shift()?.()
@@ -116,9 +131,9 @@ export class Host extends EventEmitter {
   attachCommand(agentId: string): { file: string; args: string[] } {
     // Claude background sessions attach with `claude attach`, Kuna's own through tmux
     const [verb, id] = agentId.startsWith('cc-') ? ['cattach', agentId.slice(3)] : ['attach', agentId]
-    if (this.local) return { file: '/bin/sh', args: [LOCAL_KUNA, verb, id] }
+    if (this.local) return WINDOWS ? { file: 'wsl.exe', args: wslArgs(['sh', REMOTE_KUNA, verb, id]) } : { file: '/bin/sh', args: [LOCAL_KUNA, verb, id] }
     return {
-      file: 'ssh',
+      file: SSH,
       args: ['-tt', '-o', 'ConnectTimeout=20', ...sshOptions(this.openPanes++ < PANES_ON_CONTROL ? 'c' : 'a'), '--', this.id, `sh ${REMOTE_KUNA} ${verb} ${shq(id)}`]
     }
   }
@@ -126,7 +141,7 @@ export class Host extends EventEmitter {
   /** Command line for a sign-in terminal (password / OTP / Kerberos prompts). */
   loginCommand(): { file: string; args: string[] } {
     return {
-      file: 'ssh',
+      file: SSH,
       args: ['-tt', ...this.sshArgs(), '--', this.id, 'echo; echo Signed in to; hostname; sleep 1']
     }
   }
@@ -146,6 +161,9 @@ export class Host extends EventEmitter {
     if (this.disposed) return
     // 255 is ssh's own failure; anything else means the helper is missing or stale
     if (!this.local && ver.code === 255) return this.fail(ver.stderr)
+    if (this.local && WINDOWS && /ENOENT|no installed distributions|WSL_E_/i.test(ver.stderr)) {
+      return this.fail(`Kuna runs agents on this PC inside WSL, which is not set up: ${firstLine(ver.stderr)}. Install it with \`wsl --install\`, then install tmux and Claude Code inside it, and reconnect.`, false)
+    }
 
     let doctor: ExecResult
     if (ver.stdout.toString('utf8').trim() !== KUNA_VERSION) {
@@ -164,6 +182,7 @@ export class Host extends EventEmitter {
       if (k) info[k] = v.join('\t')
     }
     if (!info.tmux) {
+      if (this.local && WINDOWS) return this.fail('tmux was not found in WSL. Install it there (`sudo apt install tmux` in Ubuntu) and reconnect.', false)
       return this.fail(`tmux was not found on ${this.id}. Install tmux there (e.g. via your package manager or conda) and reconnect.`, false)
     }
     this.retries = 0
@@ -180,14 +199,18 @@ export class Host extends EventEmitter {
   }
 
   private async install(): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (this.local && WINDOWS) {
+      const res = await run('wsl.exe', ['--cd', '~', '--exec', 'sh', '-c', INSTALL_SH], { stdin: KUNA_SCRIPT, timeoutMs: 30_000 })
+      return res.code === 0 ? { ok: true } : { ok: false, error: res.stderr || `install in WSL failed (${res.code})` }
+    }
     if (this.local) {
       mkdirSync(join(homedir(), '.kuna', 'bin'), { recursive: true, mode: 0o700 })
       writeFileSync(LOCAL_KUNA, KUNA_SCRIPT)
       chmodSync(LOCAL_KUNA, 0o755)
       return { ok: true }
     }
-    const cmd = `sh -c 'mkdir -p "$HOME/.kuna/bin" && chmod 700 "$HOME/.kuna" && cat > "$HOME/.kuna/bin/kuna.tmp" && chmod 755 "$HOME/.kuna/bin/kuna.tmp" && mv -f "$HOME/.kuna/bin/kuna.tmp" "$HOME/.kuna/bin/kuna"'`
-    const res = await run('ssh', ['-o', 'BatchMode=yes', ...this.sshArgs(), '--', this.id, cmd], {
+    const cmd = `sh -c '${INSTALL_SH}'`
+    const res = await run(SSH, ['-o', 'BatchMode=yes', ...this.sshArgs(), '--', this.id, cmd], {
       stdin: KUNA_SCRIPT,
       timeoutMs: 30_000
     })
@@ -217,8 +240,10 @@ export class Host extends EventEmitter {
   private startWatch(): void {
     this.stopWatch()
     const child = this.local
-      ? spawn('sh', [LOCAL_KUNA, 'watch'])
-      : spawn('ssh', ['-o', 'BatchMode=yes', ...this.sshArgs(), '--', this.id, `sh ${REMOTE_KUNA} watch`])
+      ? WINDOWS
+        ? spawn('wsl.exe', wslArgs(['sh', REMOTE_KUNA, 'watch']))
+        : spawn('sh', [LOCAL_KUNA, 'watch'])
+      : spawn(SSH, ['-o', 'BatchMode=yes', ...this.sshArgs(), '--', this.id, `sh ${REMOTE_KUNA} watch`])
     this.watcher = child
     this.watchBuf = ''
     this.watchLines = []

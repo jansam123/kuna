@@ -15,6 +15,7 @@ import { applyRemote, flushState, get, isHidden, loadState, noteReported, noteHo
 import { restyleTerminals } from './terminals'
 import { applyFonts } from './fonts'
 import { applyTheme, themeById } from './themes'
+import { localName } from './platform'
 
 const prevStatus = new Map<string, AgentStatus>()
 
@@ -35,7 +36,7 @@ function notifyTransitions(list: AgentRuntime[]): void {
     if (!done && !asks && !failed) continue
     const title = agentTitle(a, s.details[a.key])
     const n = new Notification(asks ? `${title} needs you` : failed ? `${title} failed` : `${title} is done`, {
-      body: `${a.cwd} on ${a.host === 'local' ? 'this Mac' : a.host}`,
+      body: `${a.cwd} on ${a.host === 'local' ? localName : a.host}`,
       silent: !asks
     })
     n.onclick = () => {

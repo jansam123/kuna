@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { homedir } from 'node:os'
 import type { WebContents } from 'electron'
 import * as pty from 'node-pty'
 
@@ -30,7 +31,7 @@ export class PtyService {
       name: 'xterm-256color',
       cols: Math.max(2, cols),
       rows: Math.max(2, rows),
-      cwd: process.env.HOME,
+      cwd: homedir(),
       env
     })
     const s: Session = { proc, owner, buf: '' }

@@ -160,7 +160,7 @@ export function termFont(): { family: string; size: number; lineHeight: number; 
   const { fonts, settings } = get()
   const t = fonts?.terminal
   return {
-    family: t ? (t.faces ? `"${TERMINAL_FACE}", ${t.family}` : t.family) : 'Menlo, monospace',
+    family: t ? (t.faces ? `"${TERMINAL_FACE}", ${t.family}` : t.family) : 'Menlo, Consolas, monospace',
     size: settings.termFontSize ?? t?.size ?? 12,
     lineHeight: t?.lineHeight ?? 1,
     letterSpacing: t?.letterSpacing ?? 0

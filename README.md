@@ -71,11 +71,13 @@ npm run dist     # or build release/mac-arm64/Kuna.app
 
 Setting it up with a coding agent? Point it at [CLAUDE.md](CLAUDE.md).
 
+**On Windows** agents on this PC run in WSL, and ⌘ shortcuts are Ctrl+Shift: see [Windows](docs/WINDOWS.md).
+
 **First steps:** ⌘N creates a project (this Mac or an SSH host) · ⌘O adds a folder · type a task and press Enter · Space shows its plots · ⌘/ shows every shortcut.
 
 ## Docs
 
-[Keyboard](docs/KEYBOARD.md) · [Remote hosts](docs/REMOTE-HOSTS.md) · [Architecture](docs/ARCHITECTURE.md) · [Themes](docs/THEMES.md) · [Development](docs/DEVELOPMENT.md) · [Security](SECURITY.md)
+[Keyboard](docs/KEYBOARD.md) · [Remote hosts](docs/REMOTE-HOSTS.md) · [Windows](docs/WINDOWS.md) · [Architecture](docs/ARCHITECTURE.md) · [Themes](docs/THEMES.md) · [Development](docs/DEVELOPMENT.md) · [Security](SECURITY.md)
 
 ## Why "Kuna"?
 

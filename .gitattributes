@@ -1,0 +1,3 @@
+# kuna.sh runs under sh on every host, and the fake ssh under sh in the tests: keep LF on Windows checkouts
+*.sh text eol=lf
+test/fake-ssh/ssh text eol=lf

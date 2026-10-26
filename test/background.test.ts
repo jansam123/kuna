@@ -6,6 +6,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { TranscriptParser } from '@shared/transcript'
 import { bgStatus, frameToAgents, parseFrame, parseQuestions, waitingOn } from '@shared/watch'
 
+// kuna.sh runs under sh on its hosts; Windows has none (its local host is WSL)
+const noSh = process.platform === 'win32'
+
 describe('Claude background sessions', () => {
   const lines = [
     'J\tc871bf62\t1\tworking\tblocked\t2026-10-20T16:44:33.316Z\t2026-10-20T16:44:20.000Z\t\tc871bf62-4c65\t/private/tmp/kuna-demo\t\t\tkuna-probe-question\tstarting…\tanswer: Do you prefer tea or coffee? (Tea · Coffee)\t',
@@ -94,7 +97,7 @@ describe('Claude background sessions', () => {
   })
 })
 
-describe('kuna bg-snapshot context sizes', () => {
+describe.skipIf(noSh)('kuna bg-snapshot context sizes', () => {
   const script = join(__dirname, '..', 'src', 'main', 'remote', 'kuna.sh')
   const home = mkdtempSync(join(tmpdir(), 'kuna-ctx-'))
   const transcript = join(home, '.claude', 'projects', 'p', 'sess-1.jsonl')

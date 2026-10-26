@@ -14,8 +14,10 @@ import type {
   WindowsInfo
 } from '@shared/types'
 import { pruneArranged } from '@shared/arrange'
+import { wslPath } from '@shared/paths'
 import { applyPatch, diffShared, mergePatch, type SharedPatch } from '@shared/sync'
 import { REPO_COLORS } from './themes'
+import { keyLabel } from './platform'
 
 export type Zone = 'sidebar' | 'prompt' | 'pane'
 
@@ -214,7 +216,14 @@ export async function loadState(): Promise<void> {
     // "a//b/" as typed is "a/b"
     projects: state.projects.map((p) => ({
       ...p,
-      folders: p.folders.map((f) => ({ ...f, path: f.path.replace(/\/{2,}/g, '/').replace(/(.)\/+$/, '$1') }))
+      folders: p.folders.map((f) => {
+        const path = wslPath(f.path).replace(/\/{2,}/g, '/').replace(/(.)\/+$/, '$1')
+        // a name taken from the Windows path it was added with becomes the folder's own
+        const name = f.name !== path && wslPath(f.name).replace(/\/+$/, '') === path ? path.split('/').pop() || path : f.name
+        if (wslPath(f.path) === f.path) return { ...f, path, name }
+        // a Windows path that became WSL's is asked about again (its old lookup failed)
+        return { ...f, path, name, real: undefined }
+      })
     })),
     settings: state.settings,
     lastSeen: state.lastSeen,
@@ -241,7 +250,7 @@ export function syncHosts(): void {
 let toastSeq = 0
 export function toast(text: string, tone: Toast['tone'] = 'info'): void {
   const id = ++toastSeq
-  set((s) => ({ toasts: [...s.toasts.slice(-3), { id, text, tone }] }))
+  set((s) => ({ toasts: [...s.toasts.slice(-3), { id, text: keyLabel(text), tone }] }))
   setTimeout(() => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), tone === 'info' ? 3500 : 7000)
 }
 
@@ -373,7 +382,7 @@ export function pruneArrangement(): void {
 export function addFolder(projectId: string, path: string, name?: string): Folder {
   const all = get().projects.flatMap((p) => p.folders.map((f) => f.color))
   const color = REPO_COLORS.find((c) => !all.includes(c)) ?? REPO_COLORS[all.length % REPO_COLORS.length]
-  const clean = path.trim().replace(/\/{2,}/g, '/').replace(/\/+$/, '') || '/'
+  const clean = wslPath(path.trim()).replace(/\/{2,}/g, '/').replace(/\/+$/, '') || '/'
   const folder: Folder = { id: uid(), path: clean, name: name?.trim() || (clean === '~' ? 'home' : clean.split('/').pop() || clean), color }
   set((s) => ({
     projects: s.projects.map((p) => (p.id === projectId ? { ...p, collapsed: false, folders: [...p.folders, folder] } : p)),

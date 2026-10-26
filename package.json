@@ -31,6 +31,12 @@
       "identity": null,
       "icon": "build/icon.icns"
     },
+    "win": {
+      "target": [
+        "dir"
+      ],
+      "icon": "build/icon.png"
+    },
     "electronFuses": {
       "runAsNode": false,
       "enableNodeOptionsEnvironmentVariable": false,
@@ -46,9 +52,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "rebuild": "electron-rebuild -f -w node-pty",
-    "postinstall": "electron-rebuild -f -w node-pty && sh scripts/dev-app.sh",
+    "postinstall": "electron-rebuild -f -w node-pty && node scripts/dev-app.cjs",
     "icon": "sh scripts/make-icon.sh",
-    "dist": "electron-vite build && electron-builder --mac --dir"
+    "dist": "electron-vite build && electron-builder --dir"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",

@@ -7,6 +7,9 @@ import type { AgentRuntime, Project } from '@shared/types'
 import { dropPlan, moveFolderTo, moveProjectTo, placeAgent, pruneArranged, type RowRef } from '@shared/arrange'
 import { assignAgents, OTHER_FOLDER_ID } from '../src/renderer/src/tree'
 
+// kuna.sh runs under sh on its hosts; Windows has none (its local host is WSL)
+const noSh = process.platform === 'win32'
+
 const agent = (id: string, cwd: string): AgentRuntime => ({
   key: `cluster1::${id}`,
   id,
@@ -88,7 +91,7 @@ describe('placing agents by their resolved directory', () => {
   })
 })
 
-describe('kuna ls', () => {
+describe.skipIf(noSh)('kuna ls', () => {
   it('lists subdirectories without doubled slashes', () => {
     const script = join(__dirname, '..', 'src', 'main', 'remote', 'kuna.sh')
     const home = mkdtempSync(join(tmpdir(), 'kuna-ls-'))
@@ -106,7 +109,8 @@ describe('kuna ls', () => {
   })
 })
 
-describe('kuna realpath', () => {
+// (and symlinks there need Developer Mode)
+describe.skipIf(noSh)('kuna realpath', () => {
   it('resolves symlinks and skips what is missing', () => {
     const script = join(__dirname, '..', 'src', 'main', 'remote', 'kuna.sh')
     const home = mkdtempSync(join(tmpdir(), 'kuna-real-'))

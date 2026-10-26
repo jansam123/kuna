@@ -7,6 +7,7 @@ import { addFolder, addProject, removeFolder, removeProject, renameAgent, set, t
 import { REPO_COLORS } from '../themes'
 import { closeOverlay, useOverlayKeys } from './Overlays'
 import { TexText } from './TexText'
+import { LocalName, localName } from '../platform'
 
 export function ProjectDialog({ editId }: { editId?: string }): React.JSX.Element {
   const sshHosts = useKuna((s) => s.sshHosts)
@@ -20,7 +21,7 @@ export function ProjectDialog({ editId }: { editId?: string }): React.JSX.Elemen
   const listRef = useRef<HTMLDivElement>(null)
 
   const hosts = useMemo(() => {
-    const all = [{ alias: LOCAL_HOST, label: 'This Mac', detail: 'agents run locally' }].concat(
+    const all = [{ alias: LOCAL_HOST, label: LocalName, detail: 'agents run locally' }].concat(
       sshHosts.map((h) => ({
         alias: h.alias,
         label: h.alias,
@@ -245,7 +246,7 @@ export function FolderDialog({ projectId, initialPath }: { projectId: string; in
           Add a folder to <TexText text={project.name} />
         </h2>
         <p className="dim">
-          A folder is usually a repository on {host === LOCAL_HOST ? 'this Mac' : host}. Agents you launch from it start there.
+          A folder is usually a repository on {host === LOCAL_HOST ? localName : host}. Agents you launch from it start there.
         </p>
         <label>
           Path
@@ -271,7 +272,7 @@ export function FolderDialog({ projectId, initialPath }: { projectId: string; in
           <span className="field-note">Tab completes · ↑ ↓ pick, Enter fills it in · Enter adds</span>
         </label>
         <div className="host-list dirs" ref={list}>
-          {loading && !dirs.length && <div className="dim pad">Listing {parent} on {host === LOCAL_HOST ? 'this Mac' : host}…</div>}
+          {loading && !dirs.length && <div className="dim pad">Listing {parent} on {host === LOCAL_HOST ? localName : host}…</div>}
           {!loading && !matches.length && <div className="dim pad">No folders here.</div>}
           {matches.map((d, i) => (
             <div key={d} className={`host-opt ${i === pick ? 'on' : ''}`} onClick={() => fill(d)} onDoubleClick={() => submit(d)}>

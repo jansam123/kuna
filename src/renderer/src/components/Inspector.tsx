@@ -6,6 +6,7 @@ import { useKuna } from '../store'
 import { folderOfAgent } from '../tree'
 import { StatusDot } from './StatusDot'
 import { TexText } from './TexText'
+import { localName } from '../platform'
 
 const TODO_GLYPH: Record<string, string> = { completed: '✓', in_progress: '◐', pending: '○' }
 
@@ -52,7 +53,7 @@ export function Inspector(): React.JSX.Element {
       <header className="insp-head" style={{ '--repo': where?.folder.color ?? 'var(--faint)' } as React.CSSProperties}>
         <div className="insp-where">
           <span className="swatch" />
-          {where ? <TexText text={where.folder.name} /> : a.cwd} <span className="dim">on {a.host === 'local' ? 'this mac' : a.host}</span>
+          {where ? <TexText text={where.folder.name} /> : a.cwd} <span className="dim">on {a.host === 'local' ? localName.toLowerCase() : a.host}</span>
         </div>
         <h2>{agentTitle(a, d)}</h2>
         <div className={`insp-status st-${a.status}`}>

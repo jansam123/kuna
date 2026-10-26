@@ -2,9 +2,19 @@
  * Paths typed or pasted into the folder dialog.
  */
 
-/** Repeated slashes collapse ("a//b" → "a/b"). */
+/**
+ * A Windows path ("C:\\Users\\me", "C:/Users/me") as WSL sees it
+ * ("/mnt/c/Users/me"): on Windows this PC's agents run in WSL. A drive
+ * letter means nothing on any other host either, so this applies everywhere.
+ */
+export function wslPath(p: string): string {
+  const m = /^([A-Za-z]):(?:[\\/](.*))?$/.exec(p)
+  return m ? `/mnt/${m[1].toLowerCase()}/${(m[2] ?? '').replace(/\\/g, '/')}` : p
+}
+
+/** Repeated slashes collapse ("a//b" → "a/b"); Windows paths become WSL's. */
 export function cleanTypedPath(v: string): string {
-  return v.replace(/\/{2,}/g, '/')
+  return wslPath(v).replace(/\/{2,}/g, '/')
 }
 
 /**
@@ -16,6 +26,8 @@ export function cleanTypedPath(v: string): string {
 export function pastePath(field: string, pasted: string, selStart: number, selEnd: number): { value: string; caret: number } {
   let p = pasted.trim().replace(/^file:\/\//, '')
   if (/^(['"]).*\1$/.test(p)) p = p.slice(1, -1)
+  // file:///C:/… and C:\… from Windows
+  p = wslPath(p.replace(/^\/(?=[A-Za-z]:)/, ''))
   if (p.startsWith('/') || p.startsWith('~')) {
     const value = cleanTypedPath(p)
     return { value, caret: value.length }

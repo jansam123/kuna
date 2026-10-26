@@ -4,6 +4,7 @@ import { marked } from 'marked'
 import { LOCAL_HOST, type ClaudeFileEntry } from '@shared/types'
 import { useKuna } from '../store'
 import { useOverlayKeys } from './Overlays'
+import { localName } from '../platform'
 
 /**
  * Markdown from .claude files (plugins included) is someone else's text: no
@@ -132,7 +133,7 @@ export function ClaudeBrowser({ initialHost }: { initialHost?: string }): React.
           <div className="cb-hosts">
             {hostList.map((h) => (
               <button key={h} className={h === host ? 'on' : ''} onClick={() => setHost(h)}>
-                {h === LOCAL_HOST ? 'this mac' : h}
+                {h === LOCAL_HOST ? localName.toLowerCase() : h}
               </button>
             ))}
           </div>

@@ -50,6 +50,8 @@ Kuna runs its background commands with `BatchMode=yes`, so it never hangs on an 
 
 Connection sharing: Kuna always opens its **own** shared connections (`ControlPath=~/.kuna/ssh/…`, `ControlPersist=600`) — one for the watch stream, commands and up to six open panes, and a second only beyond that. It deliberately does not ride on a `ControlMaster` from your config: sshd allows only 10 sessions per connection (`MaxSessions`), and a connection shared with your terminals, tunnels and other tools fills up quickly, after which new sessions are refused and ssh falls back to a slow fresh login. Kuna also sets `ClearAllForwardings=yes`, so `LocalForward`/`DynamicForward` lines in your config don't collide with the ones your own terminals already hold. Jump hosts (`ProxyJump`) still use your config, including its connection sharing.
 
+On Windows, `ssh.exe` can't share connections, so every command logs in anew and hosts must accept keys without a prompt: see [Windows](WINDOWS.md#ssh-hosts).
+
 Kerberos hosts (e.g. CERN): run `kinit` on your Mac first, as you would for plain ssh.
 
 ## Load-balanced aliases (`lxplus`, `login.cluster`)

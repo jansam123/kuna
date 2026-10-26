@@ -7,6 +7,7 @@ import { discardTyped, leaveScroll, sendEsc } from '../actions'
 import { agentTitle, ago, bytes, doingText } from '../format'
 import { isPrintable, panelOnScreen, typeToAgent } from '../keys'
 import { loadMarkdownImages, renderDiagrams, renderMarkdown } from '../markdown'
+import { cmdKey, keyLabel } from '../platform'
 import { get, updateSettings, useKuna } from '../store'
 import { copyTerminalSelection, disposeTerminal, fitTerminal, getTerminal, terminalEntry, writeToAgent } from '../terminals'
 import { folderOfAgent } from '../tree'
@@ -606,8 +607,9 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
     // the agent's terminal has the keyboard (from the start, and after a click on it)
     const typing = !!e && e.el.contains(document.activeElement)
     const writing = (e?.typed ?? 0) > 0
-    if (ev.metaKey && !ev.ctrlKey) {
-      switch (ev.key) {
+    const cmd = cmdKey(ev)
+    if (cmd) {
+      switch (cmd.key) {
         case '+':
         case '=':
           zoomAt(1.25)
@@ -775,11 +777,13 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
           <span className="media-note">{note}</span>
         ) : (
           <span className="media-keys">
-            {escHint
-              ? 'Esc again takes what you typed back out'
-              : typed
-                ? '← → move in your message · Enter sends · ⇧Enter new line · Esc Esc takes it back'
-                : `← → files · type to the agent · ⌘P the file's path · ${md ? '⌘U source · ' : ''}pinch or ⌘+ ⌘− zoom · ⌘0 fit · ⌘O open · ⌘S save · Space close`}
+            {keyLabel(
+              escHint
+                ? 'Esc again takes what you typed back out'
+                : typed
+                  ? '← → move in your message · Enter sends · ⇧Enter new line · Esc Esc takes it back'
+                  : `← → files · type to the agent · ⌘P the file's path · ${md ? '⌘U source · ' : ''}pinch or ⌘+ ⌘− zoom · ⌘0 fit · ⌘O open · ⌘S save · Space close`
+            )}
           </span>
         )}
         {md && (

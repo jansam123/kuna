@@ -14,7 +14,7 @@ export async function applyFonts(f: FontPrefs, uiFont: Settings['uiFont']): Prom
   const root = document.documentElement.style
   const editorUi = uiFont === 'editor'
   root.setProperty('--ui', editorUi ? `${f.mono.family}, ${f.ui.family}` : f.ui.family)
-  root.setProperty('--mono', `${f.mono.family}, Menlo, monospace`)
+  root.setProperty('--mono', `${f.mono.family}, Menlo, Consolas, monospace`)
   root.setProperty('--fs', `${editorUi ? Math.max(12, f.mono.size + 1) : f.ui.size}px`)
   root.setProperty('--fs-mono', `${f.mono.size}px`)
 

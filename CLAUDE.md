@@ -26,6 +26,8 @@ The goal: the user ends up with Kuna running and knows how to start their first 
 
 5. **First use** happens in the window, by keyboard: **⌘N** creates a project (*This Mac* or a host from `~/.ssh/config`), **⌘O** adds a folder, then typing a task and **Enter** starts an agent. Point the user to "First five minutes" in `README.md` and to **⌘/** for every shortcut.
 
+**On Windows** the steps are in `docs/WINDOWS.md`: the prerequisites are Node.js, Git and Visual Studio Build Tools (C++) for `node-pty`; tmux and Claude Code go inside WSL, which is where agents on "This PC" run. `scripts/smoke.sh` is macOS-only.
+
 **Remote hosts.** Any `Host` alias in `~/.ssh/config` works; Kuna uses the user's own `ssh`. A host needs `tmux`, `claude` and a POSIX `sh`. Kuna runs ssh with `BatchMode=yes`; hosts that need a password or OTP get a **Sign in** button. See `docs/REMOTE-HOSTS.md` for clusters, Kerberos and troubleshooting.
 
 **What Kuna writes.**

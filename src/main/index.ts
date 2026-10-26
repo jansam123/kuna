@@ -14,6 +14,7 @@ import { listSshHosts } from './sshHosts'
 import { Store } from './store'
 import { Windows } from './windows'
 
+const mac = process.platform === 'darwin'
 /**
  * Development hooks (scripted runs, a separate profile, the dev server, DevTools)
  * exist only when running from source; a built Kuna.app ignores the variables.
@@ -87,7 +88,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.clipboardText, () => clipboard.readText())
   ipcMain.on(IPC.copyText, (_e, text: string) => clipboard.writeText(text))
   ipcMain.on(IPC.windowButtons, (e, visible: boolean) => {
-    if (process.platform === 'darwin') BrowserWindow.fromWebContents(e.sender)?.setWindowButtonVisibility(visible)
+    if (mac) BrowserWindow.fromWebContents(e.sender)?.setWindowButtonVisibility(visible)
   })
 
   ipcMain.handle(IPC.hostsWatch, (_e, hosts: string[]) => agents.watch(hosts))
@@ -131,6 +132,9 @@ function registerIpc(): void {
 }
 
 function buildMenu(): void {
+  // Elsewhere a menu's Ctrl accelerators would take keys from the agents' terminals,
+  // and text fields copy and paste without one
+  if (!mac) return Menu.setApplicationMenu(null)
   // No Cmd+W "Close Window" here: in Kuna Cmd+W closes the focused tab.
   const template: MenuItemConstructorOptions[] = [
     {
@@ -181,7 +185,8 @@ function makeWindow(bounds: Rect | undefined, fullScreen: boolean): BrowserWindo
     minHeight: 560,
     show: false,
     backgroundColor: '#000000',
-    titleBarStyle: 'hiddenInset',
+    // on a Mac the traffic lights sit over the sidebar; elsewhere the window keeps its title bar
+    ...(mac ? { titleBarStyle: 'hiddenInset' as const } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -193,7 +198,13 @@ function makeWindow(bounds: Rect | undefined, fullScreen: boolean): BrowserWindo
   // scripted runs don't take the focus (and the keystrokes) from whatever the user is doing
   // the close/minimize/zoom buttons only show over the sidebar (the renderer
   // says when); hidden, they would sit on the pane headers
-  if (process.platform === 'darwin') win.setWindowButtonVisibility(false)
+  if (mac) win.setWindowButtonVisibility(false)
+  // no menu outside macOS: F12 opens DevTools when running from source
+  if (!mac && fromSource) {
+    win.webContents.on('before-input-event', (_e, input) => {
+      if (input.type === 'keyDown' && input.key === 'F12') win.webContents.toggleDevTools()
+    })
+  }
   win.once('ready-to-show', () => (automation ? win.showInactive() : win.show()))
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) void shell.openExternal(url)
@@ -222,6 +233,8 @@ app.setName('Kuna')
 for (const k of Object.keys(process.env)) {
   if (/^(CLAUDECODE|CLAUDE_CODE_\w+|CLAUDE_PID|CLAUDE_JOB_DIR|CLAUDE_EFFORT|AI_AGENT)$/.test(k)) delete process.env[k]
 }
+// wsl.exe (this PC's agents on Windows) reports its own errors in UTF-16 unless asked not to
+if (process.platform === 'win32') process.env.WSL_UTF8 = '1'
 // Separate profile for demos and tests: KUNA_USER_DATA=/tmp/kuna-demo npm start
 if (fromSource && process.env.KUNA_USER_DATA) app.setPath('userData', process.env.KUNA_USER_DATA)
 

@@ -7,6 +7,7 @@ import { fitTerminal, getTerminal, terminalEntry } from '../terminals'
 import { folderOfAgent } from '../tree'
 import { StatusDot } from './StatusDot'
 import { TexText } from './TexText'
+import { keyLabel } from '../platform'
 
 /** drag-and-drop type for a pane header (its tab index) */
 const TAB_DRAG = 'application/x-kuna-tab'
@@ -84,7 +85,7 @@ function PaneHeader({ agentKey, index, unread }: { agentKey: string; index: numb
         <span className="ph-index">{index + 1}</span>
         <span className="ph-title dim">Agent is gone</span>
         <span className="ph-spacer" />
-        <span className="ph-hint">⌘W closes this tab</span>
+        <span className="ph-hint">{keyLabel('⌘W closes this tab')}</span>
       </div>
     )
   }
@@ -133,7 +134,7 @@ function PaneHeader({ agentKey, index, unread }: { agentKey: string; index: numb
         </span>
       )}
       {d?.model && <span className="chip dim">{shortModel(d.model)}</span>}
-      {a.status === 'exited' && <span className="ph-hint">{a.kind === 'claude' ? 'stopped · Enter reopens' : '⇧⌘R resume'}</span>}
+      {a.status === 'exited' && <span className="ph-hint">{a.kind === 'claude' ? 'stopped · Enter reopens' : keyLabel('⇧⌘R resume')}</span>}
       {/* one word here; what it is doing in full is in the tooltip and the inspector */}
       <span className={`ph-status st-${a.status}`} title={[doingText(a), a.detail].filter(Boolean).join('\n')}>
         <StatusDot status={a.status} />
@@ -258,7 +259,7 @@ function EmptyMain(): React.JSX.Element {
       {hasProjects ? (
         <p>Pick a folder in the sidebar and start typing to launch an agent, or select a running agent and press Enter to open it.</p>
       ) : (
-        <p>Create a project with ⌘N, add a folder with ⌘O, then type a task to launch your first agent.</p>
+        <p>{keyLabel('Create a project with ⌘N, add a folder with ⌘O, then type a task to launch your first agent.')}</p>
       )}
       <dl className="keys-mini">
         <dt>↑ ↓ ← →</dt>
@@ -269,9 +270,9 @@ function EmptyMain(): React.JSX.Element {
         <dd>stop typing</dd>
         <dt>Space</dt>
         <dd>preview the agent's latest plot or PDF</dd>
-        <dt>⌘W · Ctrl+X</dt>
+        <dt>{keyLabel('⌘W')} · Ctrl+X</dt>
         <dd>close tab · kill agent</dd>
-        <dt>⌘/</dt>
+        <dt>{keyLabel('⌘/')}</dt>
         <dd>all shortcuts</dd>
       </dl>
     </div>

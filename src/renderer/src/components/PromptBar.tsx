@@ -3,6 +3,7 @@ import { targetFolder } from '../actions'
 import { set, useKuna } from '../store'
 import { buildTree } from '../tree'
 import { TexText } from './TexText'
+import { localName } from '../platform'
 
 /** The "new agent" composer under the sidebar. Enter launches an agent in the target folder. */
 export function PromptBar(): React.JSX.Element {
@@ -51,7 +52,7 @@ export function PromptBar(): React.JSX.Element {
             <span className="pt-folder">
               <TexText text={target.folder.name} />
             </span>
-            <span className="pt-host">{target.project.host === 'local' ? 'this mac' : target.project.host}</span>
+            <span className="pt-host">{target.project.host === 'local' ? localName.toLowerCase() : target.project.host}</span>
           </>
         ) : (
           <span className="pt-none">Select a folder to launch agents</span>
