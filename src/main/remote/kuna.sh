@@ -700,13 +700,19 @@ claude_files() {
 # marked \036name\036; git's own lists in them are NUL-separated (-z). Flags are
 # ones old cluster gits (1.8) know too.
 
-# never take the index lock an agent's own git may need; paths as they are
+# paths as they are. Only plumbing that never writes the index (diff-index,
+# diff-files, diff-tree, ls-files): `git status` and `git diff` refresh it and
+# take its lock, which an agent's own `git add` may need at that moment
+# (GIT_OPTIONAL_LOCKS stops that only from git 2.15 on).
 gq() { GIT_OPTIONAL_LOCKS=0 git -c core.quotepath=off "$@"; }
 
 git_ref() {
-  # a branch, tag or commit: no options, no ranges
-  case "$1" in ''|-*|*..*|*[!A-Za-z0-9._/@^~+-]*) echo "kuna: invalid ref: $1" >&2; exit 2 ;; esac
+  # a branch, tag or commit: not an option, not a range, nothing git would read as more than a name
+  case "$1" in ''|-*|*..*|*:*|*\\*|*[[:space:]]*|*[[:cntrl:]]*) echo "kuna: invalid ref: $1" >&2; exit 2 ;; esac
 }
+
+# git's empty tree: the "before" of a repository's first commit
+git_empty() { gq hash-object -t tree /dev/null; }
 
 git_path() {
   # a path inside the repository: relative, no .. steps
@@ -742,12 +748,18 @@ git_cmd() {
       gq worktree list --porcelain 2>/dev/null
       ;;
     status)
-      printf '\036status\036'
-      gq status --porcelain -z --untracked-files=all 2>/dev/null | head -c 4000000
+      # staged: HEAD → index; changes: index → disk; untracked; files in conflict
+      h=$(gq rev-parse -q --verify HEAD 2>/dev/null) || h=$(git_empty)
       printf '\036staged\036'
-      gq diff --cached --numstat -z -M 2>/dev/null | head -c 2000000
+      gq diff-index --cached --name-status -z -M "$h" -- 2>/dev/null | head -c 4000000
+      printf '\036stagedcounts\036'
+      gq diff-index --cached --numstat -z -M "$h" -- 2>/dev/null | head -c 2000000
       printf '\036unstaged\036'
-      gq diff --numstat -z 2>/dev/null | head -c 2000000
+      gq diff-files --name-status -z -- 2>/dev/null | head -c 4000000
+      printf '\036unstagedcounts\036'
+      gq diff-files --numstat -z -- 2>/dev/null | head -c 2000000
+      printf '\036untracked\036'
+      gq ls-files -z --others --exclude-standard 2>/dev/null | head -c 4000000
       ;;
     compare)
       # compare <dir64> <base64> [head64]: head's changes since it left base (base...head);
@@ -757,21 +769,31 @@ git_cmd() {
       git_ref "$base"
       [ -z "$head" ] || git_ref "$head"
       tip=${head:-HEAD}
-      mb=$(gq merge-base "$base" "$tip" 2>/dev/null) || mb=$(gq rev-parse -q --verify "$base^{commit}" 2>/dev/null)
+      mb=$(gq merge-base "$base" "$tip" 2>/dev/null) || mb=$(gq rev-parse -q --verify "$base^{commit}" 2>/dev/null) || mb=
+      first=
+      if [ -z "$mb" ]; then
+        # the parent of a repository's first commit: nothing
+        case "$base" in *^) gq rev-parse -q --verify "${base%^}^{commit}" >/dev/null 2>&1 && mb=$(git_empty) && first=1 ;; esac
+      fi
       [ -n "$mb" ] || { echo "kuna: unknown branch or commit: $base" >&2; exit 3; }
       printf '\036base\036%s\n' "$mb"
       printf '\036tip\036%s\n' "$(gq rev-parse -q --verify "$tip^{commit}" 2>/dev/null)"
-      if [ -n "$head" ]; then set -- "$mb" "$head"; else set -- "$mb"; fi
-      printf '\036files\036'
-      gq diff --name-status -z -M "$@" -- 2>/dev/null | head -c 4000000
-      printf '\036counts\036'
-      gq diff --numstat -z -M "$@" -- 2>/dev/null | head -c 4000000
-      if [ -z "$head" ]; then
+      if [ -n "$head" ]; then
+        printf '\036files\036'
+        gq diff-tree -r --name-status -z -M "$mb" "$head" -- 2>/dev/null | head -c 4000000
+        printf '\036counts\036'
+        gq diff-tree -r --numstat -z -M "$mb" "$head" -- 2>/dev/null | head -c 4000000
+      else
+        printf '\036files\036'
+        gq diff-index --name-status -z -M "$mb" -- 2>/dev/null | head -c 4000000
+        printf '\036counts\036'
+        gq diff-index --numstat -z -M "$mb" -- 2>/dev/null | head -c 4000000
         printf '\036untracked\036'
         gq ls-files -z --others --exclude-standard 2>/dev/null | head -c 2000000
       fi
       printf '\036commits\036'
-      gq log -z --max-count=300 --format='%H%x09%h%x09%an%x09%at%x09%s' "$mb..$tip" -- 2>/dev/null
+      if [ -n "$first" ]; then set -- --max-count=1 "$tip"; else set -- --max-count=300 "$mb..$tip"; fi
+      gq log -z --format='%H%x09%h%x09%an%x09%at%x09%s' "$@" -- 2>/dev/null
       ;;
     files)
       # files <dir64> [rev64]: every file at a commit, or in the working tree (ignored ones left out)
@@ -784,12 +806,17 @@ git_cmd() {
       fi | head -c 16000000
       ;;
     cat)
-      # cat <dir64> <max> <spec64>…: for each, \036<size>\036 and the bytes when
-      # size <= max (\036-\036 when it does not exist). G<rev>:<path> a commit's
-      # file, I<path> the index's, W<path> the working tree's.
+      # cat <dir64> <max> <spec64>…: for each, \036<size>\036 and then exactly
+      # that many bytes; \036-\036 when it does not exist, \036+<size>\036 (no
+      # bytes) when it is larger than max. G<rev>:<path> a commit's file,
+      # I<path> the index's, W<path> the working tree's (a symlink as its link
+      # text, as git keeps it). Each file goes through a temporary copy first,
+      # so the size given is the size of what follows, even if it changed.
       valid_num "$1"
       max=$1
       shift
+      t=$(mktemp "${TMPDIR:-/tmp}/kuna-cat.XXXXXX") || exit 3
+      trap 'rm -f "$t"' EXIT
       for s in "$@"; do
         spec=$(b64d "$s")
         case "$spec" in
@@ -798,15 +825,27 @@ git_cmd() {
           G*:*) r=${spec#G}; r=${r%%:*}; p=${spec#G"$r":}; git_ref "$r"; git_path "$p"; obj="$r:$p" ;;
           *) echo "kuna: invalid spec" >&2; exit 2 ;;
         esac
+        : > "$t"
         if [ -z "$obj" ]; then
-          if [ -f "$p" ]; then size=$(wc -c < "$p" | tr -d ' '); else size=; fi
+          if [ -L "./$p" ]; then
+            l=$(readlink "./$p" 2>/dev/null) || { l=$(ls -ld "./$p"); l=${l#* -> }; }
+            printf '%s' "$l" > "$t"
+          elif [ -f "./$p" ]; then
+            size=$(wc -c < "./$p" | tr -d ' ')
+            if [ "$size" -gt "$max" ]; then printf '\036+%s\036' "$size"; continue; fi
+            cat < "./$p" > "$t" 2>/dev/null || { printf '\036-\036'; continue; }
+          else
+            printf '\036-\036'
+            continue
+          fi
         else
+          [ "$(gq cat-file -t "$obj" 2>/dev/null)" = blob ] || { printf '\036-\036'; continue; }
           size=$(gq cat-file -s "$obj" 2>/dev/null)
+          if [ "${size:-0}" -gt "$max" ]; then printf '\036+%s\036' "$size"; continue; fi
+          gq cat-file blob "$obj" > "$t" 2>/dev/null || { printf '\036-\036'; continue; }
         fi
-        if [ -z "$size" ]; then printf '\036-\036'; continue; fi
-        printf '\036%s\036' "$size"
-        [ "$size" -le "$max" ] || continue
-        if [ -z "$obj" ]; then cat "$p"; else gq cat-file blob "$obj"; fi
+        printf '\036%s\036' "$(wc -c < "$t" | tr -d ' ')"
+        cat "$t"
       done
       ;;
     *) echo "kuna: git {info|status|compare|files|cat}" >&2; exit 2 ;;

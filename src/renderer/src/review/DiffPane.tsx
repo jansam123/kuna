@@ -13,6 +13,10 @@ type DiffEditor = MonacoApi.editor.IStandaloneDiffEditor
 export interface Shown {
   /** which list row it is (a file can be in several) */
   key: string
+  /** which diff it is: comments written on it show only on it */
+  anchor: string
+  /** that diff in words, for the agent */
+  context: string
   path: string
   oldPath?: string
   mode: 'diff' | 'file'
@@ -33,6 +37,8 @@ export interface Shown {
 /** A comment being written: where, and the lines it is about. */
 export interface Draft {
   path: string
+  anchor: string
+  context: string
   side: 'old' | 'new'
   start: number
   end: number
@@ -152,7 +158,10 @@ export function DiffPane({
       renderGutterMenu: false,
       renderOverviewRuler: true,
       diffAlgorithm: 'advanced',
-      enableSplitViewResizing: true
+      enableSplitViewResizing: true,
+      // side by side means side by side (⌘U switches): beside the file list and the agent the
+      // diff is often narrower than Monaco's 900 px breakpoint, and inline hides removed lines' comments
+      useInlineViewWhenSpaceIsLimited: false
     })
     const f = monaco.editor.create(fileHost.current!, opts)
     diff.current = d
@@ -179,7 +188,7 @@ export function DiffPane({
           const inSel = sel && !sel.isEmpty() && sel.startLineNumber <= line && line <= sel.endLineNumber
           const start = inSel ? sel.startLineNumber : line
           const end = inSel ? lastLine(sel) : line
-          setDraft({ path: s.path, side, start, end, code: linesOf(model, start, end) })
+          setDraft({ path: s.path, anchor: s.anchor, context: s.context, side, start, end, code: linesOf(model, start, end) })
         })
       ]
     }
@@ -260,13 +269,19 @@ export function DiffPane({
   }, [shown, text])
 
   // comment boxes under their lines: saved comments and the one being written
-  const commentsHere = shown ? comments.filter((c) => c.path === shown.path) : []
-  const draftHere = shown && draft && draft.path === shown.path ? draft : null
+  const here = (x: { path: string; anchor: string }): boolean => !!shown && x.path === shown.path && x.anchor === shown.anchor
+  const commentsHere = comments.filter(here)
+  const draftHere = draft && here(draft) ? draft : null
   const items = [
     ...commentsHere.filter((c) => c.id !== draftHere?.id).map((c) => ({ key: c.id, side: c.side, line: c.end })),
     ...(draftHere ? [{ key: 'draft', side: draftHere.side, line: draftHere.end }] : [])
   ]
   const itemsKey = items.map((i) => `${i.key}:${i.side}:${i.line}`).join('|')
+  /**
+   * Each box keeps its element across rebuilds (new models after a refresh,
+   * ⌘U), so React keeps what is in it: a comment being written survives.
+   */
+  const doms = useRef(new Map<string, { dom: HTMLDivElement; height: number }>())
 
   useLayoutEffect(() => {
     const d = diff.current
@@ -278,16 +293,23 @@ export function DiffPane({
     if (text) {
       for (const it of items) {
         const ed = editorFor(it.side)
-        const dom = document.createElement('div')
-        dom.className = 'rv-zone'
-        // the box's own clicks and keys are not the editor's
-        for (const t of ['mousedown', 'pointerdown', 'keydown', 'keyup', 'keypress', 'contextmenu', 'dblclick']) dom.addEventListener(t, (e) => e.stopPropagation())
-        const zone: MonacoApi.editor.IViewZone = { afterLineNumber: it.line, heightInPx: 96, domNode: dom, suppressMouseDown: true }
+        let kept = doms.current.get(it.key)
+        if (!kept) {
+          const dom = document.createElement('div')
+          dom.className = 'rv-zone'
+          // the box's own clicks and keys are not the editor's
+          for (const t of ['mousedown', 'pointerdown', 'keydown', 'keyup', 'keypress', 'contextmenu', 'dblclick']) dom.addEventListener(t, (e) => e.stopPropagation())
+          kept = { dom, height: 96 }
+          doms.current.set(it.key, kept)
+        }
+        const zone: MonacoApi.editor.IViewZone = { afterLineNumber: it.line, heightInPx: kept.height, domNode: kept.dom, suppressMouseDown: true }
         let id = ''
         ed.changeViewZones((acc) => (id = acc.addZone(zone)))
-        next.push({ key: it.key, editor: ed, id, dom, zone, line: it.line })
+        next.push({ key: it.key, editor: ed, id, dom: kept.dom, zone, line: it.line })
       }
     }
+    const live = new Set(items.map((i) => i.key))
+    for (const k of [...doms.current.keys()]) if (!live.has(k)) doms.current.delete(k)
     zonesRef.current = next
     setZones(next)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -308,6 +330,8 @@ export function DiffPane({
         const h = Math.ceil((inner?.offsetHeight ?? 80) + 8)
         if (h === z.zone.heightInPx) return
         z.zone.heightInPx = h
+        const kept = doms.current.get(z.key)
+        if (kept) kept.height = h
         z.editor.changeViewZones((acc) => acc.layoutZone(z.id))
       })
       const inner = z.dom.firstElementChild
@@ -351,7 +375,7 @@ export function DiffPane({
       const side: 'old' | 'new' = mode === 'diff' && ed === diff.current?.getOriginalEditor() ? 'old' : 'new'
       const start = sel.startLineNumber
       const end = lastLine(sel)
-      setDraft({ path: s.path, side, start, end, code: linesOf(model, start, end) })
+      setDraft({ path: s.path, anchor: s.anchor, context: s.context, side, start, end, code: linesOf(model, start, end) })
     },
     nextChange: (dir) => {
       const d = diff.current
@@ -405,7 +429,11 @@ export function DiffPane({
                 <div className="rv-c-head">
                   <span className="rv-c-where">{c.start === c.end ? `line ${c.start}` : `lines ${c.start}–${c.end}`}{c.side === 'old' ? ' (before)' : ''}</span>
                   <span className="ph-spacer" />
-                  <button onClick={() => setDraft({ path: c.path, side: c.side, start: c.start, end: c.end, code: c.code, id: c.id, text: c.text })}>Edit</button>
+                  <button
+                    onClick={() => setDraft({ path: c.path, anchor: c.anchor, context: c.context, side: c.side, start: c.start, end: c.end, code: c.code, id: c.id, text: c.text })}
+                  >
+                    Edit
+                  </button>
                   <button onClick={() => onRemove(c.id)}>Delete</button>
                 </div>
                 <div className="rv-c-text">{c.text}</div>
@@ -442,7 +470,15 @@ function DraftBox({
           {draft.side === 'old' ? ' (before)' : ''}
         </span>
       </div>
-      <textarea ref={area} defaultValue={draft.text ?? ''} rows={3} placeholder="What should the agent change here?" spellCheck />
+      <textarea
+        ref={area}
+        defaultValue={draft.text ?? ''}
+        rows={3}
+        placeholder="What should the agent change here?"
+        spellCheck
+        // kept on the draft too, so the text survives the box being made again (another file and back)
+        onInput={(e) => (draft.text = e.currentTarget.value)}
+      />
       <div className="rv-c-actions">
         <span className="rv-c-hint">⌘↵ add · Esc Esc discard</span>
         <span className="ph-spacer" />

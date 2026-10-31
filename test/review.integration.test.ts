@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -23,8 +23,9 @@ const b64 = (s: string): string => Buffer.from(s, 'utf8').toString('base64')
 let repo: string
 let home: string
 
+/** KUNA_TEST_SH=dash runs the helper in a strictly POSIX shell, as on many cluster nodes */
 function kuna(...args: string[]): Buffer {
-  return execFileSync('sh', [SCRIPT, 'git', ...args], { env: { ...process.env, HOME: home }, maxBuffer: 64 * 1024 * 1024 })
+  return execFileSync(process.env.KUNA_TEST_SH || 'sh', [SCRIPT, 'git', ...args], { env: { ...process.env, HOME: home }, maxBuffer: 64 * 1024 * 1024 })
 }
 
 function sh(cmd: string): void {
@@ -63,8 +64,7 @@ describe.skipIf(!hasGit)('review: kuna git on a repository', () => {
     expect(info.upstream).toBeUndefined()
     expect(info.refs.map((r) => r.short).sort()).toEqual(['feat', 'main'])
     expect(info.worktrees[0].branch).toBe('feat')
-    const s = sections(kuna('status', dir).toString())
-    const st = parseStatus(s.status, s.staged, s.unstaged)
+    const st = parseStatus(sections(kuna('status', dir).toString()))
     expect(st.staged.map((f) => `${f.kind} ${f.path}`)).toEqual(['M src/deep/x.py'])
     expect(st.unstaged.map((f) => `${f.kind} ${f.path}`)).toEqual(['M src/a.txt'])
     expect(st.untracked.map((f) => f.path)).toEqual(['un.txt'])
@@ -115,6 +115,50 @@ describe.skipIf(!hasGit)('review: kuna git on a repository', () => {
     expect(disk).toEqual(['moved.txt', 'pic.png', 'sp ace.txt', 'src/a.txt', 'src/deep/x.py', 'un.txt'])
     const main = kuna('files', b64(repo), b64('main')).toString().split('\0').filter(Boolean).sort()
     expect(main).toEqual(['gone.txt', 'move.txt', 'src/a.txt', 'src/deep/x.py'])
+  })
+
+  it('shows the first commit on its own (its parent: nothing)', () => {
+    const first = execFileSync('git', ['rev-list', '--max-parents=0', 'HEAD'], { cwd: repo }).toString().trim()
+    const c = parseCompare(kuna('compare', b64(repo), b64(`${first}^`), b64(first)).toString(), `${first}^`, first)
+    expect(c.files.map((f) => `${f.kind} ${f.path}`)).toEqual(['A src/deep/x.py', 'A src/a.txt', 'A gone.txt', 'A move.txt'])
+    expect(c.commits.map((k) => k.subject)).toEqual(['first'])
+  })
+
+  it('keeps the framing whatever the files are called or are', () => {
+    writeFileSync(join(repo, '-'), 'dash\n')
+    writeFileSync(join(repo, '-n'), 'opt\n')
+    symlinkSync(join(home, 'outside.txt'), join(repo, 'link'))
+    writeFileSync(join(home, 'outside.txt'), 'SECRET')
+    const specs = ['W-', 'W-n', 'Wlink', 'Gfeat:src', 'Wsp ace.txt']
+    const blobs = parseBlobs(kuna('cat', b64(repo), '1000', ...specs.map(b64)), 1000)
+    const text = (i: number): string => new TextDecoder().decode(blobs[i].data)
+    expect(text(0)).toBe('dash\n')
+    expect(text(1)).toBe('opt\n')
+    // a symlink is its link text, as git keeps it: never the file it points to
+    expect(text(2)).toBe(join(home, 'outside.txt'))
+    // a folder is not a file
+    expect(blobs[3]).toEqual({ size: 0, missing: true })
+    expect(text(4)).toBe('new\n')
+    rmSync(join(repo, '-'))
+    rmSync(join(repo, '-n'))
+    rmSync(join(repo, 'link'))
+  })
+
+  it('takes branch names git allows, and leaves the index alone', () => {
+    sh('git branch "issue#12" feat')
+    const c = parseCompare(kuna('compare', b64(repo), b64('main'), b64('issue#12')).toString(), 'main', 'issue#12')
+    expect(c.files).toHaveLength(5)
+    // a nested repository is not a file; a file only touched is not a change
+    mkdirSync(join(repo, 'vendor', 'lib'), { recursive: true })
+    sh('cd vendor/lib && git init -q . && echo x > f && cd ../.. && touch moved.txt')
+    const index = statSync(join(repo, '.git', 'index')).mtimeMs
+    const st = parseStatus(sections(kuna('status', b64(repo)).toString()))
+    expect(st.untracked.map((f) => f.path)).toEqual(['un.txt'])
+    expect(st.unstaged.map((f) => f.path)).toEqual(['src/a.txt'])
+    const w = parseCompare(kuna('compare', b64(repo), b64('main'), '').toString(), 'main', null)
+    expect(w.files.map((f) => f.path)).not.toContain('vendor/lib/')
+    expect(statSync(join(repo, '.git', 'index')).mtimeMs).toBe(index)
+    rmSync(join(repo, 'vendor'), { recursive: true, force: true })
   })
 
   it('refuses options, ranges and paths out of the repository', () => {

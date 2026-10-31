@@ -111,11 +111,15 @@ export function specOf(side: GitSide): string | null {
 }
 
 /**
- * Refs Kuna passes to git: names and commits, never an option (`-x`), a range
- * (`a..b`) or anything a shell or git would read as more than a name.
+ * Refs Kuna passes to git: any branch, tag or commit name (`issue#12`,
+ * `feature/überarbeitung`), but never an option (`-x`), a range (`a..b`), a
+ * `rev:path`, or whitespace, control characters or backslashes. They travel
+ * base64-encoded and quoted, so only what git itself reads matters.
  */
 export function validRef(ref: string): boolean {
-  return /^[A-Za-z0-9._/@^~+-]{1,250}$/.test(ref) && !ref.startsWith('-') && !ref.includes('..')
+  if (!ref || ref.length > 250 || ref.startsWith('-') || ref.includes('..')) return false
+  // eslint-disable-next-line no-control-regex
+  return !/[\s\x00-\x1f\x7f:\\]/.test(ref)
 }
 
 /** A path inside the repository: relative, no `..` steps, no NULs. */
@@ -123,6 +127,9 @@ export function validRepoPath(path: string): boolean {
   if (!path || path.length > 4096 || path.startsWith('/') || path.includes('\0')) return false
   return !path.split('/').some((p) => p === '..')
 }
+
+/** a full commit id, which always names the same thing (HEAD and branches move) */
+export const isSha = (rev: string): boolean => /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(rev)
 
 /** `\x1ename\x1e…` sections → name → text. */
 export function sections(text: string): Record<string, string> {
@@ -208,41 +215,39 @@ function withCounts(files: FileChange[], counts: string | undefined): FileChange
 }
 
 /**
- * `git status --porcelain -z` (v1, which old cluster gits know too): `XY path\0`,
- * with the original path after a rename (`R  new\0old\0`). X is the index, Y the
- * working tree.
+ * Compared with the disk without refreshing the index (which would write it),
+ * a file that was only touched shows as modified with nothing changed in it:
+ * left out. (A change of mode alone goes with it.)
  */
-export function parseStatus(text: string, staged?: string, unstaged?: string): GitStatus {
-  const t = nul(text)
-  const st: GitStatus = { staged: [], unstaged: [], untracked: [], conflicts: [] }
-  let i = 0
-  while (i < t.length) {
-    const rec = t[i]
-    i++
-    if (rec.length < 4) continue
-    const x = rec[0]
-    const y = rec[1]
-    const path = rec.slice(3)
-    let oldPath: string | undefined
-    if (x === 'R' || x === 'C') {
-      oldPath = t[i]
-      i++
-    }
-    if (x === '?' && y === '?') {
-      st.untracked.push({ path, kind: '?' })
-      continue
-    }
-    if (x === '!') continue
-    if (x === 'U' || y === 'U' || (x === 'A' && y === 'A') || (x === 'D' && y === 'D')) {
-      st.conflicts.push({ path, kind: 'U' })
-      continue
-    }
-    if ('MADRCT'.includes(x)) st.staged.push({ path, kind: x as ChangeKind, ...(oldPath ? { oldPath } : {}) })
-    if ('MDTA'.includes(y)) st.unstaged.push({ path, kind: y as ChangeKind })
+function dropTouched(files: FileChange[], counts: string | undefined): FileChange[] {
+  if (counts === undefined) return files
+  // --numstat leaves such a file out, or counts nothing in it
+  const n = parseNumstat(counts)
+  return files.filter((f) => {
+    if (f.kind !== 'M') return true
+    const c = n.get(f.path)
+    return !!c && (!!c.binary || !!c.added || !!c.removed)
+  })
+}
+
+/** a nested repository or an empty folder git lists as `dir/`: not a file to show */
+const isFile = (p: string): boolean => !!p && !p.endsWith('/')
+
+/**
+ * `kuna git status`: staged (diff-index --cached), changes (diff-files),
+ * untracked (ls-files -o), each with its counts; files in conflict show as U
+ * in both and are listed once, as conflicts.
+ */
+export function parseStatus(s: Record<string, string>): GitStatus {
+  const staged = withCounts(parseNameStatus(s.staged ?? ''), s.stagedcounts)
+  const unstaged = withCounts(parseNameStatus(s.unstaged ?? ''), s.unstagedcounts)
+  const conflicted = new Set([...staged, ...unstaged].filter((f) => f.kind === 'U').map((f) => f.path))
+  return {
+    staged: sortChanges(staged.filter((f) => !conflicted.has(f.path))),
+    unstaged: sortChanges(dropTouched(unstaged, s.unstagedcounts).filter((f) => !conflicted.has(f.path))),
+    untracked: sortChanges(nul(s.untracked ?? '').filter(isFile).map((path) => ({ path, kind: '?' as const }))),
+    conflicts: sortChanges([...conflicted].map((path) => ({ path, kind: 'U' as const })))
   }
-  st.staged = withCounts(st.staged, staged)
-  st.unstaged = withCounts(st.unstaged, unstaged)
-  return st
 }
 
 /** `for-each-ref` lines: `refname\tsha\t<time> <zone>\tsubject`. */
@@ -311,10 +316,13 @@ export function parseInfo(text: string): GitInfo {
 /** `kuna git compare` */
 export function parseCompare(text: string, base: string, head: string | null): GitCompare {
   const s = sections(text)
-  const files = withCounts(parseNameStatus(s.files ?? ''), s.counts)
-  // the working tree: files git does not know yet are part of the change too
-  const tracked = new Set(files.map((f) => f.path))
-  for (const p of nul(s.untracked ?? '')) if (p && !tracked.has(p)) files.push({ path: p, kind: '?' })
+  let files = withCounts(parseNameStatus(s.files ?? ''), s.counts)
+  if (head === null) {
+    files = dropTouched(files, s.counts)
+    // the working tree: files git does not know yet are part of the change too
+    const tracked = new Set(files.map((f) => f.path))
+    for (const p of nul(s.untracked ?? '')) if (isFile(p) && !tracked.has(p)) files.push({ path: p, kind: '?' })
+  }
   return {
     base,
     mergeBase: (s.base ?? '').trim(),
@@ -424,20 +432,28 @@ export interface ReviewComment {
   text: string
   /** the lines commented on, to quote */
   code: string[]
+  /** which diff it was written on (a comparison, the staged changes…): it shows only there */
+  anchor: string
+  /** that diff in words, for the agent: "`feat` compared with `main`", "the staged changes" */
+  context: string
 }
 
 const MAX_QUOTE = 6
 
 /**
  * The message that takes review comments to the agent: what was reviewed, then
- * each comment with its place and the lines it is about.
+ * each comment with its place, the lines it is about and, when the comments
+ * were made on different diffs, which one.
  */
-export function reviewMessage(comments: ReviewComment[], what: string): string {
+export function reviewMessage(comments: ReviewComment[]): string {
   const sorted = [...comments].sort((a, b) => comparePaths(a.path, b.path) || a.start - b.start)
-  const out = [`Review comments on ${what}. Please address each one:`, '']
+  const contexts = [...new Set(sorted.map((c) => c.context))]
+  const one = contexts.length === 1
+  const out = [one ? `Review comments on ${contexts[0]}. Please address each one:` : 'Review comments. Please address each one:', '']
   sorted.forEach((c, i) => {
     const lines = c.start === c.end ? `${c.start}` : `${c.start}-${c.end}`
-    out.push(`${i + 1}. ${c.path}:${lines}${c.side === 'old' ? ' (removed lines, as they were before the change)' : ''}`)
+    const notes = [c.side === 'old' ? 'removed lines, as they were before the change' : '', one ? '' : `in ${c.context}`].filter(Boolean)
+    out.push(`${i + 1}. ${c.path}:${lines}${notes.length ? ` (${notes.join('; ')})` : ''}`)
     const quote = c.code.slice(0, MAX_QUOTE)
     if (quote.length) {
       const fence = quote.some((l) => l.includes('```')) ? '~~~' : '```'
@@ -448,7 +464,11 @@ export function reviewMessage(comments: ReviewComment[], what: string): string {
   return out.join('\n').trimEnd()
 }
 
-/** `kuna git cat` output: per file `\x1e<size>\x1e<bytes>` (bytes only when size <= max), `\x1e-\x1e` when missing. */
+/**
+ * `kuna git cat` output: per file `\x1e<size>\x1e` and exactly that many bytes,
+ * `\x1e+<size>\x1e` (no bytes) when larger than the helper's limit, `\x1e-\x1e`
+ * when it is not there.
+ */
 export function parseBlobs(buf: Uint8Array, max: number): GitBlob[] {
   const out: GitBlob[] = []
   let i = 0
@@ -462,8 +482,8 @@ export function parseBlobs(buf: Uint8Array, max: number): GitBlob[] {
       out.push({ size: 0, missing: true })
       continue
     }
-    const size = Number(head) || 0
-    if (size > max) {
+    const size = Number(head.replace(/^\+/, '')) || 0
+    if (head.startsWith('+') || size > max) {
       out.push({ size, tooBig: true })
       continue
     }

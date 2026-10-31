@@ -3,6 +3,7 @@ import {
   buildTree,
   defaultBase,
   isImagePath,
+  isSha,
   looksBinary,
   reviewMessage,
   type ChangeKind,
@@ -44,6 +45,9 @@ interface Entry {
   left: GitSide
   right: GitSide
   mode: 'diff' | 'file'
+  /** which diff this is (comments belong to one) and how to say so to the agent */
+  anchor: string
+  context: string
 }
 
 type Row =
@@ -55,15 +59,20 @@ type Row =
 /** comments not sent yet, per repository: they survive closing the view */
 const pendingComments = new Map<string, ReviewComment[]>()
 
+/** file contents kept for going back and forth, at most this much */
+const CACHE_BYTES = 96 * 1024 * 1024
 const MIN_LIST = 200
 const MIN_CHAT = 320
 const chatDefault = (): number => Math.round(Math.min(600, Math.max(400, window.innerWidth * 0.3)))
 const EMPTY: GitSide = { kind: 'empty' }
 
 /** a pull request's files: each as it was where the branch left base, and as it is at head */
-function compareEntries(c: GitCompare): Entry[] {
+function compareEntries(c: GitCompare, context: string): Entry[] {
+  const anchor = `cmp:${c.base}...${c.head ?? ''}`
   return c.files.map((f) => ({
     id: `c:${f.path}`,
+    anchor,
+    context,
     ...f,
     left: f.kind === 'A' || f.kind === '?' ? EMPTY : { kind: 'rev', rev: c.mergeBase, path: f.oldPath ?? f.path },
     right: f.kind === 'D' ? EMPTY : c.head === null ? { kind: 'worktree', path: f.path } : { kind: 'rev', rev: c.tip, path: f.path },
@@ -72,18 +81,26 @@ function compareEntries(c: GitCompare): Entry[] {
 }
 
 /** uncommitted changes in VS Code's groups: staged (HEAD → index), changes (index → disk), untracked, conflicts */
-function localGroups(st: GitStatus): { id: string; label: string; entries: Entry[] }[] {
+function localGroups(st: GitStatus, head: string | undefined): { id: string; label: string; entries: Entry[] }[] {
+  const CONTEXT: Record<string, string> = {
+    u: 'the files in conflict',
+    s: 'the staged changes',
+    w: 'the unstaged changes (not committed yet)',
+    n: 'the new, untracked files'
+  }
   const make = (g: string, files: FileChange[], left: (f: FileChange) => GitSide, right: (f: FileChange) => GitSide): Entry[] =>
-    files.map((f) => ({ id: `l:${g}:${f.path}`, ...f, left: left(f), right: right(f), mode: 'diff' }))
+    files.map((f) => ({ id: `l:${g}:${f.path}`, anchor: `l:${g}`, context: CONTEXT[g], ...f, left: left(f), right: right(f), mode: 'diff' }))
+  // HEAD by its commit id, so a cached side never outlives a new commit; none before the first
+  const atHead = (path: string): GitSide => (head ? { kind: 'rev', rev: head, path } : EMPTY)
   return [
-    { id: 'conflicts', label: 'Merge conflicts', entries: make('u', st.conflicts, (f) => ({ kind: 'rev', rev: 'HEAD', path: f.path }), (f) => ({ kind: 'worktree', path: f.path })) },
+    { id: 'conflicts', label: 'Merge conflicts', entries: make('u', st.conflicts, (f) => atHead(f.path), (f) => ({ kind: 'worktree', path: f.path })) },
     {
       id: 'staged',
       label: 'Staged changes',
       entries: make(
         's',
         st.staged,
-        (f) => (f.kind === 'A' ? EMPTY : { kind: 'rev', rev: 'HEAD', path: f.oldPath ?? f.path }),
+        (f) => (f.kind === 'A' ? EMPTY : atHead(f.oldPath ?? f.path)),
         (f) => (f.kind === 'D' ? EMPTY : { kind: 'index', path: f.path })
       )
     },
@@ -176,6 +193,8 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
   const [picker, setPicker] = useState<'base' | 'head' | null>(null)
   const [shown, setShown] = useState<Shown | null>(null)
   const [tick, setTick] = useState(0)
+  /** readings of the repository so far: each starts one comparison */
+  const [seq, setSeq] = useState(0)
   const store = `${host}:${dir}`
   const [comments, setCommentsState] = useState<ReviewComment[]>(() => pendingComments.get(store) ?? [])
   const [draft, setDraft] = useState<Draft | null>(null)
@@ -235,9 +254,13 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
     setBase((b) => {
       if (b) return b
       const saved = get().settings.reviewBase?.[`${host}:${ov.info.root}`]
-      return saved && ov.info.refs.some((r) => r.short === saved) ? saved : defaultBase(ov.info)
+      if (saved && ov.info.refs.some((r) => r.short === saved)) return saved
+      // no main, master or origin: the branch itself, until another is picked (⌘B)
+      return defaultBase(ov.info) ?? ov.info.branch ?? (ov.info.head ? 'HEAD' : undefined)
     })
     setHead((h) => (h !== undefined ? h : (ov.info.branch ?? (ov.info.head ? 'HEAD' : null))))
+    // what follows (the comparison, the file list) goes once per reading of the repository
+    setSeq((n) => n + 1)
   }, [host, dir])
 
   useEffect(() => {
@@ -247,8 +270,15 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
   // base...head, or one commit
   const cmpBase = commit ? `${commit.sha}^` : base
   const cmpHead = commit ? commit.sha : head
+  const noCommits = !!info && !info.head
   useEffect(() => {
-    if (!info || !cmpBase || cmpHead === undefined) return
+    if (!seq) return
+    if (noCommits) {
+      setCompare(null)
+      setCompareError('No commits yet: what there is shows under Uncommitted.')
+      return
+    }
+    if (!cmpBase || cmpHead === undefined) return
     let live = true
     setComparing(true)
     void window.kuna.git.compare(host, dir, cmpBase, cmpHead).then((res) => {
@@ -265,11 +295,11 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
     return () => {
       live = false
     }
-  }, [info, host, dir, cmpBase, cmpHead, tick])
+  }, [seq, noCommits, host, dir, cmpBase, cmpHead])
 
   // every file, once the Files tab is looked at: what is on disk when head is checked out here
   const filesRev = head === null || (info && head === info.branch) ? null : (compare?.tip ?? null)
-  const filesKey = `${filesRev ?? 'disk'}:${tick}`
+  const filesKey = `${filesRev ?? 'disk'}:${seq}`
   const filesAsked = useRef<string | null>(null)
   useEffect(() => {
     if (tab !== 'files' || filesAsked.current === filesKey || !info) return
@@ -287,7 +317,8 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
 
   /** re-read everything (⌘R, or the agent finished a turn) */
   const refresh = useCallback(() => {
-    for (const k of [...blobCache.current.keys()]) if (!k.startsWith('G')) blobCache.current.delete(k)
+    // only a file at a full commit id stays the same; the index, the disk, HEAD and branches move
+    for (const k of [...blobCache.current.keys()]) if (!(k.startsWith('G') && isSha(k.slice(1, k.indexOf(':'))))) blobCache.current.delete(k)
     setTick((t) => t + 1)
   }, [])
 
@@ -301,8 +332,18 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
 
   // ------------------------------------------------------------ the lists --
 
-  const changeEntries = useMemo(() => (compare ? compareEntries(compare) : []), [compare])
-  const groups = useMemo(() => (status ? localGroups(status) : []), [status])
+  const changeEntries = useMemo(() => {
+    if (!compare) return []
+    const context =
+      commit && compare.head === commit.sha
+        ? `commit ${commit.short} ("${commit.subject}")`
+        : compare.head === null
+          ? `the working tree of \`${info?.branch ?? 'HEAD'}\` (uncommitted changes included), compared with \`${compare.base}\``
+          : `\`${compare.head}\` compared with \`${compare.base}\``
+    return compareEntries(compare, context)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compare])
+  const groups = useMemo(() => (status ? localGroups(status, info?.head) : []), [status, info?.head])
   const localCount = groups.reduce((n, g) => n + g.entries.length, 0)
   const changedKind = useMemo(() => {
     const m = new Map<string, string>()
@@ -314,6 +355,8 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
     () =>
       (files ?? []).map((p) => ({
         id: `f:${p}`,
+        anchor: `f:${filesRev ?? ''}`,
+        context: filesRev ? `the files at commit ${filesRev.slice(0, 7)}` : 'the files as they are on disk',
         path: p,
         kind: 'file',
         left: EMPTY,
@@ -400,18 +443,33 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
     const ck = (s: GitSide): string => (s.kind === 'rev' ? `G${s.rev}:${s.path}` : s.kind === 'index' ? `I${s.path}` : s.kind === 'worktree' ? `W${s.path}` : '')
     // a short wait, so holding ↓ does not read every file on the way
     const t = setTimeout(async () => {
-      setShown((s) => (s?.key === e.id ? s : { key: e.id, path: e.path, oldPath: e.oldPath, mode: e.mode, loading: true }))
+      setShown((s) => (s?.key === `${e.anchor}|${e.id}` ? s : { key: `${e.anchor}|${e.id}`, anchor: e.anchor, context: e.context, path: e.path, oldPath: e.oldPath, mode: e.mode, loading: true }))
       const missing = sides.filter((s) => s.kind !== 'empty' && !blobCache.current.has(ck(s)))
       if (missing.length) {
         const res = await window.kuna.git.read(host, root, missing)
-        if (!live) return
         if ('error' in res) {
-          setShown({ key: e.id, path: e.path, mode: e.mode, error: res.error })
+          if (live) setShown({ key: `${e.anchor}|${e.id}`, anchor: e.anchor, context: e.context, path: e.path, mode: e.mode, error: res.error })
           return
         }
+        // kept even when the user has moved on: going back is then instant
         missing.forEach((s, i) => blobCache.current.set(ck(s), res[i]))
-        // the cache keeps the newest few hundred sides
-        while (blobCache.current.size > 300) blobCache.current.delete(blobCache.current.keys().next().value!)
+        let total = 0
+        for (const b of blobCache.current.values()) total += b.data?.length ?? 0
+        while (blobCache.current.size > 2 && (total > CACHE_BYTES || blobCache.current.size > 400)) {
+          const oldest = blobCache.current.keys().next().value!
+          total -= blobCache.current.get(oldest)?.data?.length ?? 0
+          blobCache.current.delete(oldest)
+        }
+        if (!live) return
+      } else {
+        // the newest last, so the cache drops what was looked at longest ago
+        for (const s of sides) {
+          const b = s.kind !== 'empty' ? blobCache.current.get(ck(s)) : undefined
+          if (b) {
+            blobCache.current.delete(ck(s))
+            blobCache.current.set(ck(s), b)
+          }
+        }
       }
       const blob = (s: GitSide): GitBlob | undefined => (s.kind === 'empty' ? { size: 0, missing: true } : blobCache.current.get(ck(s)))
       const old = urls.current
@@ -421,7 +479,7 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
       old.forEach((u) => URL.revokeObjectURL(u))
       const image = 'image' in l || 'image' in r
       setShown({
-        key: e.id,
+        key: `${e.anchor}|${e.id}`, anchor: e.anchor, context: e.context,
         path: e.path,
         oldPath: e.oldPath,
         mode: e.mode,
@@ -505,17 +563,13 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
     const text = pane.current?.draftText().trim() ?? ''
     if (text) {
       if (draft.id) setComments(comments.map((c) => (c.id === draft.id ? { ...c, text } : c)))
-      else setComments([...comments, { id: Math.random().toString(36).slice(2, 10), path: draft.path, side: draft.side, start: draft.start, end: draft.end, code: draft.code, text }])
+      else {
+        const { path, side, start, end, code, anchor, context } = draft
+        setComments([...comments, { id: Math.random().toString(36).slice(2, 10), path, side, start, end, code, anchor, context, text }])
+      }
     }
     setDraft(null)
     setTimeout(() => pane.current?.focus(), 0)
-  }
-
-  const what = (): string => {
-    const b = commit ? `${commit.short}^` : base
-    const h = commit ? `commit ${commit.short} (${commit.subject})` : head === null ? `the working tree of ${info?.branch ?? 'HEAD'} (uncommitted changes included)` : `\`${head}\``
-    const local = comments.some((c) => groups.some((g) => g.entries.some((e) => e.path === c.path))) && head !== null ? ', and on uncommitted changes' : ''
-    return `${h} compared with \`${b}\`${local}`
   }
 
   /** Into the agent's input box, out of tmux's scroll mode first. */
@@ -534,7 +588,7 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
       setNote('No comments yet: C on a line in the diff (or a click in its gutter) adds one.')
       return
     }
-    const text = reviewMessage(comments, what())
+    const text = reviewMessage(comments)
     const e = agentKey ? terminalEntry(agentKey) : undefined
     if (!agentKey || !e?.ptyId) {
       window.kuna.copyText(text)
@@ -634,7 +688,7 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
     }
     if (k === 'c' && ev.shiftKey) {
       if (comments.length) {
-        window.kuna.copyText(reviewMessage(comments, what()))
+        window.kuna.copyText(reviewMessage(comments))
         setNote('Copied the review')
       }
       return true
@@ -712,6 +766,8 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
     }
     // the diff
     if (pane.current?.hasFocus()) {
+      // Monaco's own boxes (find, go to line) are typed into, and their Esc closes them
+      if (el?.closest('.find-widget, .quick-input-widget') || (el?.matches('input, textarea') && !el.closest('.rv-zone'))) return viewKey(ev) || 'pass'
       if (viewKey(ev)) return true
       const plain = !ev.metaKey && !ev.ctrlKey && !ev.altKey
       if (ev.key === 'Escape') {
@@ -792,6 +848,12 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
           setCommit(null)
           return true
         }
+        // a comment half written: back to it, not away from it
+        if (draft && pane.current?.draftText().trim()) {
+          pane.current.focusDraft()
+          setNote('Finish the comment (⌘↵) or discard it (Esc Esc) first')
+          return true
+        }
         return false // closes the view
     }
     // typing goes to the agent, as in the plot viewer
@@ -863,7 +925,7 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
     commits: compare ? compare.commits.length : null
   }
   const tabName: Record<Tab, string> = { changes: 'Changes', local: 'Uncommitted', files: 'Files', commits: 'Commits' }
-  const commentCount = (path: string): number => comments.filter((c) => c.path === path).length
+  const commentCount = (e: Entry): number => comments.filter((c) => c.path === e.path && c.anchor === e.anchor).length
   const hint = escHint
     ? 'Esc again discards it'
     : typed
@@ -1013,7 +1075,7 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
                 )
               const e = r.entry
               const kind = e.kind === 'file' ? changedKind.get(e.path) : e.kind
-              const n = commentCount(e.path)
+              const n = commentCount(e)
               return (
                 <button
                   key={r.id}
@@ -1061,12 +1123,13 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
                   className="rv-review-item"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
-                    // to the file, in whichever list has it
-                    const t: Tab = changeEntries.some((e) => e.path === c.path) ? 'changes' : groups.some((g) => g.entries.some((e) => e.path === c.path)) ? 'local' : tab
-                    const id = t === 'changes' ? `c:${c.path}` : groups.flatMap((g) => g.entries).find((e) => e.path === c.path)?.id
+                    // to the file, in the list of the diff it was written on
+                    const t: Tab = c.anchor.startsWith('l:') ? 'local' : c.anchor.startsWith('f:') ? 'files' : 'changes'
+                    const id = t === 'changes' ? `c:${c.path}` : t === 'files' ? `f:${c.path}` : `${c.anchor}:${c.path}`
                     setTab(t)
                     setFilter('')
-                    if (id) setCursor((x) => ({ ...x, [t]: id }))
+                    setCursor((x) => ({ ...x, [t]: id }))
+                    if (t === 'changes' && changeEntries[0]?.anchor !== c.anchor) setNote(`That comment is on ${c.context}`)
                   }}
                 >
                   <span className="rv-review-where">

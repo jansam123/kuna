@@ -49,8 +49,7 @@ export class GitService {
     ])
     if ('error' in info) return info
     if ('error' in status) return status
-    const s = sections(status.toString('utf8'))
-    return { info: parseInfo(info.toString('utf8')), status: parseStatus(s.status ?? '', s.staged, s.unstaged) }
+    return { info: parseInfo(info.toString('utf8')), status: parseStatus(sections(status.toString('utf8'))) }
   }
 
   async compare(hostId: HostId, dir: string, base: string, head: string | null): Promise<Result<GitCompare>> {
@@ -65,7 +64,8 @@ export class GitService {
     if (rev !== null && !validRef(rev)) return { error: 'Not a branch or commit name.' }
     const out = await this.run(hostId, ['files', b64(dir), rev ? b64(rev) : ''], 45_000, 17_000_000)
     if ('error' in out) return out
-    return [...new Set(out.toString('utf8').split('\0').filter(Boolean))]
+    // `dir/`: a nested repository or an empty folder, not a file
+    return [...new Set(out.toString('utf8').split('\0').filter((p) => p && !p.endsWith('/')))]
   }
 
   /** both sides of a diff in one round trip */

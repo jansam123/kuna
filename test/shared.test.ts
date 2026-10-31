@@ -18,6 +18,7 @@ import {
   buildTree,
   comparePaths,
   defaultBase,
+  isSha,
   looksBinary,
   parseBlobs,
   parseCompare,
@@ -600,13 +601,20 @@ describe('review: git output', () => {
   })
 
   it('reads status in VS Code groups', () => {
-    const st = parseStatus('M  staged.ts\0 M work.ts\0MM both.ts\0R  new.ts\0old.ts\0?? un.txt\0UU clash.ts\0 D gone.ts\0', '3\t1\tstaged.ts\0', '2\t0\twork.ts\0')
-    expect(st.staged.map((f) => `${f.kind} ${f.path}${f.oldPath ? ` <- ${f.oldPath}` : ''}`)).toEqual(['M staged.ts', 'M both.ts', 'R new.ts <- old.ts'])
-    expect(st.unstaged.map((f) => `${f.kind} ${f.path}`)).toEqual(['M work.ts', 'M both.ts', 'D gone.ts'])
+    const st = parseStatus({
+      staged: 'M\0staged.ts\0M\0both.ts\0R100\0old.ts\0new.ts\0U\0clash.ts\0',
+      stagedcounts: '3\t1\tstaged.ts\x001\t1\tboth.ts\x000\t0\t\0old.ts\0new.ts\0',
+      unstaged: 'M\0work.ts\0M\0both.ts\0D\0gone.ts\0M\0touched.ts\0U\0clash.ts\0',
+      unstagedcounts: '2\t0\twork.ts\x001\t0\tboth.ts\x000\t3\tgone.ts\x000\t0\ttouched.ts\0',
+      untracked: 'un.txt\0vendor/lib/\0'
+    })
+    expect(st.staged.map((f) => `${f.kind} ${f.path}${f.oldPath ? ` <- ${f.oldPath}` : ''}`)).toEqual(['M both.ts', 'R new.ts <- old.ts', 'M staged.ts'])
+    // a file only touched (its stat changed, not its content) is not a change; a nested repository is not a file
+    expect(st.unstaged.map((f) => `${f.kind} ${f.path}`)).toEqual(['M both.ts', 'D gone.ts', 'M work.ts'])
     expect(st.untracked.map((f) => f.path)).toEqual(['un.txt'])
     expect(st.conflicts.map((f) => f.path)).toEqual(['clash.ts'])
-    expect(st.staged[0]).toMatchObject({ added: 3, removed: 1 })
-    expect(st.unstaged[0]).toMatchObject({ added: 2, removed: 0 })
+    expect(st.staged.find((f) => f.path === 'staged.ts')).toMatchObject({ added: 3, removed: 1 })
+    expect(st.unstaged.find((f) => f.path === 'work.ts')).toMatchObject({ added: 2, removed: 0 })
   })
 
   it('reads branches, the default branch and worktrees', () => {
@@ -637,19 +645,22 @@ describe('review: git output', () => {
 
   it('reads blobs by size, missing ones and ones too large', () => {
     const enc = new TextEncoder()
-    const buf = new Uint8Array([...enc.encode('\x1e3\x1e'), 0x1e, 0, 0x41, ...enc.encode('\x1e-\x1e\x1e999\x1e\x1e0\x1e')])
+    const buf = new Uint8Array([...enc.encode('\x1e3\x1e'), 0x1e, 0, 0x41, ...enc.encode('\x1e-\x1e\x1e+999\x1e\x1e0\x1e\x1e2\x1eok')])
     const b = parseBlobs(buf, 100)
-    expect(b).toHaveLength(4)
+    expect(b).toHaveLength(5)
     expect([...b[0].data!]).toEqual([0x1e, 0, 0x41])
     expect(b[1]).toEqual({ size: 0, missing: true })
     expect(b[2]).toEqual({ size: 999, tooBig: true })
     expect(b[3].data).toHaveLength(0)
+    expect(new TextDecoder().decode(b[4].data)).toBe('ok')
     expect(looksBinary(b[0].data!)).toBe(true)
   })
 
   it('only lets names and repository paths through', () => {
-    for (const ok of ['main', 'origin/feat-x', 'v1.2', 'abc123^', 'HEAD~2', 'a@b']) expect(validRef(ok)).toBe(true)
-    for (const bad of ['', '-x', '--output=/tmp/x', 'a..b', 'a b', 'a;b', '$(x)']) expect(validRef(bad)).toBe(false)
+    for (const ok of ['main', 'origin/feat-x', 'v1.2', 'abc123^', 'HEAD~2', 'a@b', 'issue#12', 'feature/überarbeitung', 'fix!', 'a,b']) expect(validRef(ok)).toBe(true)
+    for (const bad of ['', '-x', '--output=/tmp/x', 'a..b', 'a b', 'a\tb', 'a\nb', 'HEAD:secret', 'a\\b']) expect(validRef(bad)).toBe(false)
+    expect(isSha('0123456789abcdef0123456789abcdef01234567')).toBe(true)
+    expect(isSha('HEAD')).toBe(false)
     expect(validRepoPath('src/a.ts')).toBe(true)
     expect(validRepoPath('a/../../etc')).toBe(false)
     expect(validRepoPath('/etc/passwd')).toBe(false)
@@ -669,13 +680,11 @@ describe('review: git output', () => {
   })
 
   it('writes the review for the agent', () => {
-    const msg = reviewMessage(
-      [
-        { id: '2', path: 'src/b.ts', side: 'new', start: 7, end: 7, text: 'Name this better', code: ['const x = 1'] },
-        { id: '1', path: 'src/a.ts', side: 'old', start: 3, end: 5, text: 'Why remove this?\nIt was needed', code: ['a', 'b', 'c'] }
-      ],
-      '`feat` compared with `main`'
-    )
+    const on = { anchor: 'cmp:main...feat', context: '`feat` compared with `main`' }
+    const msg = reviewMessage([
+      { id: '2', path: 'src/b.ts', side: 'new', start: 7, end: 7, text: 'Name this better', code: ['const x = 1'], ...on },
+      { id: '1', path: 'src/a.ts', side: 'old', start: 3, end: 5, text: 'Why remove this?\nIt was needed', code: ['a', 'b', 'c'], ...on }
+    ])
     expect(msg).toBe(
       [
         'Review comments on `feat` compared with `main`. Please address each one:',
@@ -696,6 +705,21 @@ describe('review: git output', () => {
         '   Name this better'
       ].join('\n')
     )
+  })
+
+  it('says which diff each comment is on when they differ', () => {
+    const msg = reviewMessage([
+      { id: '1', path: 'a.ts', side: 'new', start: 1, end: 1, text: 'x', code: [], anchor: 'cmp:main...feat', context: '`feat` compared with `main`' },
+      { id: '2', path: 'b.ts', side: 'new', start: 2, end: 2, text: 'y', code: [], anchor: 'l:s', context: 'the staged changes' }
+    ])
+    expect(msg.split('\n').slice(0, 5)).toEqual([
+      'Review comments. Please address each one:',
+      '',
+      '1. a.ts:1 (in `feat` compared with `main`)',
+      '   x',
+      ''
+    ])
+    expect(msg).toContain('2. b.ts:2 (in the staged changes)')
   })
 })
 
