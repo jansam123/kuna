@@ -89,10 +89,41 @@ A single **Esc** goes to the agent, on a pane or while typing, as in a terminal:
 | ⌘R | start over from the latest reply |
 | Space or Esc | close (with nothing typed); the agent's terminal goes back to its pane |
 | *a panel of the agent's* | while it shows a question, a permission prompt or a panel (`/config`, `/usage`, `/model`), the arrows, Space, Enter and Esc are the agent's: Esc closes the panel, the next Esc the viewer |
+| ⌘G | review the agent's changes, as a pull request would show them (below) |
 | ⌘K | browse `.claude`: skills, agents, commands, `CLAUDE.md`, settings (Tab switches host) |
 | ⌘, | colour scheme, fonts, notifications |
 | ⌘+ / ⌘− | agent font size (starts from your iTerm2 profile's) |
 | ⌘/ | this list, in the app |
+
+## Reviewing changes (⌘G)
+
+⌘G on an agent (its pane, or its row in the sidebar) opens its repository in the review view: the agent's worktree if it has one, else its folder. On a folder it opens that folder's repository, without an agent. Files are on the left, the diff in the middle, in VS Code's own editor with your VS Code colour theme, editor font and file icons, and the agent's terminal on the right. Nothing is changed in the repository: Kuna only reads it.
+
+The left side has four lists:
+
+- **Changes** — what the branch changed since it left the base branch (`base...head`, as a pull request shows it), as a folder tree with +/− counts. The base starts as origin's default branch (`origin/main`), else `main` or `master`; on that branch itself, its upstream, so unpushed commits show. Head starts as the checked-out branch. **⌘B** picks the base, **⇧⌘B** the head (any branch, remote branch, tag or commit; branches checked out in other worktrees say where), and **Working tree** as head includes uncommitted changes and new files. Kuna remembers the base per repository.
+- **Uncommitted** — as VS Code's Source Control lists them: staged changes (HEAD → index), changes (index → disk), untracked files, conflicts.
+- **Files** — every file, to browse: what is on disk when head is checked out here, else the files at head. Changed files are marked.
+- **Commits** — the commits in the comparison; Enter shows one commit on its own, Esc goes back to the whole branch.
+
+| Keys | Where | Does |
+| --- | --- | --- |
+| ↑ ↓ · PgUp PgDn | file list | move; the file shows right away |
+| → ← | file list | open / close a folder, up to its folder; → on a file goes into the diff |
+| Enter · Space | file list | into the diff (a folder: open or close it; a commit: show it) |
+| Tab · ⇧Tab · ⌘1–⌘4 | anywhere | the next / previous list, or a list by number |
+| ⌘P | anywhere | find a file (or a commit) by letters in its path |
+| *type* | file list | write to the agent, as in the plot viewer; Enter sends |
+| C | diff | comment on the selected lines (or the cursor's); a click on the **+** in the gutter does it too |
+| ⌘Enter | comment box | add the comment (Esc Esc discards it) |
+| N · P (F7 · ⇧F7) | diff | next / previous change |
+| ⌘F | diff | find in the file |
+| ⌘Enter | anywhere else | send the review: every comment, with its file, lines and the code it is about, to the agent as one message (no agent: copied to the clipboard). ⇧⌘C copies it |
+| ⌘J | anywhere | to the agent's terminal and back to the files |
+| ⌘U | anywhere | side by side or inline |
+| ⌘R | anywhere | read the repository again (it also does by itself when the agent finishes a turn) |
+| Esc | diff · agent | back to the file list |
+| Esc · ⌘W | file list | close (comments not sent yet are kept for next time) |
 
 ## Projects and folders
 

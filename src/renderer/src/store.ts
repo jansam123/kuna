@@ -21,6 +21,8 @@ export type Zone = 'sidebar' | 'prompt' | 'pane'
 
 export type Overlay =
   | { kind: 'media'; key: string }
+  /** the review view (⌘G): a folder's git changes, with its agent beside them when there is one */
+  | { kind: 'review'; host: string; dir: string; key?: string }
   | { kind: 'claude'; host?: string }
   | { kind: 'project'; editId?: string }
   | { kind: 'folder'; projectId: string; path?: string }

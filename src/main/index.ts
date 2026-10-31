@@ -3,11 +3,14 @@ import { join } from 'node:path'
 import { app, BrowserWindow, clipboard, ipcMain, Menu, session, shell, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import { IPC } from '@shared/ipc'
 import { applyPatch, sharedOf, type SharedPatch } from '@shared/sync'
+import type { GitSide } from '@shared/git'
 import type { SpawnRequest, WindowLayout } from '@shared/types'
 import type { Rect } from '@shared/windows'
 import { AgentService } from './agents'
 import { ClaudeFilesService, MediaService } from './files'
 import { detectFonts } from './fonts'
+import { GitService } from './git'
+import { VscodeService } from './vscode'
 import { PtyService } from './pty'
 import { adoptLoginShellPath } from './shellEnv'
 import { listSshHosts } from './sshHosts'
@@ -24,6 +27,8 @@ const store = new Store()
 const agents = new AgentService(() => store.state.projects)
 const media = new MediaService(agents)
 const claudeFiles = new ClaudeFilesService(agents)
+const git = new GitService(agents)
+const vscode = new VscodeService()
 const ptys = new PtyService()
 /** agents in view, per window (open panes, selection); the union is followed */
 const interests = new Map<WebContents, string[]>()
@@ -126,6 +131,12 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.claudeList, (_e, host: string, cwds: string[]) => claudeFiles.list(host, cwds))
   ipcMain.handle(IPC.claudeRead, (_e, host: string, path: string) => claudeFiles.read(host, path))
+  ipcMain.handle(IPC.gitOverview, (_e, host: string, dir: string) => git.overview(host, dir))
+  ipcMain.handle(IPC.gitCompare, (_e, host: string, dir: string, base: string, head: string | null) => git.compare(host, dir, base, head))
+  ipcMain.handle(IPC.gitFiles, (_e, host: string, dir: string, rev: string | null) => git.files(host, dir, rev))
+  ipcMain.handle(IPC.gitRead, (_e, host: string, dir: string, sides: GitSide[]) => git.read(host, dir, sides))
+  ipcMain.handle(IPC.vscodeLook, (_e, refresh?: boolean) => vscode.get(!!refresh))
+  ipcMain.handle(IPC.vscodeIcon, (_e, id: string) => vscode.icon(String(id)))
   ipcMain.handle(IPC.fsDirs, (_e, host: string, dir: string) => claudeFiles.dirs(host, dir))
   ipcMain.handle(IPC.fsRealPaths, (_e, host: string, paths: string[]) => claudeFiles.realPaths(host, paths))
 }

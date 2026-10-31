@@ -1,0 +1,127 @@
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { parseBlobs, parseCompare, parseInfo, parseStatus, sections, specOf, type GitSide } from '@shared/git'
+
+/**
+ * The review view's git, end to end on the host side: `kuna git …` from the
+ * real helper script on a throwaway repository, parsed as the app parses it.
+ */
+const hasGit = (() => {
+  try {
+    execFileSync('git', ['--version'])
+    return true
+  } catch {
+    return false
+  }
+})()
+
+const SCRIPT = resolve(__dirname, '../src/main/remote/kuna.sh')
+const b64 = (s: string): string => Buffer.from(s, 'utf8').toString('base64')
+let repo: string
+let home: string
+
+function kuna(...args: string[]): Buffer {
+  return execFileSync('sh', [SCRIPT, 'git', ...args], { env: { ...process.env, HOME: home }, maxBuffer: 64 * 1024 * 1024 })
+}
+
+function sh(cmd: string): void {
+  execFileSync('sh', ['-c', cmd], { cwd: repo, env: { ...process.env, HOME: home, GIT_CONFIG_NOSYSTEM: '1' }, stdio: 'ignore' })
+}
+
+describe.skipIf(!hasGit)('review: kuna git on a repository', () => {
+  beforeAll(() => {
+    home = mkdtempSync(join(tmpdir(), 'kuna-review-home-'))
+    repo = join(home, 'repo')
+    mkdirSync(join(repo, 'src', 'deep'), { recursive: true })
+    sh('git init -q . && git checkout -q -b main && git config user.email t@example.org && git config user.name T')
+    writeFileSync(join(repo, 'src/a.txt'), 'a\nb\nc\n')
+    writeFileSync(join(repo, 'gone.txt'), 'old\n')
+    writeFileSync(join(repo, 'move.txt'), 'mv\nme\nplease\n')
+    writeFileSync(join(repo, 'src/deep/x.py'), 'x = 1\n')
+    sh('git add -A && git commit -q -m first && git checkout -q -b feat')
+    writeFileSync(join(repo, 'src/a.txt'), 'a\nB\nc\nd\n')
+    writeFileSync(join(repo, 'sp ace.txt'), 'new\n')
+    writeFileSync(join(repo, 'pic.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2]))
+    sh('git rm -q gone.txt && git mv move.txt moved.txt && git add -A && git commit -q -m "second: change"')
+    // and uncommitted work on top
+    writeFileSync(join(repo, 'src/deep/x.py'), 'x = 2\n')
+    sh('git add src/deep/x.py')
+    writeFileSync(join(repo, 'src/a.txt'), 'a\nB\nc\nd\ne\n')
+    writeFileSync(join(repo, 'un.txt'), 'untracked\n')
+  })
+
+  afterAll(() => rmSync(home, { recursive: true, force: true }))
+
+  it('tells the branches and what is uncommitted, from a subfolder', () => {
+    const dir = b64(join(repo, 'src'))
+    const info = parseInfo(kuna('info', dir).toString())
+    expect(info.root.endsWith('/repo')).toBe(true)
+    expect(info.branch).toBe('feat')
+    expect(info.upstream).toBeUndefined()
+    expect(info.refs.map((r) => r.short).sort()).toEqual(['feat', 'main'])
+    expect(info.worktrees[0].branch).toBe('feat')
+    const s = sections(kuna('status', dir).toString())
+    const st = parseStatus(s.status, s.staged, s.unstaged)
+    expect(st.staged.map((f) => `${f.kind} ${f.path}`)).toEqual(['M src/deep/x.py'])
+    expect(st.unstaged.map((f) => `${f.kind} ${f.path}`)).toEqual(['M src/a.txt'])
+    expect(st.untracked.map((f) => f.path)).toEqual(['un.txt'])
+  })
+
+  it('compares a branch with its base as a pull request does', () => {
+    const c = parseCompare(kuna('compare', b64(repo), b64('main'), b64('feat')).toString(), 'main', 'feat')
+    expect(c.files.map((f) => `${f.kind} ${f.path}${f.oldPath ? ` <- ${f.oldPath}` : ''}`)).toEqual([
+      'M src/a.txt',
+      'D gone.txt',
+      'R moved.txt <- move.txt',
+      'A pic.png',
+      'A sp ace.txt'
+    ])
+    expect(c.files.find((f) => f.path === 'src/a.txt')).toMatchObject({ added: 2, removed: 1 })
+    expect(c.files.find((f) => f.path === 'pic.png')?.binary).toBe(true)
+    expect(c.commits.map((k) => k.subject)).toEqual(['second: change'])
+
+    // the working tree: uncommitted changes and new files too
+    const w = parseCompare(kuna('compare', b64(repo), b64('main'), '').toString(), 'main', null)
+    expect(w.files.map((f) => f.path)).toEqual(['src/deep/x.py', 'src/a.txt', 'gone.txt', 'moved.txt', 'pic.png', 'sp ace.txt', 'un.txt'])
+    expect(w.files.find((f) => f.path === 'src/a.txt')).toMatchObject({ added: 3, removed: 1 })
+  })
+
+  it('reads both sides of a diff: a commit, the index, the disk', () => {
+    const c = parseCompare(kuna('compare', b64(repo), b64('main'), b64('feat')).toString(), 'main', 'feat')
+    const sides: GitSide[] = [
+      { kind: 'rev', rev: c.mergeBase, path: 'src/a.txt' },
+      { kind: 'index', path: 'src/deep/x.py' },
+      { kind: 'worktree', path: 'sp ace.txt' },
+      { kind: 'rev', rev: c.tip, path: 'pic.png' },
+      { kind: 'worktree', path: 'nope.txt' }
+    ]
+    const out = kuna('cat', b64(repo), '1000', ...sides.map((s) => b64(specOf(s)!)))
+    const blobs = parseBlobs(out, 1000)
+    const text = (i: number): string => new TextDecoder().decode(blobs[i].data)
+    expect(text(0)).toBe('a\nb\nc\n')
+    expect(text(1)).toBe('x = 2\n')
+    expect(text(2)).toBe('new\n')
+    expect([...blobs[3].data!]).toEqual([0x89, 0x50, 0x4e, 0x47, 0, 1, 2])
+    expect(blobs[4]).toEqual({ size: 0, missing: true })
+    // too large: the size only
+    expect(parseBlobs(kuna('cat', b64(repo), '2', b64('Wsp ace.txt')), 2)).toEqual([{ size: 4, tooBig: true }])
+  })
+
+  it('lists every file, on disk or at a commit', () => {
+    const disk = kuna('files', b64(repo), '').toString().split('\0').filter(Boolean).sort()
+    expect(disk).toEqual(['moved.txt', 'pic.png', 'sp ace.txt', 'src/a.txt', 'src/deep/x.py', 'un.txt'])
+    const main = kuna('files', b64(repo), b64('main')).toString().split('\0').filter(Boolean).sort()
+    expect(main).toEqual(['gone.txt', 'move.txt', 'src/a.txt', 'src/deep/x.py'])
+  })
+
+  it('refuses options, ranges and paths out of the repository', () => {
+    expect(() => kuna('compare', b64(repo), b64('--output=/tmp/x'), '')).toThrow()
+    expect(() => kuna('compare', b64(repo), b64('main..feat'), '')).toThrow()
+    expect(() => kuna('cat', b64(repo), '100', b64('W../outside'))).toThrow()
+    expect(() => kuna('cat', b64(repo), '100', b64('G-x:a'))).toThrow()
+    expect(() => kuna('info', b64(home))).toThrow()
+  })
+})

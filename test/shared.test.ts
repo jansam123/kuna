@@ -14,6 +14,23 @@ import { isAgentId, isHostId, isTmuxKeys, splitAgentKey } from '@shared/validate
 import { deriveStatus, frameToAgents, parseFrame, parseRateLimits } from '@shared/watch'
 import { cascade, placeOnScreen, stepWindow, windowOrder } from '@shared/windows'
 import type { SharedState } from '@shared/types'
+import {
+  buildTree,
+  comparePaths,
+  defaultBase,
+  looksBinary,
+  parseBlobs,
+  parseCompare,
+  parseInfo,
+  parseStatus,
+  reviewMessage,
+  specOf,
+  validRef,
+  validRepoPath,
+  type GitInfo,
+  type GitRef
+} from '@shared/git'
+import { customize, editorPrefs, fileIcon, folderIcon, languageOf, type IconTheme, type LanguageInfo, type VscodeTheme } from '@shared/vscode'
 
 describe('gridRows', () => {
   it('splits panes into balanced rows', () => {
@@ -557,5 +574,183 @@ describe('shared state between windows', () => {
     expect(mergePatch(a, b)).toEqual({ names: { set: { 'local::a': 'back' }, del: ['local::x'] } })
     const merged = mergePatch(a, b)
     expect(applyPatch(base, merged).names).toEqual(applyPatch(applyPatch(base, a), b).names)
+  })
+})
+
+describe('review: git output', () => {
+  it('splits sections and parses name-status with renames and numstat', () => {
+    const text = '\x1ebase\x1eabc\n\x1etip\x1edef\n\x1efiles\x1eD\0gone.txt\0R100\0move.txt\0moved.txt\0A\0sp ace.txt\0M\0src/a.txt\0\x1ecounts\x1e0\t1\tgone.txt\x000\t0\t\0move.txt\0moved.txt\x001\t0\tsp ace.txt\x00-\t-\tsrc/a.txt\0\x1ecommits\x1eabc123\tabc1\tAlice\t1700000000\tfix: a\ttab\0'
+    const c = parseCompare(text, 'main', 'feat')
+    expect(c.mergeBase).toBe('abc')
+    expect(c.tip).toBe('def')
+    expect(c.files.map((f) => [f.kind, f.path, f.oldPath])).toEqual([
+      ['M', 'src/a.txt', undefined],
+      ['D', 'gone.txt', undefined],
+      ['R', 'moved.txt', 'move.txt'],
+      ['A', 'sp ace.txt', undefined]
+    ])
+    expect(c.files.find((f) => f.path === 'moved.txt')).toMatchObject({ added: 0, removed: 0 })
+    expect(c.files.find((f) => f.path === 'src/a.txt')).toMatchObject({ binary: true })
+    expect(c.commits).toEqual([{ sha: 'abc123', short: 'abc1', author: 'Alice', time: 1700000000, subject: 'fix: a\ttab' }])
+  })
+
+  it('adds untracked files when comparing with the working tree', () => {
+    const c = parseCompare('\x1ebase\x1ea\n\x1efiles\x1eM\0x.py\0\x1euntracked\x1enew.py\0x.py\0', 'main', null)
+    expect(c.files.map((f) => `${f.kind} ${f.path}`)).toEqual(['? new.py', 'M x.py'])
+  })
+
+  it('reads status in VS Code groups', () => {
+    const st = parseStatus('M  staged.ts\0 M work.ts\0MM both.ts\0R  new.ts\0old.ts\0?? un.txt\0UU clash.ts\0 D gone.ts\0', '3\t1\tstaged.ts\0', '2\t0\twork.ts\0')
+    expect(st.staged.map((f) => `${f.kind} ${f.path}${f.oldPath ? ` <- ${f.oldPath}` : ''}`)).toEqual(['M staged.ts', 'M both.ts', 'R new.ts <- old.ts'])
+    expect(st.unstaged.map((f) => `${f.kind} ${f.path}`)).toEqual(['M work.ts', 'M both.ts', 'D gone.ts'])
+    expect(st.untracked.map((f) => f.path)).toEqual(['un.txt'])
+    expect(st.conflicts.map((f) => f.path)).toEqual(['clash.ts'])
+    expect(st.staged[0]).toMatchObject({ added: 3, removed: 1 })
+    expect(st.unstaged[0]).toMatchObject({ added: 2, removed: 0 })
+  })
+
+  it('reads branches, the default branch and worktrees', () => {
+    const info = parseInfo(
+      '\x1einfo\x1eroot\t/r\nbranch\tfeat\nhead\tabc\ndefault\torigin/main\nupstream\t\n' +
+        '\x1erefs\x1erefs/heads/feat\tabc\t1700000100 +0100\twork\nrefs/heads/main\tdef\t1700000000 +0100\tinit\nrefs/remotes/origin/HEAD\tdef\t1 +0000\tx\nrefs/remotes/origin/main\tdef\t1700000000 +0000\tinit\nrefs/tags/v1\tdef\t1 +0000\tt\n' +
+        '\x1eworktrees\x1eworktree /r\nHEAD abc\nbranch refs/heads/feat\n\nworktree /r/.claude/worktrees/x\nHEAD 123\ndetached\n\n'
+    )
+    expect(info).toMatchObject({ root: '/r', branch: 'feat', head: 'abc', defaultBranch: 'origin/main', upstream: undefined })
+    expect(info.refs.map((r) => `${r.kind}:${r.short}`)).toEqual(['branch:feat', 'branch:main', 'remote:origin/main', 'tag:v1'])
+    expect(info.worktrees).toEqual([
+      { path: '/r', head: 'abc', branch: 'feat' },
+      { path: '/r/.claude/worktrees/x', head: '123' }
+    ])
+    expect(defaultBase(info)).toBe('origin/main')
+  })
+
+  it('picks a base as a pull request would', () => {
+    const ref = (short: string): GitRef => ({ name: '', short, kind: short.includes('/') ? 'remote' : 'branch', sha: '', time: 0, subject: '' })
+    const info = (branch: string | undefined, refs: string[], def?: string, upstream?: string): GitInfo => ({ root: '/r', branch, defaultBranch: def, upstream, refs: refs.map(ref), worktrees: [] })
+    expect(defaultBase(info('feat', ['feat', 'main']))).toBe('main')
+    expect(defaultBase(info('feat', ['feat', 'master']))).toBe('master')
+    // on main itself: what is not pushed yet
+    expect(defaultBase(info('main', ['main', 'origin/main'], 'origin/main'))).toBe('origin/main')
+    expect(defaultBase(info('dev', ['dev', 'trunk', 'origin/trunk'], 'origin/trunk'))).toBe('origin/trunk')
+    expect(defaultBase(info('main', ['main']))).toBe('main')
+  })
+
+  it('reads blobs by size, missing ones and ones too large', () => {
+    const enc = new TextEncoder()
+    const buf = new Uint8Array([...enc.encode('\x1e3\x1e'), 0x1e, 0, 0x41, ...enc.encode('\x1e-\x1e\x1e999\x1e\x1e0\x1e')])
+    const b = parseBlobs(buf, 100)
+    expect(b).toHaveLength(4)
+    expect([...b[0].data!]).toEqual([0x1e, 0, 0x41])
+    expect(b[1]).toEqual({ size: 0, missing: true })
+    expect(b[2]).toEqual({ size: 999, tooBig: true })
+    expect(b[3].data).toHaveLength(0)
+    expect(looksBinary(b[0].data!)).toBe(true)
+  })
+
+  it('only lets names and repository paths through', () => {
+    for (const ok of ['main', 'origin/feat-x', 'v1.2', 'abc123^', 'HEAD~2', 'a@b']) expect(validRef(ok)).toBe(true)
+    for (const bad of ['', '-x', '--output=/tmp/x', 'a..b', 'a b', 'a;b', '$(x)']) expect(validRef(bad)).toBe(false)
+    expect(validRepoPath('src/a.ts')).toBe(true)
+    expect(validRepoPath('a/../../etc')).toBe(false)
+    expect(validRepoPath('/etc/passwd')).toBe(false)
+    expect(specOf({ kind: 'rev', rev: 'abc', path: 'a b.ts' })).toBe('Gabc:a b.ts')
+    expect(specOf({ kind: 'index', path: 'x' })).toBe('Ix')
+    expect(specOf({ kind: 'worktree', path: 'x' })).toBe('Wx')
+    expect(specOf({ kind: 'empty' })).toBeNull()
+  })
+
+  it('builds a tree with compact folders, folders first', () => {
+    const t = buildTree(['src/main/remote/kuna.sh', 'src/main/git.ts', 'README.md', 'docs/a.md'], (p) => p)
+    expect(t.dirs.map((d) => d.name)).toEqual(['docs', 'src/main'])
+    expect(t.dirs[1].dirs.map((d) => d.name)).toEqual(['remote'])
+    expect(t.dirs[1].files.map((f) => f.name)).toEqual(['git.ts'])
+    expect(t.files.map((f) => f.name)).toEqual(['README.md'])
+    expect(comparePaths('src/z/a.ts', 'src/b.ts')).toBeLessThan(0)
+  })
+
+  it('writes the review for the agent', () => {
+    const msg = reviewMessage(
+      [
+        { id: '2', path: 'src/b.ts', side: 'new', start: 7, end: 7, text: 'Name this better', code: ['const x = 1'] },
+        { id: '1', path: 'src/a.ts', side: 'old', start: 3, end: 5, text: 'Why remove this?\nIt was needed', code: ['a', 'b', 'c'] }
+      ],
+      '`feat` compared with `main`'
+    )
+    expect(msg).toBe(
+      [
+        'Review comments on `feat` compared with `main`. Please address each one:',
+        '',
+        '1. src/a.ts:3-5 (removed lines, as they were before the change)',
+        '   ```',
+        '   a',
+        '   b',
+        '   c',
+        '   ```',
+        '   Why remove this?',
+        '   It was needed',
+        '',
+        '2. src/b.ts:7',
+        '   ```',
+        '   const x = 1',
+        '   ```',
+        '   Name this better'
+      ].join('\n')
+    )
+  })
+})
+
+describe('review: the VS Code look', () => {
+  const langs: LanguageInfo[] = [
+    { id: 'typescript', extensions: ['.ts'], filenames: [] },
+    { id: 'typescriptreact', extensions: ['.tsx'], filenames: [] },
+    { id: 'makefile', extensions: ['.mk'], filenames: ['Makefile'] },
+    { id: 'dts', extensions: ['.d.ts'], filenames: [] }
+  ]
+
+  it('finds a file language as VS Code does', () => {
+    expect(languageOf('src/a.ts', langs)).toBe('typescript')
+    expect(languageOf('src/A.TSX', langs)).toBe('typescriptreact')
+    expect(languageOf('x/Makefile', langs)).toBe('makefile')
+    expect(languageOf('types/x.d.ts', langs)).toBe('dts')
+    expect(languageOf('a.C', langs, { '*.C': 'cpp' })).toBe('cpp')
+    expect(languageOf('a.unknown', langs)).toBeUndefined()
+  })
+
+  it('finds icons: name, then longest extension, then language', () => {
+    const t: IconTheme = {
+      id: 'm',
+      file: 'file',
+      folder: 'folder',
+      folderExpanded: 'folder-open',
+      fileNames: { 'package.json': 'npm' },
+      fileExtensions: { ts: 'ts', 'test.ts': 'test' },
+      folderNames: { src: 'folder-src' },
+      folderNamesExpanded: { src: 'folder-src-open' },
+      languageIds: { makefile: 'make' }
+    }
+    expect(fileIcon(t, 'a/package.json')).toBe('npm')
+    expect(fileIcon(t, 'a/x.test.ts')).toBe('test')
+    expect(fileIcon(t, 'a/x.ts')).toBe('ts')
+    expect(fileIcon(t, 'Makefile', 'makefile')).toBe('make')
+    expect(fileIcon(t, 'x.zzz')).toBe('file')
+    expect(folderIcon(t, 'a/src', false)).toBe('folder-src')
+    expect(folderIcon(t, 'a/src', true)).toBe('folder-src-open')
+    expect(folderIcon(t, 'a/lib', true)).toBe('folder-open')
+  })
+
+  it('reads editor settings with VS Code defaults', () => {
+    const e = editorPrefs({ 'editor.fontFamily': 'JetBrains Mono', 'editor.fontSize': 11, 'editor.fontLigatures': true, 'editor.lineHeight': 1.5, 'editor.minimap.enabled': false, 'editor.wordWrap': 'on' })
+    expect(e).toMatchObject({ fontFamily: 'JetBrains Mono', fontSize: 11, fontLigatures: true, lineHeight: 17, minimap: false, wordWrap: 'on', renderSideBySide: true, ignoreTrimWhitespace: true })
+    expect(editorPrefs({ 'editor.wordWrap': 'nonsense' }).wordWrap).toBe('off')
+  })
+
+  it('applies colour customizations, global and for the theme', () => {
+    const theme: VscodeTheme = { name: 'GitHub Dark Default', type: 'dark', colors: { 'editor.background': '#000', a: '#1' }, tokenColors: [] }
+    const t = customize(theme, { a: '#2', '[GitHub Dark Default]': { 'editor.background': '#111' }, '[Other]': { a: '#3' } }, { comments: '#888', textMateRules: [{ scope: 'x', settings: { foreground: '#f00' } }] })
+    expect(t.colors).toEqual({ 'editor.background': '#111', a: '#2' })
+    expect(t.tokenColors).toEqual([
+      { scope: 'comment', settings: { foreground: '#888' } },
+      { scope: 'x', settings: { foreground: '#f00' } }
+    ])
   })
 })

@@ -14,6 +14,8 @@ import type {
   WindowsInfo
 } from './types'
 import type { SharedPatch } from './sync'
+import type { GitBlob, GitCompare, GitInfo, GitSide, GitStatus } from './git'
+import type { VscodeLook } from './vscode'
 
 /** What the main process asks a window to do. */
 export type WindowCommand =
@@ -115,6 +117,20 @@ export interface KunaApi {
   copyText(text: string): void
   /** show or hide the macOS close/minimize/zoom buttons (only over the sidebar) */
   windowButtons(visible: boolean): void
+  /** the review view (⌘G): read-only git on any host */
+  git: {
+    overview(host: HostId, dir: string): Promise<{ info: GitInfo; status: GitStatus } | { error: string }>
+    /** base...head as a pull request shows it; head null: the working tree */
+    compare(host: HostId, dir: string, base: string, head: string | null): Promise<GitCompare | { error: string }>
+    /** every file at a commit, or in the working tree (null) */
+    files(host: HostId, dir: string, rev: string | null): Promise<string[] | { error: string }>
+    read(host: HostId, dir: string, sides: GitSide[]): Promise<GitBlob[] | { error: string }>
+  }
+  /** the user's VS Code: theme, editor settings, icons */
+  vscode: {
+    look(refresh?: boolean): Promise<VscodeLook>
+    icon(id: string): Promise<string | null>
+  }
   fs: {
     dirs(host: HostId, dir: string): Promise<string[]>
     /** path → physical path (symlinks resolved) for the directories that exist */
@@ -165,6 +181,12 @@ export const IPC = {
   mediaSave: 'media:save',
   claudeList: 'claude:list',
   claudeRead: 'claude:read',
+  gitOverview: 'git:overview',
+  gitCompare: 'git:compare',
+  gitFiles: 'git:files',
+  gitRead: 'git:read',
+  vscodeLook: 'vscode:look',
+  vscodeIcon: 'vscode:icon',
   fsDirs: 'fs:dirs',
   fsRealPaths: 'fs:real-paths',
   clipboardText: 'clipboard:text',

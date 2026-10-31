@@ -191,16 +191,19 @@ function PdfPages({ pdf, scale, root }: { pdf: PdfDoc; scale: number; root: HTML
  * goes straight to the agent. A stopped background session only comes back
  * on Enter (`live`), since attaching starts it again.
  */
-function AgentChat({
+export function AgentChat({
   agentKey,
   live,
   hint,
-  onTyped
+  onTyped,
+  autoFocus = true
 }: {
   agentKey: string
   live: boolean
   hint: string
   onTyped: (n: number) => void
+  /** the terminal takes the keyboard when it comes up (the review view keeps it on its file list) */
+  autoFocus?: boolean
 }): React.JSX.Element {
   const a = useKuna((s) => s.agents[agentKey])
   const d = useKuna((s) => s.details[agentKey])
@@ -222,7 +225,7 @@ function AgentChat({
     e.typed = 0
     onTyped(0)
     fitTerminal(agentKey)
-    e.term.focus()
+    if (autoFocus) e.term.focus()
     // focus events wait while the window is in the background
     setFocused(e.el.contains(document.activeElement))
     const typing = e.term.onData(() => onTyped(e.typed))
@@ -235,6 +238,7 @@ function AgentChat({
       // a tab's terminal goes back to its pane; one opened for the viewer closes
       if (!get().tabs.includes(agentKey)) disposeTerminal(agentKey)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentKey, live, onTyped])
 
   useEffect(() => {

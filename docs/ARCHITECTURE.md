@@ -38,6 +38,7 @@ Opening a pane runs `ssh -tt <host> sh .kuna/bin/kuna attach <id>` inside a loca
 | `statusline` | Claude Code status line entry point; records plan usage (`rate_limits`) |
 | `attach`, `kill`, `key`, `send` | tmux plumbing |
 | `read`, `stat`, `cat`, `media`, `ls`, `claude-files` | file access for transcripts, plots, completion and the `.claude` browser |
+| `git info`, `status`, `compare`, `files`, `cat` | the review view's read-only git (below) |
 
 ## State: two sources, merged
 
@@ -95,6 +96,20 @@ Space asks the main process for one page of media at a time, so the first plot s
 The agent sits beside the file, under the list of files: the viewer borrows the terminal of the agent's tab (the pane takes it back when the viewer closes) or, for an agent without a tab, attaches one for as long as the viewer is open. A stopped background session is attached only on Enter, since attaching starts it again. What is typed goes to that terminal as on a pane in typing mode (`typeToAgent` in `keys.ts`: tmux leaves scroll mode first, ⌘← ⌘→, Enter); the viewer keeps ← →, ↑ ↓, Space and Esc for itself only while nothing has been typed and no question or panel is on the agent's screen (`screenState`: `menu` is a panel's key hints at the bottom, "Esc to close", "Press Esc to go back"; not the spinner's "esc to interrupt"), and its ⌘ keys.
 
 Files are fetched with `kuna cat` over the shared ssh connection and cached by path + mtime + size (up to 512 MB in all), so the next file is prefetched (when it is under 40 MB) and a re-made plot is never stale. Plots and PDFs up to 1 GB are shown; a read gets two minutes plus four seconds a megabyte, and one past 20 MB says it is loading. The viewer fits each file to the window (small PNGs up to 2×) and zooms around the pointer; PDFs show every page: all are laid out at their own size from the start, and pdf.js draws only those within two screens of the view, nearest first, at the zoom level and the screen's pixel ratio once a zoom settles, so they stay sharp; pages further away give their pixels back, so a long PDF takes no more memory than a short one.
+
+## Reviewing changes
+
+⌘G opens a repository as a pull request would show it: the agent's worktree (`worktree` of a background session) or working directory, or a selected folder. Git runs on the host, through `kuna git`, read-only, so it works the same over ssh: `GIT_OPTIONAL_LOCKS=0` keeps it off the index lock an agent's own git may need, and only flags git 1.8 knows are used (`status --porcelain -z` v1, `committerdate:raw`). Output comes in `\x1e<name>\x1e` sections with git's own NUL-separated lists inside; `@shared/git` parses it.
+
+- `info`: root, branch, origin's default branch, upstream, the 500 newest refs, worktrees. `status`: porcelain status plus `--numstat` for staged and unstaged changes. Opening the view runs both at once.
+- `compare <base> [head]`: `merge-base`, then `diff --name-status -M` and `--numstat` from there to head (or to the working tree, plus untracked files), and the commits in between: three dots, as a pull request. One commit is `sha^` against `sha`.
+- `cat <max> <spec>…`: both sides of a diff in one round trip, each as `\x1e<size>\x1e<bytes>` (`G<rev>:<path>`, `I<path>` the index, `W<path>` the disk); larger than 8 MB, only the size. Commit sides are cached in the window (they never change); index and disk sides until the next refresh.
+
+Refs and paths are checked in the main process and again by the helper: no leading `-`, no `..`, nothing outside the repository. The view refreshes when the agent finishes a turn, and on ⌘R; it never polls.
+
+The editor is Monaco, VS Code's own, loaded on the first ⌘G with only the parts a read-only review needs (diff, find, folding, sticky scroll, bracket matching). Colours come from Shiki running the same TextMate grammars VS Code uses, on the Oniguruma engine, in the user's VS Code colour theme: `src/main/vscode.ts` finds `workbench.colorTheme` among the built-in and installed extensions (following `include`), applies `workbench.colorCustomizations` and `editor.tokenColorCustomizations`, and reads the editor settings (font, ligatures, size, word wrap, minimap, `diffEditor.*`), the file icon theme (`workbench.iconTheme`, icons served as data URLs) and every extension's language → file extension table. Each token is named after its colour and style (`c12.ib`), so the Monaco theme is one rule per colour. Without VS Code, Shiki's copy of the theme, or Dark+, stands in. Grammars load per language as files turn up.
+
+Comments are Monaco view zones under their lines, rendered through React portals; their clicks and keys stop at the zone so the editor doesn't take them. Comments not sent yet are kept per repository while Kuna runs. Sending pastes one message (`reviewMessage`: each comment with its file, lines and up to six quoted lines) into the agent's terminal as a bracketed paste, then Enter on its own, as typing does.
 
 ## Folders and real paths
 

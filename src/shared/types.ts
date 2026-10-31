@@ -45,6 +45,12 @@ export interface Settings {
   inspectorWidth?: number
   /** the agent's column beside a file in the plot viewer */
   viewerChatWidth?: number
+  /** the review view (⌘G): the file list's width, the agent's column's, and inline diffs instead of side by side */
+  reviewListWidth?: number
+  reviewChatWidth?: number
+  reviewInline?: boolean
+  /** "host:repository" → the branch last compared with there */
+  reviewBase?: Record<string, string>
   /** macOS notification when an agent finishes or needs you while Kuna is in the background */
   notify: boolean
 }

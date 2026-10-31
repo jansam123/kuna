@@ -57,6 +57,19 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
     ]
   },
   {
+    title: 'Reviewing changes',
+    keys: [
+      ['⌘G', "review the agent's (or folder's) changes against a base branch, as a PR"],
+      ['⌘B · ⇧⌘B', 'in the review: pick the base · the head (or the working tree)'],
+      ['Tab · ⌘1–4', 'in the review: Changes, Uncommitted, Files, Commits'],
+      ['→ · Esc', 'in the review: into the diff · back to the files'],
+      ['C · ⌘Enter', 'in the diff: comment on the selected lines · add it'],
+      ['⌘Enter', 'in the review: send all comments to the agent'],
+      ['N · P', 'in the diff: next / previous change'],
+      ['⌘P · ⌘J · ⌘U', 'in the review: find a file · the agent · inline or side by side']
+    ]
+  },
+  {
     title: 'Projects',
     keys: [
       ['⌘N', 'new project (this Mac or an SSH host)'],

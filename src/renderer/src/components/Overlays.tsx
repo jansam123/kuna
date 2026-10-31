@@ -5,6 +5,7 @@ import { AgentRenameDialog, FolderDialog, FolderEditDialog, ProjectDialog } from
 import { HelpDialog } from './HelpDialog'
 import { LoginDialog } from './LoginDialog'
 import { MediaViewer } from './MediaViewer'
+import { ReviewView } from './ReviewView'
 import { SettingsDialog } from './SettingsDialog'
 
 export function closeOverlay(): void {
@@ -13,14 +14,17 @@ export function closeOverlay(): void {
 
 /**
  * Keyboard handling for an open overlay. The handler sees every keydown first;
- * return true to swallow the key. Esc closes the overlay unless handled.
+ * return true to swallow the key, 'pass' to leave it to whatever has the focus
+ * (an editor's own Esc). Esc closes the overlay unless handled.
  */
-export function useOverlayKeys(handler: (ev: KeyboardEvent) => boolean | void): void {
+export function useOverlayKeys(handler: (ev: KeyboardEvent) => boolean | void | 'pass'): void {
   const ref = useRef(handler)
   ref.current = handler
   useEffect(() => {
     const onKey = (ev: KeyboardEvent): void => {
-      if (ref.current(ev)) {
+      const r = ref.current(ev)
+      if (r === 'pass') return
+      if (r) {
         ev.preventDefault()
         ev.stopPropagation()
         return
@@ -73,6 +77,8 @@ export function Overlays(): React.JSX.Element | null {
   switch (overlay.kind) {
     case 'media':
       return <MediaViewer agentKey={overlay.key} />
+    case 'review':
+      return <ReviewView host={overlay.host} dir={overlay.dir} agentKey={overlay.key} />
     case 'claude':
       return <ClaudeBrowser initialHost={overlay.host} />
     case 'project':

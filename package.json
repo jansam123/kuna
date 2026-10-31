@@ -51,6 +51,7 @@
     "dist": "electron-vite build && electron-builder --mac --dir"
   },
   "dependencies": {
+    "@shikijs/monaco": "4.5.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^6.0.0",
@@ -58,10 +59,12 @@
     "katex": "^0.19.0",
     "marked": "^18.1.1",
     "mermaid": "12.1.0",
+    "monaco-editor": "0.57.0",
     "node-pty": "^1.1.0",
     "pdfjs-dist": "^6.4.299",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "shiki": "4.5.0",
     "zustand": "^5.0.15"
   },
   "devDependencies": {

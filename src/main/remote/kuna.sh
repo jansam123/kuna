@@ -694,6 +694,125 @@ claude_files() {
   return 0
 }
 
+# ----------------------------------------------------------------- git ----
+#
+# git <op> <dir64> …: what the review view (⌘G) shows, read-only. Sections are
+# marked \036name\036; git's own lists in them are NUL-separated (-z). Flags are
+# ones old cluster gits (1.8) know too.
+
+# never take the index lock an agent's own git may need; paths as they are
+gq() { GIT_OPTIONAL_LOCKS=0 git -c core.quotepath=off "$@"; }
+
+git_ref() {
+  # a branch, tag or commit: no options, no ranges
+  case "$1" in ''|-*|*..*|*[!A-Za-z0-9._/@^~+-]*) echo "kuna: invalid ref: $1" >&2; exit 2 ;; esac
+}
+
+git_path() {
+  # a path inside the repository: relative, no .. steps
+  case "$1" in ''|/*|..|../*|*/../*|*/..) echo "kuna: invalid path: $1" >&2; exit 2 ;; esac
+}
+
+git_enter() {
+  # into the top of the repository the folder belongs to
+  d=$(expand "$(b64d "$1")")
+  cd "$d" 2>/dev/null || { echo "kuna: no such folder: $d" >&2; exit 3; }
+  root=$(gq rev-parse --show-toplevel 2>/dev/null)
+  [ -n "$root" ] || { echo "kuna: not a git repository: $d" >&2; exit 3; }
+  cd "$root" || exit 3
+}
+
+git_cmd() {
+  op=$1
+  [ $# -gt 0 ] && shift
+  git_enter "$1"
+  shift
+  case "$op" in
+    info)
+      printf '\036info\036'
+      printf 'root\t%s\n' "$root"
+      printf 'branch\t%s\n' "$(gq symbolic-ref -q --short HEAD 2>/dev/null)"
+      printf 'head\t%s\n' "$(gq rev-parse -q --verify HEAD 2>/dev/null)"
+      printf 'default\t%s\n' "$(gq symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)"
+      up=$(gq rev-parse --abbrev-ref '@{u}' 2>/dev/null) || up=
+      printf 'upstream\t%s\n' "$up"
+      printf '\036refs\036'
+      gq for-each-ref --sort=-committerdate --count=500 --format='%(refname)%09%(objectname)%09%(committerdate:raw)%09%(subject)' refs/heads refs/remotes refs/tags 2>/dev/null
+      printf '\036worktrees\036'
+      gq worktree list --porcelain 2>/dev/null
+      ;;
+    status)
+      printf '\036status\036'
+      gq status --porcelain -z --untracked-files=all 2>/dev/null | head -c 4000000
+      printf '\036staged\036'
+      gq diff --cached --numstat -z -M 2>/dev/null | head -c 2000000
+      printf '\036unstaged\036'
+      gq diff --numstat -z 2>/dev/null | head -c 2000000
+      ;;
+    compare)
+      # compare <dir64> <base64> [head64]: head's changes since it left base (base...head);
+      # no head: the working tree, uncommitted changes and new files included
+      base=$(b64d "$1")
+      head=$(b64d "$2")
+      git_ref "$base"
+      [ -z "$head" ] || git_ref "$head"
+      tip=${head:-HEAD}
+      mb=$(gq merge-base "$base" "$tip" 2>/dev/null) || mb=$(gq rev-parse -q --verify "$base^{commit}" 2>/dev/null)
+      [ -n "$mb" ] || { echo "kuna: unknown branch or commit: $base" >&2; exit 3; }
+      printf '\036base\036%s\n' "$mb"
+      printf '\036tip\036%s\n' "$(gq rev-parse -q --verify "$tip^{commit}" 2>/dev/null)"
+      if [ -n "$head" ]; then set -- "$mb" "$head"; else set -- "$mb"; fi
+      printf '\036files\036'
+      gq diff --name-status -z -M "$@" -- 2>/dev/null | head -c 4000000
+      printf '\036counts\036'
+      gq diff --numstat -z -M "$@" -- 2>/dev/null | head -c 4000000
+      if [ -z "$head" ]; then
+        printf '\036untracked\036'
+        gq ls-files -z --others --exclude-standard 2>/dev/null | head -c 2000000
+      fi
+      printf '\036commits\036'
+      gq log -z --max-count=300 --format='%H%x09%h%x09%an%x09%at%x09%s' "$mb..$tip" -- 2>/dev/null
+      ;;
+    files)
+      # files <dir64> [rev64]: every file at a commit, or in the working tree (ignored ones left out)
+      rev=$(b64d "$1")
+      if [ -n "$rev" ]; then
+        git_ref "$rev"
+        gq ls-tree -r -z --name-only "$rev" -- 2>/dev/null
+      else
+        gq ls-files -z --cached --others --exclude-standard 2>/dev/null
+      fi | head -c 16000000
+      ;;
+    cat)
+      # cat <dir64> <max> <spec64>…: for each, \036<size>\036 and the bytes when
+      # size <= max (\036-\036 when it does not exist). G<rev>:<path> a commit's
+      # file, I<path> the index's, W<path> the working tree's.
+      valid_num "$1"
+      max=$1
+      shift
+      for s in "$@"; do
+        spec=$(b64d "$s")
+        case "$spec" in
+          W*) p=${spec#W}; git_path "$p"; obj= ;;
+          I*) p=${spec#I}; git_path "$p"; obj=":$p" ;;
+          G*:*) r=${spec#G}; r=${r%%:*}; p=${spec#G"$r":}; git_ref "$r"; git_path "$p"; obj="$r:$p" ;;
+          *) echo "kuna: invalid spec" >&2; exit 2 ;;
+        esac
+        if [ -z "$obj" ]; then
+          if [ -f "$p" ]; then size=$(wc -c < "$p" | tr -d ' '); else size=; fi
+        else
+          size=$(gq cat-file -s "$obj" 2>/dev/null)
+        fi
+        if [ -z "$size" ]; then printf '\036-\036'; continue; fi
+        printf '\036%s\036' "$size"
+        [ "$size" -le "$max" ] || continue
+        if [ -z "$obj" ]; then cat "$p"; else gq cat-file blob "$obj"; fi
+      done
+      ;;
+    *) echo "kuna: git {info|status|compare|files|cat}" >&2; exit 2 ;;
+  esac
+}
+
 # ---------------------------------------------------------------- main ----
 
 cmd=$1
@@ -723,5 +842,6 @@ case "$cmd" in
   ls) ls_dirs "$@" ;;
   realpath) real_paths "$@" ;;
   claude-files) claude_files "$@" ;;
-  *) echo "usage: kuna {version|setup|doctor|spawn|run|kill|key|send|attach|hook|watch|read|stat|media|cat|ls|realpath|claude-files}" >&2; exit 2 ;;
+  git) git_cmd "$@" ;;
+  *) echo "usage: kuna {version|setup|doctor|spawn|run|kill|key|send|attach|hook|watch|read|stat|media|cat|ls|realpath|claude-files|git}" >&2; exit 2 ;;
 esac

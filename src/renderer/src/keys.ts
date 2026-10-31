@@ -162,6 +162,10 @@ function globalShortcut(ev: KeyboardEvent): boolean {
     set({ overlay: { kind: 'claude', host }, mode: 'nav' })
     return true
   }
+  if (k === 'g' && !ev.shiftKey) {
+    openReview()
+    return true
+  }
   if (k === 'n' && !ev.shiftKey) {
     set({ overlay: { kind: 'project' }, mode: 'nav' })
     return true
@@ -204,6 +208,27 @@ function globalShortcut(ev: KeyboardEvent): boolean {
     return true
   }
   return false
+}
+
+/**
+ * ⌘G: the review view for the agent in the focused pane or on the selected
+ * row (its worktree, else its folder), or for the selected folder.
+ */
+export function openReview(): void {
+  const s = get()
+  if (s.mode === 'insert' && s.zone === 'pane') leaveInsert(false)
+  const key = s.zone === 'pane' ? focusedKey() : activeAgentKey()
+  const agent = key ? s.agents[key] : undefined
+  if (agent) {
+    set({ overlay: { kind: 'review', host: agent.host, dir: agent.worktree ?? agent.cwd, key: agent.key }, mode: 'nav' })
+    return
+  }
+  const node = selectedNode()
+  if (node?.kind === 'folder' && !node.virtual) {
+    set({ overlay: { kind: 'review', host: node.project.host, dir: node.folder.path }, mode: 'nav' })
+    return
+  }
+  toast('Select an agent or a folder to review its changes (⌘G).', 'warn')
 }
 
 /**

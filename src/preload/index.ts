@@ -72,6 +72,16 @@ const api: KunaApi = {
     list: (host, cwds) => ipcRenderer.invoke(IPC.claudeList, host, cwds),
     read: (host, path) => ipcRenderer.invoke(IPC.claudeRead, host, path)
   },
+  git: {
+    overview: (host, dir) => ipcRenderer.invoke(IPC.gitOverview, host, dir),
+    compare: (host, dir, base, head) => ipcRenderer.invoke(IPC.gitCompare, host, dir, base, head),
+    files: (host, dir, rev) => ipcRenderer.invoke(IPC.gitFiles, host, dir, rev),
+    read: (host, dir, sides) => ipcRenderer.invoke(IPC.gitRead, host, dir, sides)
+  },
+  vscode: {
+    look: (refresh) => ipcRenderer.invoke(IPC.vscodeLook, refresh),
+    icon: (id) => ipcRenderer.invoke(IPC.vscodeIcon, id)
+  },
   fs: {
     dirs: (host, dir) => ipcRenderer.invoke(IPC.fsDirs, host, dir),
     realPaths: (host, paths) => ipcRenderer.invoke(IPC.fsRealPaths, host, paths)
