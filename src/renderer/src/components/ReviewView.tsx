@@ -20,6 +20,7 @@ import {
   type ReviewComment,
   type TreeDir
 } from '@shared/git'
+import type { ReviewMemo } from '@shared/types'
 import type { VscodeLook } from '@shared/vscode'
 import { discardTyped, leaveScroll, sendEsc } from '../actions'
 import { ago } from '../format'
@@ -204,8 +205,10 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
   const [compareError, setCompareError] = useState<string | null>(null)
   const [comparing, setComparing] = useState(false)
   const [files, setFiles] = useState<string[] | null>(null)
-  const [tab, setTab] = useState<Tab>('changes')
-  const [cursor, setCursor] = useState<Partial<Record<Tab, string>>>({})
+  /** how the view was left from this folder last time: the list, the Folder tab's open folders and pick */
+  const [folderMemo] = useState(() => get().settings.reviewView?.[`${host}:${folder}`])
+  const [tab, setTab] = useState<Tab>(() => (TABS.includes(folderMemo?.tab as Tab) ? (folderMemo!.tab as Tab) : 'changes'))
+  const [cursor, setCursor] = useState<Partial<Record<Tab, string>>>(() => (folderMemo?.cursor?.folder ? { folder: folderMemo.cursor.folder } : {}))
   const [closedDirs, setClosedDirs] = useState<Set<string>>(new Set())
   const [openDirs, setOpenDirs] = useState<Set<string>>(new Set())
   const [filter, setFilter] = useState('')
@@ -299,28 +302,32 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
     if (lastRepo.current === dir) return
     const first = !lastRepo.current
     lastRepo.current = dir
-    if (first) {
-      setCommentsState(pendingComments.get(`${host}:${dir}`) ?? [])
-      return
+    if (!dir) return
+    // as it was left in this repository: what was compared, the files picked, the folders rolled in or out
+    const memo = get().settings.reviewView?.[`${host}:${dir}`]
+    const remembered = (): void => {
+      setHead(memo?.head === undefined || memo.head === '@checkout' ? undefined : memo.head)
+      const { folder: _ignored, ...gitCursor } = (memo?.cursor ?? {}) as Partial<Record<Tab, string>>
+      setCursor((c) => ({ ...(c.folder ? { folder: c.folder } : {}), ...gitCursor }))
+      setClosedDirs(new Set(memo?.closedDirs ?? []))
+      setOpenDirs(new Set(memo?.openDirs ?? []))
     }
+    setCommentsState(pendingComments.get(`${host}:${dir}`) ?? [])
+    if (first) return remembered()
     setInfo(null)
     setStatus(null)
     setError(null)
     setBase(undefined)
-    setHead(undefined)
     setCommit(null)
     setCompare(null)
     setCompareError(null)
     setFiles(null)
-    setTab('changes')
-    setCursor({})
-    setClosedDirs(new Set())
-    setOpenDirs(new Set())
+    if (tab !== 'folder') setTab('changes')
     setFilter('')
     setShown(null)
     setDraft(null)
-    setCommentsState(pendingComments.get(`${host}:${dir}`) ?? [])
-    chose.current = false
+    remembered()
+    chose.current = tab === 'folder'
     blobCache.current.clear()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dir])
@@ -349,7 +356,11 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
       // no main, master or origin: the branch itself, until another is picked (⌘B)
       return defaultBase(ov.info) ?? ov.info.branch ?? (ov.info.head ? 'HEAD' : undefined)
     })
-    setHead((h) => (h !== undefined ? h : (ov.info.branch ?? (ov.info.head ? 'HEAD' : null))))
+    // the head picked last time, while it still exists; else what is checked out
+    setHead((h) => {
+      const known = h === null || h === 'HEAD' || (!!h && (isSha(h) || ov.info.refs.some((r) => r.short === h)))
+      return known ? h! : (ov.info.branch ?? (ov.info.head ? 'HEAD' : null))
+    })
     // what follows (the comparison, the file list) goes once per reading of the repository
     setSeq((n) => n + 1)
   }, [host, dir])
@@ -492,7 +503,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
   // the agent's folder itself, git or not (configs, builds, run folders), read
   // one folder at a time as it is opened: run folders can hold thousands of files
   const [listing, setListing] = useState<Map<string, DirListing | { error: string }>>(new Map())
-  const [openFolder, setOpenFolder] = useState<Set<string>>(new Set())
+  const [openFolder, setOpenFolder] = useState<Set<string>>(() => new Set(folderMemo?.openFolder ?? []))
   const asking = useRef(new Set<string>())
   /** each refresh bumps it; a folder read in an older one is read again when shown, and stays on screen meanwhile */
   const [folderGen, setFolderGen] = useState(0)
@@ -532,6 +543,44 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
     }),
     [absOf, folder, folderName]
   )
+
+  // ------------------------------------------------ remembered next time --
+  // per repository: what was compared, the rows picked, the folders rolled in
+  // or out; per agent folder: the list it was on and the Folder tab. Written a
+  // moment after a change and when the view closes, kept for the 40 used last.
+  const memoNow = useRef<() => void>(() => undefined)
+  memoNow.current = () => {
+    const all: Record<string, ReviewMemo> = { ...(get().settings.reviewView ?? {}) }
+    const at = Date.now()
+    const { folder: folderCursor, ...gitCursor } = cursor
+    const fk = `${host}:${folder}`
+    all[fk] = { ...all[fk], at, tab, openFolder: [...openFolder], cursor: { ...(fk === `${host}:${dir}` ? all[fk]?.cursor : {}), ...(folderCursor ? { folder: folderCursor } : {}) } }
+    if (dir && info) {
+      const rk = `${host}:${dir}`
+      all[rk] = {
+        ...all[rk],
+        at,
+        // the checked-out branch is followed (an agent may switch); anything else was picked on purpose
+        head: head === undefined ? all[rk]?.head : head !== null && head === info.branch ? '@checkout' : head,
+        cursor: { ...(rk === fk ? all[rk]?.cursor : {}), ...gitCursor, ...(rk === fk && folderCursor ? { folder: folderCursor } : {}) },
+        closedDirs: [...closedDirs],
+        openDirs: [...openDirs]
+      }
+    }
+    for (const k of Object.keys(all)
+      .sort((a, b) => all[b].at - all[a].at)
+      .slice(40))
+      delete all[k]
+    // the repository shown is the one to open next time, picked or kept from the list that opened by itself
+    const repoPicks = get().settings.reviewRepo ?? {}
+    const keepRepo = dir && (repos?.length ?? 0) > 1 && repoPicks[fk] !== dir
+    updateSettings({ reviewView: all, ...(keepRepo ? { reviewRepo: { ...repoPicks, [fk]: dir } } : {}) })
+  }
+  useEffect(() => {
+    const t = setTimeout(() => memoNow.current(), 1500)
+    return () => clearTimeout(t)
+  }, [tab, cursor, head, closedDirs, openDirs, openFolder, dir, info])
+  useEffect(() => () => memoNow.current(), [])
 
   const q = filter.trim().toLowerCase().replace(/\s+/g, '')
   const rows = useMemo<Row[]>(() => {
@@ -611,7 +660,8 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
   const currentEntry = current?.type === 'file' ? current.entry : null
 
   // which tab to open on: the branch's changes, else what is uncommitted, else the files
-  const chose = useRef(false)
+  // left on a list last time: that one, not a guess
+  const chose = useRef(!!folderMemo?.tab)
   useEffect(() => {
     if (chose.current || !status || (!compare && !compareError)) return
     chose.current = true
@@ -1452,6 +1502,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
               onSave={saveDraft}
               onRemove={(id) => setComments(comments.filter((c) => c.id !== id))}
               api={pane}
+              scope={`${host}:${dir || folder}`}
             />
           ) : (
             <div className="rv-msg">{envError ?? 'Loading the editor…'}</div>

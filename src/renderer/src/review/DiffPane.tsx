@@ -97,6 +97,9 @@ function options(look: VscodeLook, env: EditorEnv): MonacoApi.editor.IEditorOpti
 /** which editor a model was made for */
 const modelOwner = new WeakMap<object, 'diff' | 'file'>()
 
+/** "repository|row" → where that file was scrolled to, while Kuna runs (the newest 300) */
+const places = new Map<string, unknown>()
+
 interface Zone {
   key: string
   editor: Editor
@@ -116,8 +119,11 @@ export function DiffPane({
   setDraft,
   onSave,
   onRemove,
-  api
+  api,
+  scope
 }: {
+  /** the host and repository (or folder), for remembering where each file was scrolled to */
+  scope: string
   env: EditorEnv
   look: VscodeLook
   shown: Shown | null
@@ -135,6 +141,8 @@ export function DiffPane({
   const diff = useRef<DiffEditor | null>(null)
   const file = useRef<Editor | null>(null)
   const models = useRef<MonacoApi.editor.ITextModel[]>([])
+  /** keeps the place of the file on screen (the editors' last act before they go) */
+  const keepPlaceRef = useRef<() => void>(() => undefined)
   const shownRef = useRef(shown)
   shownRef.current = shown
   const draftArea = useRef<HTMLTextAreaElement | null>(null)
@@ -194,6 +202,7 @@ export function DiffPane({
     }
     const subs = [...hover(d.getModifiedEditor(), 'new'), ...hover(d.getOriginalEditor(), 'old'), ...hover(f, 'new')]
     return () => {
+      keepPlaceRef.current()
       subs.forEach((s) => s.dispose())
       d.dispose()
       f.dispose()
@@ -209,13 +218,29 @@ export function DiffPane({
 
   // the file's text into the editor (its language's grammar first)
   const lastKey = useRef<string | null>(null)
+  const lastMode = useRef<'diff' | 'file'>('diff')
+  /** where the file on screen is scrolled to, kept for coming back to it */
+  const keepPlace = (): void => {
+    if (!lastKey.current) return
+    const view = lastMode.current === 'file' ? file.current?.saveViewState() : diff.current?.saveViewState()
+    if (view) {
+      places.delete(`${scope}|${lastKey.current}`)
+      places.set(`${scope}|${lastKey.current}`, view)
+      while (places.size > 300) places.delete(places.keys().next().value!)
+    }
+  }
+  keepPlaceRef.current = keepPlace
   useEffect(() => {
     if (!shown || !text) return
     let live = true
     void env.language(shown.path).then((lang) => {
       if (!live) return
       const same = lastKey.current === shown.key
+      if (!same) keepPlace()
+      // looked at before (in this view or an earlier one): back to that place
+      const before = same ? undefined : places.get(`${scope}|${shown.key}`)
       lastKey.current = shown.key
+      lastMode.current = shown.mode
       // each editor's models go only when that editor has new ones (the other still shows its own)
       const which = shown.mode === 'file' ? 'file' : 'diff'
       const old = models.current.filter((m) => modelOwner.get(m) === which)
@@ -235,6 +260,7 @@ export function DiffPane({
         modelOwner.set(m, 'file')
         models.current = [...models.current.filter((x) => !old.includes(x)), m]
         if (view) ed.restoreViewState(view)
+        else if (before) ed.restoreViewState(before as MonacoApi.editor.ICodeEditorViewState)
         else ed.setScrollTop(0)
       } else {
         const d = diff.current!
@@ -248,7 +274,13 @@ export function DiffPane({
         modelOwner.set(m, 'diff')
         models.current = [...models.current.filter((x) => !old.includes(x)), o, m]
         if (view) d.restoreViewState(view)
-        else {
+        else if (before) {
+          // the diff is laid out once it is worked out: the place goes back then
+          const once = d.onDidUpdateDiff(() => {
+            once.dispose()
+            d.restoreViewState(before as MonacoApi.editor.IDiffEditorViewState)
+          })
+        } else {
           // to the first change once the diff is worked out
           const once = d.onDidUpdateDiff(() => {
             once.dispose()

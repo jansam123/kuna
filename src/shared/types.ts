@@ -53,8 +53,26 @@ export interface Settings {
   reviewBase?: Record<string, string>
   /** "host:folder" → the repository last reviewed from there (a folder above several repositories) */
   reviewRepo?: Record<string, string>
+  /** "host:repository" and "host:folder" → how the review view was left there (the 40 used last) */
+  reviewView?: Record<string, ReviewMemo>
   /** macOS notification when an agent finishes or needs you while Kuna is in the background */
   notify: boolean
+}
+
+/** How the review view was left for a repository or an agent's folder, to open the same way. */
+export interface ReviewMemo {
+  /** when, for keeping only the newest */
+  at: number
+  /** the list it was on */
+  tab?: string
+  /** what was compared: a branch, tag or commit; null the working tree; '@checkout' whatever is checked out */
+  head?: string | null
+  /** the row picked in each list (a file, a folder, a commit) */
+  cursor?: Record<string, string>
+  /** folders rolled in (Changes) or out (Files, the Folder tab) */
+  closedDirs?: string[]
+  openDirs?: string[]
+  openFolder?: string[]
 }
 
 /** Fonts taken from the user's VS Code and terminal settings. */

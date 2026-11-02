@@ -99,7 +99,9 @@ A single **Esc** goes to the agent, on a pane or while typing, as in a terminal:
 
 ⌘G on an agent (its pane, or its row in the sidebar) opens its repository in the review view: the agent's worktree if it has one, else its folder. On a folder it opens that folder's repository, without an agent. An agent started a level above its repositories (beside configs, builds and run folders) gets every repository up to three levels below its folder: the one you reviewed there last opens, else the one worked in most recently, with the list open to pick from; **⌘O** (or the repository's name in the header) switches. Files are on the left, the diff in the middle, in VS Code's own editor with your VS Code colour theme, editor font and file icons, and the agent's terminal on the right. Nothing is changed in the repository: Kuna only reads it.
 
-The left side has four lists:
+It opens as you left it, also after a restart: per repository the base, what was compared (a branch you picked stays; the checked-out branch follows whatever is checked out), the file picked in each list and the folders rolled in or out; per agent folder the repository, the list you were on and the Folder tab's open folders. Each file also keeps where it was scrolled to while Kuna runs.
+
+The left side has five lists:
 
 - **Changes** — what the branch changed since it left the base branch (`base...head`, as a pull request shows it), as a folder tree with +/− counts. The base starts as origin's default branch (`origin/main`), else `main` or `master`; on that branch itself, its upstream, so unpushed commits show. Head starts as the checked-out branch. **⌘B** picks the base, **⇧⌘B** the head (any branch, remote branch, tag or commit; branches checked out in other worktrees say where), and **Working tree** as head includes uncommitted changes and new files. Kuna remembers the base per repository.
 - **Uncommitted** — as VS Code's Source Control lists them: staged changes (HEAD → index), changes (index → disk), untracked files, conflicts.
