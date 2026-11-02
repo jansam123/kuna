@@ -131,6 +131,7 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.claudeList, (_e, host: string, cwds: string[]) => claudeFiles.list(host, cwds))
   ipcMain.handle(IPC.claudeRead, (_e, host: string, path: string) => claudeFiles.read(host, path))
+  ipcMain.handle(IPC.gitRepos, (_e, host: string, dir: string) => git.repos(host, dir))
   ipcMain.handle(IPC.gitOverview, (_e, host: string, dir: string) => git.overview(host, dir))
   ipcMain.handle(IPC.gitCompare, (_e, host: string, dir: string, base: string, head: string | null) => git.compare(host, dir, base, head))
   ipcMain.handle(IPC.gitFiles, (_e, host: string, dir: string, rev: string | null) => git.files(host, dir, rev))

@@ -7,7 +7,7 @@ export interface RefOption {
   value: string | null
   label: string
   detail?: string
-  kind: 'worktree' | 'branch' | 'remote' | 'tag' | 'commit'
+  kind: 'worktree' | 'branch' | 'remote' | 'tag' | 'commit' | 'repo'
   time?: number
 }
 
@@ -36,13 +36,18 @@ export function RefPicker({
   current,
   onPick,
   onClose,
-  title
+  title,
+  typed = true,
+  placeholder = 'Filter branches, or type a commit'
 }: {
   options: RefOption[]
   current: string | null | undefined
   onPick: (value: string | null) => void
   onClose: () => void
   title: string
+  /** a name typed that is not in the list can be picked (a commit) */
+  typed?: boolean
+  placeholder?: string
 }): React.JSX.Element {
   const [q, setQ] = useState('')
   const [at, setAt] = useState(0)
@@ -51,10 +56,10 @@ export function RefPicker({
   const shown = useMemo(() => {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean)
     const hits = options.filter((o) => words.every((w) => `${o.label} ${o.detail ?? ''}`.toLowerCase().includes(w)))
-    const typed = q.trim()
-    if (typed && validRef(typed) && !options.some((o) => o.value === typed)) hits.push({ value: typed, label: typed, detail: 'a branch, tag or commit by name', kind: 'commit' })
+    const name = q.trim()
+    if (typed && name && validRef(name) && !options.some((o) => o.value === name)) hits.push({ value: name, label: name, detail: 'a branch, tag or commit by name', kind: 'commit' })
     return hits
-  }, [q, options])
+  }, [q, options, typed])
 
   useEffect(() => {
     input.current?.focus()
@@ -87,7 +92,7 @@ export function RefPicker({
       <input
         ref={input}
         value={q}
-        placeholder="Filter branches, or type a commit"
+        placeholder={placeholder}
         spellCheck={false}
         onChange={(e) => {
           setQ(e.target.value)
@@ -104,7 +109,7 @@ export function RefPicker({
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onPick(o.value)}
           >
-            <span className={`rv-ref-kind k-${o.kind}`}>{o.kind === 'worktree' ? '◉' : o.kind === 'remote' ? '☁' : o.kind === 'tag' ? '#' : o.kind === 'commit' ? '•' : '⎇'}</span>
+            <span className={`rv-ref-kind k-${o.kind}`}>{o.kind === 'repo' ? '▣' : o.kind === 'worktree' ? '◉' : o.kind === 'remote' ? '☁' : o.kind === 'tag' ? '#' : o.kind === 'commit' ? '•' : '⎇'}</span>
             <span className="rv-ref-name">{o.label}</span>
             <span className="rv-ref-detail">{o.detail}</span>
             {o.time ? <span className="rv-ref-age">{ago(o.time)}</span> : null}

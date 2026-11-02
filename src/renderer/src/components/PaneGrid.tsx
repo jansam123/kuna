@@ -176,8 +176,8 @@ function AgentPane({ agentKey, index }: { agentKey: string; index: number }): Re
   const typing = useKuna((s) => s.zone === 'pane' && s.paneIndex === index && s.mode === 'insert')
   const unread = useKuna((s) => !!s.agents[agentKey] && isUnread(s.agents[agentKey], s.lastSeen))
   const escHint = useKuna((s) => s.escHint)
-  // the plot viewer has the terminal while it shows this agent's files; it comes back after
-  const lent = useKuna((s) => s.overlay?.kind === 'media' && s.overlay.key === agentKey)
+  // the plot viewer and the review view have the terminal while they show this agent; it comes back after
+  const lent = useKuna((s) => (s.overlay?.kind === 'media' || s.overlay?.kind === 'review') && s.overlay.key === agentKey)
   const projects = useKuna((s) => s.projects)
   const agents = useKuna((s) => s.agents)
   const hosts = useKuna((s) => s.hosts)
@@ -192,6 +192,8 @@ function AgentPane({ agentKey, index }: { agentKey: string; index: number }): Re
     const e = getTerminal(agentKey)
     slot.current?.appendChild(e.el)
     fitTerminal(agentKey)
+    // back from a viewer at the same size: no resize redraws it, so draw it now
+    e.term.refresh(0, e.term.rows - 1)
   }, [agentKey, lent])
 
   useEffect(() => {

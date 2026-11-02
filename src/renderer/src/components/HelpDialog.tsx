@@ -61,6 +61,7 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
     keys: [
       ['⌘G', "review the agent's (or folder's) changes against a base branch, as a PR"],
       ['⌘B · ⇧⌘B', 'in the review: pick the base · the head (or the working tree)'],
+      ['⌘O', 'in the review: another repository in the agent’s folder'],
       ['Tab · ⌘1–4', 'in the review: Changes, Uncommitted, Files, Commits'],
       ['→ · Esc', 'in the review: into the diff · back to the files'],
       ['C · ⌘Enter', 'in the diff: comment on the selected lines · add it'],

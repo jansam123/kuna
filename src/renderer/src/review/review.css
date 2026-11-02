@@ -1,7 +1,17 @@
 /* The review view (⌘G): Kuna's dark chrome around an editor in the user's VS Code theme. */
 
+/* the pickers drop down out of the header, over the files and the diff */
 .rv-head {
   gap: 10px;
+  position: relative;
+  z-index: 3;
+  overflow: visible;
+}
+.rv-head > * {
+  flex-shrink: 0;
+}
+.rv-head > .media-keys {
+  flex-shrink: 1;
 }
 .rv-title {
   font: var(--fs-mono) var(--mono);

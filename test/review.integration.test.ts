@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } 
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { parseBlobs, parseCompare, parseInfo, parseStatus, sections, specOf, type GitSide } from '@shared/git'
+import { parseBlobs, parseCompare, parseInfo, parseRepos, parseStatus, repoLabel, sections, specOf, type GitSide } from '@shared/git'
 
 /**
  * The review view's git, end to end on the host side: `kuna git …` from the
@@ -159,6 +159,27 @@ describe.skipIf(!hasGit)('review: kuna git on a repository', () => {
     expect(w.files.map((f) => f.path)).not.toContain('vendor/lib/')
     expect(statSync(join(repo, '.git', 'index')).mtimeMs).toBe(index)
     rmSync(join(repo, 'vendor'), { recursive: true, force: true })
+  })
+
+  it('finds the repositories in and below a folder', () => {
+    // a folder above its repositories, beside configs and run folders, as agents are often started
+    mkdirSync(join(home, 'configs'))
+    mkdirSync(join(home, 'run', 'out'), { recursive: true })
+    mkdirSync(join(home, 'node_modules', 'pkg'), { recursive: true })
+    sh('cd .. && git init -q tools && cd tools && git -c user.email=t@example.org -c user.name=T commit -q --allow-empty -m init')
+    sh('cd ../node_modules/pkg && git init -q .')
+    const real = (p: string): string => execFileSync('sh', ['-c', 'pwd -P'], { cwd: p }).toString().trim()
+    const found = parseRepos(kuna('repos', b64(home)).toString())
+    expect(found.map((r) => repoLabel(r.path, real(home))).sort()).toEqual(['repo', 'tools'])
+    expect(found.find((r) => r.path.endsWith('/repo'))).toMatchObject({ branch: 'feat' })
+    expect(found.every((r) => r.active > 0)).toBe(true)
+    // inside a repository: that one
+    const inside = parseRepos(kuna('repos', b64(join(repo, 'src'))).toString())
+    expect(inside.map((r) => r.path)).toEqual([real(repo)])
+    // none at all
+    expect(parseRepos(kuna('repos', b64(join(home, 'configs'))).toString())).toEqual([])
+    rmSync(join(home, 'tools'), { recursive: true, force: true })
+    rmSync(join(home, 'node_modules'), { recursive: true, force: true })
   })
 
   it('refuses options, ranges and paths out of the repository', () => {

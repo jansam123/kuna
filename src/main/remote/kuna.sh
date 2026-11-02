@@ -728,9 +728,38 @@ git_enter() {
   cd "$root" || exit 3
 }
 
+git_repos() {
+  # repos <dir64>: the repository the folder is in, and every one below it up to
+  # three levels down (agents are often started a level above their repositories,
+  # beside configs, builds and run folders). Per line:
+  # path<TAB>branch<TAB>head<TAB>last commit time<TAB>index time (the newest touched first is the UI's guess)
+  d=$(expand "$(b64d "$1")")
+  cd "$d" 2>/dev/null || { echo "kuna: no such folder: $d" >&2; exit 3; }
+  d=$(pwd -P)
+  {
+    gq rev-parse --show-toplevel 2>/dev/null
+    # a .git folder (or the .git file of a worktree or submodule) marks one; big
+    # folders that never hold one are not walked
+    find . -maxdepth 3 \( -name node_modules -o -name .venv -o -name venv -o -name __pycache__ -o -name .cache -o -name .tox -o -name .mypy_cache -o -name .snakemake \) -prune \
+      -o -name .git -print -prune 2>/dev/null | head -n 100 | while IFS= read -r g; do
+      r=${g%/.git}
+      case "$r" in .) printf '%s\n' "$d" ;; ./*) printf '%s/%s\n' "$d" "${r#./}" ;; esac
+    done
+  } | awk 'length($0) && !seen[$0]++' | while IFS= read -r r; do
+    (
+      cd "$r" 2>/dev/null || exit 0
+      gd=$(gq rev-parse --git-dir 2>/dev/null) || exit 0
+      it=$(fstat "$gd/index" | cut -f1)
+      printf '%s\t%s\t%s\t%s\t%s\n' "$r" "$(gq symbolic-ref -q --short HEAD 2>/dev/null)" "$(gq rev-parse -q --short HEAD 2>/dev/null)" \
+        "$(gq log -1 --format=%ct 2>/dev/null)" "${it:-0}"
+    )
+  done
+}
+
 git_cmd() {
   op=$1
   [ $# -gt 0 ] && shift
+  if [ "$op" = repos ]; then git_repos "$@"; return; fi
   git_enter "$1"
   shift
   case "$op" in

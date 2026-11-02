@@ -112,7 +112,7 @@ export function App(): React.JSX.Element {
   const sidebarHidden = useKuna((s) => s.sidebarHidden)
   const sidebarPeek = useKuna((s) => s.sidebarPeek)
   const inspectorPeek = useKuna((s) => s.inspectorPeek)
-  const fullOverlay = useKuna((s) => s.overlay?.kind === 'media')
+  const fullOverlay = useKuna((s) => s.overlay?.kind === 'media' || s.overlay?.kind === 'review')
   const sidebarWidth = useKuna((s) => s.settings.sidebarWidth)
   const inspectorWidth = useKuna((s) => s.settings.inspectorWidth)
   const mode = useKuna((s) => s.mode)

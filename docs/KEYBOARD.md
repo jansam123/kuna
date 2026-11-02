@@ -97,7 +97,7 @@ A single **Esc** goes to the agent, on a pane or while typing, as in a terminal:
 
 ## Reviewing changes (⌘G)
 
-⌘G on an agent (its pane, or its row in the sidebar) opens its repository in the review view: the agent's worktree if it has one, else its folder. On a folder it opens that folder's repository, without an agent. Files are on the left, the diff in the middle, in VS Code's own editor with your VS Code colour theme, editor font and file icons, and the agent's terminal on the right. Nothing is changed in the repository: Kuna only reads it.
+⌘G on an agent (its pane, or its row in the sidebar) opens its repository in the review view: the agent's worktree if it has one, else its folder. On a folder it opens that folder's repository, without an agent. An agent started a level above its repositories (beside configs, builds and run folders) gets every repository up to three levels below its folder: the one you reviewed there last opens, else the one worked in most recently, with the list open to pick from; **⌘O** (or the repository's name in the header) switches. Files are on the left, the diff in the middle, in VS Code's own editor with your VS Code colour theme, editor font and file icons, and the agent's terminal on the right. Nothing is changed in the repository: Kuna only reads it.
 
 The left side has four lists:
 
@@ -119,6 +119,7 @@ The left side has four lists:
 | N · P (F7 · ⇧F7) | diff | next / previous change |
 | ⌘F | diff | find in the file |
 | ⌘Enter | anywhere else | send the review: every comment, with its file, lines and the code it is about, to the agent as one message (no agent: copied to the clipboard). ⇧⌘C copies it |
+| ⌘O | anywhere | another repository in the agent's folder (when there are several) |
 | ⌘J | anywhere | to the agent's terminal and back to the files |
 | ⌘U | anywhere | side by side or inline |
 | ⌘R | anywhere | read the repository again (it also does by itself when the agent finishes a turn) |

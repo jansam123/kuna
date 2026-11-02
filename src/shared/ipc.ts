@@ -14,7 +14,7 @@ import type {
   WindowsInfo
 } from './types'
 import type { SharedPatch } from './sync'
-import type { GitBlob, GitCompare, GitInfo, GitSide, GitStatus } from './git'
+import type { GitBlob, GitCompare, GitInfo, GitRepo, GitSide, GitStatus } from './git'
 import type { VscodeLook } from './vscode'
 
 /** What the main process asks a window to do. */
@@ -119,6 +119,8 @@ export interface KunaApi {
   windowButtons(visible: boolean): void
   /** the review view (⌘G): read-only git on any host */
   git: {
+    /** the repository a folder is in, and those up to three levels below it, most recently active first */
+    repos(host: HostId, dir: string): Promise<GitRepo[] | { error: string }>
     overview(host: HostId, dir: string): Promise<{ info: GitInfo; status: GitStatus } | { error: string }>
     /** base...head as a pull request shows it; head null: the working tree */
     compare(host: HostId, dir: string, base: string, head: string | null): Promise<GitCompare | { error: string }>
@@ -181,6 +183,7 @@ export const IPC = {
   mediaSave: 'media:save',
   claudeList: 'claude:list',
   claudeRead: 'claude:read',
+  gitRepos: 'git:repos',
   gitOverview: 'git:overview',
   gitCompare: 'git:compare',
   gitFiles: 'git:files',

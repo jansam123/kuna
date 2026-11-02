@@ -3,6 +3,7 @@ import {
   buildTree,
   defaultBase,
   isImagePath,
+  repoLabel,
   isSha,
   looksBinary,
   reviewMessage,
@@ -12,6 +13,7 @@ import {
   type GitCommit,
   type GitCompare,
   type GitInfo,
+  type GitRepo,
   type GitSide,
   type GitStatus,
   type ReviewComment,
@@ -167,9 +169,18 @@ function decode(blob: GitBlob | undefined, path: string, urls: string[]): { text
  * VS Code theme, font and icons. Comments on lines (C) collect into a review
  * that ⌘↵ sends to the agent, whose terminal sits on the right.
  */
-export function ReviewView({ host, dir, agentKey }: { host: string; dir: string; agentKey?: string }): React.JSX.Element {
+export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir: string; agentKey?: string }): React.JSX.Element {
   const agent = useKuna((s) => (agentKey ? s.agents[agentKey] : undefined))
   const settings = useKuna((s) => s.settings)
+  /**
+   * The repositories in and below the agent's folder: agents often start a
+   * level above their repositories, beside configs, builds and run folders.
+   */
+  const [repos, setRepos] = useState<GitRepo[] | null>(null)
+  const [repo, setRepo] = useState<string | null>(null)
+  /** the repository shown (every git call below goes there) */
+  const dir = repo ?? ''
+  const repoKey = `${host}:${folder}`
   const [look, setLook] = useState<VscodeLook | null>(null)
   const [env, setEnv] = useState<EditorEnv | null>(null)
   const [envError, setEnvError] = useState<string | null>(null)
@@ -190,7 +201,7 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
   const [closedDirs, setClosedDirs] = useState<Set<string>>(new Set())
   const [openDirs, setOpenDirs] = useState<Set<string>>(new Set())
   const [filter, setFilter] = useState('')
-  const [picker, setPicker] = useState<'base' | 'head' | null>(null)
+  const [picker, setPicker] = useState<'base' | 'head' | 'repo' | null>(null)
   const [shown, setShown] = useState<Shown | null>(null)
   const [tick, setTick] = useState(0)
   /** readings of the repository so far: each starts one comparison */
@@ -209,6 +220,8 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
   const blobCache = useRef(new Map<string, GitBlob>())
   const sideBySide = !settings.reviewInline
   const root = info?.root ?? dir
+  const repoRef = useRef(dir)
+  repoRef.current = dir
   const [live, setLive] = useState(() => {
     if (!agentKey) return false
     const a = get().agents[agentKey]
@@ -241,9 +254,70 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
     }
   }, [])
 
+  // which repositories: the one the folder is in, else those below it; the one used last here, else the one worked in last
+  const scanRepos = useCallback(async () => {
+    const res = await window.kuna.git.repos(host, folder)
+    if ('error' in res) {
+      setRepos([])
+      setError(res.error)
+      return
+    }
+    setRepos(res)
+    if (!res.length) {
+      setError(`No git repository in ${folder}, or in the three levels of folders below it.`)
+      return
+    }
+    const cur = repoRef.current
+    if (cur && res.some((r) => r.path === cur)) return
+    const saved = get().settings.reviewRepo?.[repoKey]
+    if (saved && res.some((r) => r.path === saved)) return setRepo(saved)
+    // several and none picked here before: the latest worked in shows, and the list is open to choose from
+    setRepo(res[0].path)
+    if (res.length > 1) setPicker('repo')
+  }, [host, folder, repoKey])
+
+  useEffect(() => {
+    void scanRepos()
+  }, [scanRepos])
+
+  // another repository: everything about the last one goes
+  const lastRepo = useRef(dir)
+  useEffect(() => {
+    if (lastRepo.current === dir) return
+    const first = !lastRepo.current
+    lastRepo.current = dir
+    if (first) {
+      setCommentsState(pendingComments.get(`${host}:${dir}`) ?? [])
+      return
+    }
+    setInfo(null)
+    setStatus(null)
+    setError(null)
+    setBase(undefined)
+    setHead(undefined)
+    setCommit(null)
+    setCompare(null)
+    setCompareError(null)
+    setFiles(null)
+    setTab('changes')
+    setCursor({})
+    setClosedDirs(new Set())
+    setOpenDirs(new Set())
+    setFilter('')
+    setShown(null)
+    setDraft(null)
+    setCommentsState(pendingComments.get(`${host}:${dir}`) ?? [])
+    chose.current = false
+    blobCache.current.clear()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dir])
+
   // the repository: branches, worktrees, uncommitted changes
   const loadOverview = useCallback(async () => {
+    if (!dir) return
     const ov = await window.kuna.git.overview(host, dir)
+    // another repository was picked meanwhile
+    if (repoRef.current !== dir) return
     if ('error' in ov) {
       setError(ov.error)
       return
@@ -299,7 +373,7 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
 
   // every file, once the Files tab is looked at: what is on disk when head is checked out here
   const filesRev = head === null || (info && head === info.branch) ? null : (compare?.tip ?? null)
-  const filesKey = `${filesRev ?? 'disk'}:${seq}`
+  const filesKey = `${dir}:${filesRev ?? 'disk'}:${seq}`
   const filesAsked = useRef<string | null>(null)
   useEffect(() => {
     if (tab !== 'files' || filesAsked.current === filesKey || !info) return
@@ -558,6 +632,14 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
     setTimeout(() => listRef.current?.focus(), 0)
   }
 
+  const pickRepo = (path: string | null): void => {
+    setPicker(null)
+    setTimeout(() => listRef.current?.focus(), 0)
+    if (!path) return
+    setRepo(path)
+    updateSettings({ reviewRepo: { ...(get().settings.reviewRepo ?? {}), [repoKey]: path } })
+  }
+
   const saveDraft = (): void => {
     if (!draft) return
     const text = pane.current?.draftText().trim() ?? ''
@@ -651,7 +733,14 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
       setPicker(ev.shiftKey ? 'head' : 'base')
       return true
     }
+    if (k === 'o') {
+      if ((repos?.length ?? 0) > 1) setPicker('repo')
+      else setNote(`The only repository in ${folder}`)
+      return true
+    }
     if (k === 'r' && !ev.shiftKey) {
+      // the repositories too: one may have been cloned or made since
+      void scanRepos()
       refresh()
       setNote('Reading the repository again…')
       return true
@@ -938,9 +1027,34 @@ export function ReviewView({ host, dir, agentKey }: { host: string; dir: string;
     <div className="media-overlay rv" style={{ '--rv-list': `${listW}px`, '--side-w': `${chatW}px` } as React.CSSProperties}>
       <header className="media-head rv-head">
         <span className="rv-title">Review</span>
-        <span className="media-name" title={root}>
-          {repoName}
-        </span>
+        {repos && repos.length > 1 ? (
+          <span className="rv-ref-wrap rv-refs">
+            <button className="rv-ref rv-repo" title={`${root}\nAnother repository in ${folder} (⌘O)`} onMouseDown={(e) => e.preventDefault()} onClick={() => setPicker(picker === 'repo' ? null : 'repo')}>
+              {dir ? repoLabel(dir, folder) : '…'} <span className="dim">· {repos.length} repos ▾</span>
+            </button>
+            {picker === 'repo' && (
+              <RefPicker
+                title={`Repositories in ${folder.split('/').filter(Boolean).pop() ?? folder}`}
+                placeholder="Filter repositories"
+                typed={false}
+                options={repos.map((r) => ({
+                  value: r.path,
+                  label: repoLabel(r.path, folder),
+                  detail: [r.branch ?? (r.head ? `detached at ${r.head}` : 'no commits yet'), r.path === folder ? 'the folder itself' : ''].filter(Boolean).join(' · '),
+                  kind: 'repo',
+                  time: r.active || undefined
+                }))}
+                current={dir}
+                onPick={pickRepo}
+                onClose={() => setPicker(null)}
+              />
+            )}
+          </span>
+        ) : (
+          <span className="media-name" title={root}>
+            {repoName}
+          </span>
+        )}
         {host !== 'local' && <span className="media-meta">on {host}</span>}
         {commit ? (
           <span className="rv-refs">

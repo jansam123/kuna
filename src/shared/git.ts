@@ -294,6 +294,33 @@ export function parseCommits(text: string): GitCommit[] {
   return out
 }
 
+/** A repository found in or below an agent's folder. */
+export interface GitRepo {
+  path: string
+  branch?: string
+  head?: string
+  /** the newest of its last commit and its index (staging, checkouts): when it was last worked in */
+  active: number
+}
+
+/** `kuna git repos`: `path\tbranch\thead\tcommit time\tindex time` lines, most recently active first. */
+export function parseRepos(text: string): GitRepo[] {
+  const out: GitRepo[] = []
+  for (const line of text.split('\n')) {
+    const [path, branch, head, commit, index] = line.split('\t')
+    if (!path?.startsWith('/')) continue
+    out.push({ path, branch: branch || undefined, head: head || undefined, active: Math.max(Number(commit) || 0, Number(index) || 0) })
+  }
+  return out.sort((a, b) => b.active - a.active)
+}
+
+/** "ana/src" for /work/ana/src below /work; the folder's own name for the folder itself or one above it */
+export function repoLabel(repo: string, dir: string): string {
+  const d = dir.replace(/\/+$/, '')
+  if (repo.startsWith(`${d}/`)) return repo.slice(d.length + 1)
+  return repo.split('/').filter(Boolean).pop() ?? repo
+}
+
 /** `kuna git info` */
 export function parseInfo(text: string): GitInfo {
   const s = sections(text)

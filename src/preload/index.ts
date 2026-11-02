@@ -73,6 +73,7 @@ const api: KunaApi = {
     read: (host, path) => ipcRenderer.invoke(IPC.claudeRead, host, path)
   },
   git: {
+    repos: (host, dir) => ipcRenderer.invoke(IPC.gitRepos, host, dir),
     overview: (host, dir) => ipcRenderer.invoke(IPC.gitOverview, host, dir),
     compare: (host, dir, base, head) => ipcRenderer.invoke(IPC.gitCompare, host, dir, base, head),
     files: (host, dir, rev) => ipcRenderer.invoke(IPC.gitFiles, host, dir, rev),

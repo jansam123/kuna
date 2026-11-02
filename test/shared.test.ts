@@ -23,6 +23,8 @@ import {
   parseBlobs,
   parseCompare,
   parseInfo,
+  parseRepos,
+  repoLabel,
   parseStatus,
   reviewMessage,
   specOf,
@@ -630,6 +632,15 @@ describe('review: git output', () => {
       { path: '/r/.claude/worktrees/x', head: '123' }
     ])
     expect(defaultBase(info)).toBe('origin/main')
+  })
+
+  it('lists repositories below a folder, the one worked in last first', () => {
+    const r = parseRepos('/w/ana\tfeat\tabc1234\t1700000000\t1700000500\n/w/tools\tmain\tdef5678\t1700001000\t0\n/w/new\t\t\t\t0\nnoise\n')
+    expect(r.map((x) => x.path)).toEqual(['/w/tools', '/w/ana', '/w/new'])
+    expect(r[1]).toEqual({ path: '/w/ana', branch: 'feat', head: 'abc1234', active: 1700000500 })
+    expect(r[2]).toEqual({ path: '/w/new', branch: undefined, head: undefined, active: 0 })
+    expect(repoLabel('/w/ana/src/x', '/w/')).toBe('ana/src/x')
+    expect(repoLabel('/w', '/w/ana')).toBe('w')
   })
 
   it('picks a base as a pull request would', () => {

@@ -51,6 +51,8 @@ export interface Settings {
   reviewInline?: boolean
   /** "host:repository" → the branch last compared with there */
   reviewBase?: Record<string, string>
+  /** "host:folder" → the repository last reviewed from there (a folder above several repositories) */
+  reviewRepo?: Record<string, string>
   /** macOS notification when an agent finishes or needs you while Kuna is in the background */
   notify: boolean
 }

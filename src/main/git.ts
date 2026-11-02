@@ -2,6 +2,7 @@ import {
   parseBlobs,
   parseCompare,
   parseInfo,
+  parseRepos,
   parseStatus,
   sections,
   specOf,
@@ -10,6 +11,7 @@ import {
   type GitBlob,
   type GitCompare,
   type GitInfo,
+  type GitRepo,
   type GitSide,
   type GitStatus
 } from '@shared/git'
@@ -39,6 +41,14 @@ export class GitService {
       return { error: msg || `git failed (exit ${res.code})` }
     }
     return res.stdout
+  }
+
+  /** the repository a folder is in, and those below it */
+  async repos(hostId: HostId, dir: string): Promise<Result<GitRepo[]>> {
+    if (typeof dir !== 'string' || !dir) return { error: 'No folder.' }
+    const out = await this.run(hostId, ['repos', b64(dir)], 30_000, 200_000)
+    if ('error' in out) return out
+    return parseRepos(out.toString('utf8'))
   }
 
   async overview(hostId: HostId, dir: string): Promise<Result<{ info: GitInfo; status: GitStatus }>> {
