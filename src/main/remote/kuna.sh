@@ -655,6 +655,52 @@ ls_dirs() {
   return 0
 }
 
+list_dir() {
+  # lsdir <path64>: what is in a folder, one stat call for all of it (no
+  # process per file: run folders hold thousands). "more <n>" first when there
+  # are more than 3000 entries (the first 3000 follow). Per entry:
+  # type<TAB>size<TAB>mtime<TAB>name, symlinks followed.
+  d=$(expand "$(b64d "$1")")
+  cd "$d" 2>/dev/null || { echo "kuna: no such folder: $d" >&2; exit 3; }
+  # `! -name . -prune`: the folder's own entries, not below (POSIX for -maxdepth 1)
+  n=$(find . ! -name . -prune 2>/dev/null | wc -l | tr -d ' ')
+  [ "$n" -gt 0 ] || return 0
+  [ "$n" -le 3000 ] || printf 'more %s\n' "$n"
+  if stat -c %s / >/dev/null 2>&1; then fmt='-c'; spec='%F	%s	%Y	%n'; else fmt='-f'; spec='%HT	%z	%m	%N'; fi
+  find . ! -name . -prune 2>/dev/null | head -n 3000 | tr '\n' '\000' | xargs -0 stat -L "$fmt" "$spec" 2>/dev/null
+  return 0
+}
+
+frame_file() {
+  # \036<size>\036 and exactly that many bytes of a file (through a temporary
+  # copy $3, so a file that changes meanwhile can't break the framing);
+  # \036+<size>\036 when larger than $2, \036-\036 when it is not a readable file
+  if [ -L "$1" ] && [ -n "$4" ]; then
+    # as git keeps a symlink: its link text
+    l=$(readlink "$1" 2>/dev/null) || { l=$(ls -ld "$1"); l=${l#* -> }; }
+    printf '%s' "$l" > "$3"
+  elif [ -f "$1" ]; then
+    size=$(wc -c < "$1" | tr -d ' ')
+    if [ "$size" -gt "$2" ]; then printf '\036+%s\036' "$size"; return 0; fi
+    cat < "$1" > "$3" 2>/dev/null || { printf '\036-\036'; return 0; }
+  else
+    printf '\036-\036'
+    return 0
+  fi
+  printf '\036%s\036' "$(wc -c < "$3" | tr -d ' ')"
+  cat "$3"
+}
+
+read_file() {
+  # fread <max> <path64>: one file of any kind, framed as frame_file does
+  valid_num "$1"
+  f=$(expand "$(b64d "$2")")
+  t=$(mktemp "${TMPDIR:-/tmp}/kuna-cat.XXXXXX") || exit 3
+  trap 'rm -f "$t"' EXIT
+  case "$f" in /*) ;; *) f="./$f" ;; esac
+  frame_file "$f" "$1" "$t"
+}
+
 real_paths() {
   # realpath <paths64>: newline separated directories -> "path<TAB>physical path"
   # (symlinks resolved, like the working directory an agent reports)
@@ -856,17 +902,9 @@ git_cmd() {
         esac
         : > "$t"
         if [ -z "$obj" ]; then
-          if [ -L "./$p" ]; then
-            l=$(readlink "./$p" 2>/dev/null) || { l=$(ls -ld "./$p"); l=${l#* -> }; }
-            printf '%s' "$l" > "$t"
-          elif [ -f "./$p" ]; then
-            size=$(wc -c < "./$p" | tr -d ' ')
-            if [ "$size" -gt "$max" ]; then printf '\036+%s\036' "$size"; continue; fi
-            cat < "./$p" > "$t" 2>/dev/null || { printf '\036-\036'; continue; }
-          else
-            printf '\036-\036'
-            continue
-          fi
+          # a symlink as its link text, as git keeps it
+          frame_file "./$p" "$max" "$t" link
+          continue
         else
           [ "$(gq cat-file -t "$obj" 2>/dev/null)" = blob ] || { printf '\036-\036'; continue; }
           size=$(gq cat-file -s "$obj" 2>/dev/null)
@@ -909,7 +947,9 @@ case "$cmd" in
   cat) cat_file "$@" ;;
   ls) ls_dirs "$@" ;;
   realpath) real_paths "$@" ;;
+  lsdir) list_dir "$@" ;;
+  fread) read_file "$@" ;;
   claude-files) claude_files "$@" ;;
   git) git_cmd "$@" ;;
-  *) echo "usage: kuna {version|setup|doctor|spawn|run|kill|key|send|attach|hook|watch|read|stat|media|cat|ls|realpath|claude-files|git}" >&2; exit 2 ;;
+  *) echo "usage: kuna {version|setup|doctor|spawn|run|kill|key|send|attach|hook|watch|read|stat|media|cat|ls|realpath|lsdir|fread|claude-files|git}" >&2; exit 2 ;;
 esac

@@ -8,6 +8,7 @@ import {
   looksBinary,
   reviewMessage,
   type ChangeKind,
+  type DirListing,
   type FileChange,
   type GitBlob,
   type GitCommit,
@@ -33,12 +34,15 @@ import '../review/review.css'
 import { AgentChat } from './MediaViewer'
 import { closeOverlay, useOverlayKeys } from './Overlays'
 
-type Tab = 'changes' | 'local' | 'files' | 'commits'
-const TABS: Tab[] = ['changes', 'local', 'files', 'commits']
+type Tab = 'changes' | 'local' | 'files' | 'commits' | 'folder'
+const TABS: Tab[] = ['changes', 'local', 'files', 'commits', 'folder']
 
 interface Entry {
   id: string
+  /** in the repository; in the Folder tab, in the agent's folder */
   path: string
+  /** the Folder tab: the file's own path on the host (read as it is, git or not) */
+  abs?: string
   oldPath?: string
   kind: ChangeKind | 'file'
   added?: number
@@ -57,6 +61,8 @@ type Row =
   | { type: 'file'; id: string; entry: Entry; name: string; depth: number; dir?: string }
   | { type: 'group'; id: string; label: string; count: number }
   | { type: 'commit'; id: string; commit: GitCommit }
+  /** a line in the Folder tab: reading a folder, its error, entries not shown */
+  | { type: 'note'; id: string; text: string; depth: number }
 
 /** comments not sent yet, per repository: they survive closing the view */
 const pendingComments = new Map<string, ReviewComment[]>()
@@ -264,7 +270,9 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
     }
     setRepos(res)
     if (!res.length) {
+      // nothing in git: the folder itself is still there to browse
       setError(`No git repository in ${folder}, or in the three levels of folders below it.`)
+      setTab('folder')
       return
     }
     const cur = repoRef.current
@@ -393,6 +401,8 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
   const refresh = useCallback(() => {
     // only a file at a full commit id stays the same; the index, the disk, HEAD and branches move
     for (const k of [...blobCache.current.keys()]) if (!(k.startsWith('G') && isSha(k.slice(1, k.indexOf(':'))))) blobCache.current.delete(k)
+    // the folders read in the Folder tab come again as they are shown
+    setListing(new Map())
     setTick((t) => t + 1)
   }, [])
 
@@ -440,6 +450,46 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
     [files, filesRev]
   )
 
+  // ------------------------------------------------- the Folder tab --
+  // the agent's folder itself, git or not (configs, builds, run folders), read
+  // one folder at a time as it is opened: run folders can hold thousands of files
+  const [listing, setListing] = useState<Map<string, DirListing | { error: string }>>(new Map())
+  const [openFolder, setOpenFolder] = useState<Set<string>>(new Set())
+  const asking = useRef(new Set<string>())
+  const folderName = folder.split('/').filter(Boolean).pop() ?? folder
+  const absOf = useCallback((rel: string): string => (rel ? `${folder.replace(/\/+$/, '')}/${rel}` : folder), [folder])
+  useEffect(() => {
+    if (tab !== 'folder') return
+    // the folder and every open folder inside it whose parents are open too
+    const shown = (p: string): boolean => {
+      const parts = p.split('/')
+      return parts.every((_, i) => openFolder.has(parts.slice(0, i + 1).join('/')))
+    }
+    for (const rel of ['', ...[...openFolder].filter(shown)]) {
+      if (listing.has(rel) || asking.current.has(rel)) continue
+      asking.current.add(rel)
+      void window.kuna.git.listDir(host, absOf(rel)).then((res) => {
+        asking.current.delete(rel)
+        setListing((m) => new Map(m).set(rel, res))
+      })
+    }
+  }, [tab, listing, openFolder, host, absOf])
+
+  const folderEntry = useCallback(
+    (rel: string): Entry => ({
+      id: `F:${rel}`,
+      path: rel,
+      abs: absOf(rel),
+      kind: 'file',
+      left: EMPTY,
+      right: EMPTY,
+      mode: 'file',
+      anchor: `dir:${folder}`,
+      context: `the files in the folder ${folderName} (paths relative to it)`
+    }),
+    [absOf, folder, folderName]
+  )
+
   const q = filter.trim().toLowerCase().replace(/\s+/g, '')
   const rows = useMemo<Row[]>(() => {
     const flat = (entries: Entry[]): Row[] =>
@@ -482,11 +532,37 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
         return (compare?.commits ?? [])
           .filter((c) => !q || `${c.subject} ${c.short} ${c.author}`.toLowerCase().includes(q))
           .map((c) => ({ type: 'commit' as const, id: `k:${c.sha}`, commit: c }))
+      case 'folder': {
+        if (q) {
+          // ⌘P finds among the folders read so far
+          const all: Entry[] = []
+          for (const [rel, l] of listing) if (!('error' in l)) for (const en of l.entries) if (!en.dir) all.push(folderEntry(rel ? `${rel}/${en.name}` : en.name))
+          return flat(all)
+        }
+        const out: Row[] = []
+        const walk = (rel: string, depth: number): void => {
+          const l = listing.get(rel)
+          if (!l) return void out.push({ type: 'note', id: `n:${rel}`, text: 'Reading…', depth })
+          if ('error' in l) return void out.push({ type: 'note', id: `n:${rel}`, text: l.error, depth })
+          if (!l.entries.length) out.push({ type: 'note', id: `n:${rel}`, text: 'Empty', depth })
+          for (const en of l.entries) {
+            const p = rel ? `${rel}/${en.name}` : en.name
+            if (en.dir) {
+              const open = openFolder.has(p)
+              out.push({ type: 'dir', id: `D:${p}`, path: p, name: en.name, depth, open })
+              if (open) walk(p, depth + 1)
+            } else out.push({ type: 'file', id: `F:${p}`, entry: folderEntry(p), name: en.name, depth })
+          }
+          if (l.more) out.push({ type: 'note', id: `m:${rel}`, text: `${l.more - l.entries.length} more not listed`, depth })
+        }
+        walk('', 0)
+        return out
+      }
     }
-  }, [tab, q, changeEntries, fileEntries, groups, compare, closedDirs, openDirs])
+  }, [tab, q, changeEntries, fileEntries, groups, compare, closedDirs, openDirs, listing, openFolder, folderEntry])
 
   // the row the cursor is on: kept, else the first file
-  const selectable = rows.filter((r) => r.type !== 'group')
+  const selectable = rows.filter((r) => r.type !== 'group' && r.type !== 'note')
   const curId = cursor[tab]
   const current = selectable.find((r) => r.id === curId) ?? selectable.find((r) => r.type === 'file') ?? selectable[0]
   const currentEntry = current?.type === 'file' ? current.entry : null
@@ -518,6 +594,16 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
     // a short wait, so holding ↓ does not read every file on the way
     const t = setTimeout(async () => {
       setShown((s) => (s?.key === `${e.anchor}|${e.id}` ? s : { key: `${e.anchor}|${e.id}`, anchor: e.anchor, context: e.context, path: e.path, oldPath: e.oldPath, mode: e.mode, loading: true }))
+      // the Folder tab: the file itself, git or not
+      if (e.abs && !blobCache.current.has(`A${e.abs}`)) {
+        const res = await window.kuna.git.readFile(host, e.abs)
+        if ('error' in res) {
+          if (live) setShown({ key: `${e.anchor}|${e.id}`, anchor: e.anchor, context: e.context, path: e.path, mode: e.mode, error: res.error })
+          return
+        }
+        blobCache.current.set(`A${e.abs}`, res)
+        if (!live) return
+      }
       const missing = sides.filter((s) => s.kind !== 'empty' && !blobCache.current.has(ck(s)))
       if (missing.length) {
         const res = await window.kuna.git.read(host, root, missing)
@@ -549,7 +635,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
       const old = urls.current
       urls.current = []
       const l = e.mode === 'diff' ? decode(blob(e.left), e.oldPath ?? e.path, urls.current) : {}
-      const r = decode(blob(e.right), e.path, urls.current)
+      const r = decode(e.abs ? blobCache.current.get(`A${e.abs}`) : blob(e.right), e.path, urls.current)
       old.forEach((u) => URL.revokeObjectURL(u))
       const image = 'image' in l || 'image' in r
       setShown({
@@ -594,12 +680,19 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
         return n
       })
     else
-      setOpenDirs((s) => {
+      (tab === 'folder' ? setOpenFolder : setOpenDirs)((s) => {
         const n = new Set(s)
         if (open ?? !n.has(path)) n.add(path)
         else n.delete(path)
         return n
       })
+  }
+
+  /** the lists there are: without a repository, only the folder */
+  const tabs: Tab[] = dir ? TABS : ['folder']
+  const stepTab = (back: boolean): void => {
+    const i = Math.max(0, tabs.indexOf(tab))
+    pickTab(tabs[(i + (back ? tabs.length - 1 : 1)) % tabs.length])
   }
 
   const pickTab = (t: Tab): void => {
@@ -761,8 +854,9 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
       else if (agentKey && agent && !live) setLive(true)
       return true
     }
-    if (/^[1-4]$/.test(k)) {
-      pickTab(TABS[Number(k) - 1])
+    if (/^[1-5]$/.test(k)) {
+      const t = TABS[Number(k) - 1]
+      if (tabs.includes(t)) pickTab(t)
       focusList()
       return true
     }
@@ -866,8 +960,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
       }
       if (ev.key === 'Tab' && !ev.metaKey && !ev.altKey && !ev.ctrlKey) {
         // nothing to indent in a review: the next list, as in the file list
-        const i = TABS.indexOf(tab)
-        pickTab(TABS[(i + (ev.shiftKey ? 3 : 1)) % 4])
+        stepTab(ev.shiftKey)
         focusList()
         return true
       }
@@ -928,8 +1021,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
         activate(current)
         return true
       case 'Tab': {
-        const i = TABS.indexOf(tab)
-        pickTab(TABS[(i + (ev.shiftKey ? 3 : 1)) % 4])
+        stepTab(ev.shiftKey)
         return true
       }
       case 'Escape':
@@ -995,7 +1087,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
     el.addEventListener('pointerup', up)
     el.addEventListener('pointercancel', up)
   }
-  const listW = Math.max(MIN_LIST, Math.min(settings.reviewListWidth ?? 340, window.innerWidth * 0.4))
+  const listW = Math.max(MIN_LIST, Math.min(settings.reviewListWidth ?? 380, window.innerWidth * 0.4))
   const chatW = agentKey ? Math.max(MIN_CHAT, Math.min(settings.reviewChatWidth ?? chatDefault(), window.innerWidth * 0.55)) : 0
 
   // ------------------------------------------------------------- drawing --
@@ -1011,9 +1103,17 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
     changes: compare ? changeEntries.length : null,
     local: status ? localCount : null,
     files: files ? files.length : null,
-    commits: compare ? compare.commits.length : null
+    commits: compare ? compare.commits.length : null,
+    folder: null
   }
-  const tabName: Record<Tab, string> = { changes: 'Changes', local: 'Uncommitted', files: 'Files', commits: 'Commits' }
+  const tabName: Record<Tab, string> = { changes: 'Changes', local: 'Uncommitted', files: 'Files', commits: 'Commits', folder: 'Folder' }
+  const tabTitle: Record<Tab, string> = {
+    changes: "the branch's changes against its base",
+    local: 'staged, unstaged and untracked',
+    files: "every file in the repository, at the branch's head",
+    commits: 'the commits in the comparison',
+    folder: `everything in ${folder}, git or not`
+  }
   const commentCount = (e: Entry): number => comments.filter((c) => c.path === e.path && c.anchor === e.anchor).length
   const hint = escHint
     ? 'Esc again discards it'
@@ -1051,12 +1151,14 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
             )}
           </span>
         ) : (
-          <span className="media-name" title={root}>
-            {repoName}
+          <span className="media-name" title={dir ? root : folder}>
+            {dir ? repoName : folderName}
           </span>
         )}
         {host !== 'local' && <span className="media-meta">on {host}</span>}
-        {commit ? (
+        {!dir ? (
+          <span className="media-meta">{repos ? 'no git repository here: the folder as it is' : 'looking for repositories…'}</span>
+        ) : commit ? (
           <span className="rv-refs">
             <span className="rv-ref static">commit {commit.short}</span>
             <span className="rv-commit-subject">{commit.subject}</span>
@@ -1110,8 +1212,8 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
       <div className="media-body">
         <aside className="rv-side">
           <nav className="rv-tabs">
-            {TABS.map((t, i) => (
-              <button key={t} className={t === tab ? 'on' : ''} onMouseDown={(e) => e.preventDefault()} onClick={() => pickTab(t)} title={`⌘${i + 1}`}>
+            {tabs.map((t) => (
+              <button key={t} className={t === tab ? 'on' : ''} onMouseDown={(e) => e.preventDefault()} onClick={() => pickTab(t)} title={`${tabTitle[t]} (⌘${TABS.indexOf(t) + 1})`}>
                 {tabName[t]}
                 {counts[t] !== null && <span className="rv-count">{counts[t]}</span>}
               </button>
@@ -1126,9 +1228,9 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
             onChange={(e) => setFilter(e.target.value)}
           />
           <div className="rv-list" ref={listRef} tabIndex={0}>
-            {error && <div className="rv-empty">{error}</div>}
+            {error && tab !== 'folder' && <div className="rv-empty">{error}</div>}
             {!error && tab === 'changes' && compareError && <div className="rv-empty">{compareError}</div>}
-            {!error && !rows.length && !(tab === 'changes' && compareError) && (
+            {(!error || tab === 'folder') && !rows.length && !(tab === 'changes' && compareError) && (
               <div className="rv-empty">
                 {(tab === 'changes' && !compare) || (tab === 'local' && !status) || (tab === 'files' && !files) || (tab === 'commits' && !compare)
                   ? 'Reading…'
@@ -1145,6 +1247,12 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
             )}
             {rows.map((r) => {
               const on = r.id === current?.id
+              if (r.type === 'note')
+                return (
+                  <div key={r.id} className="rv-note" style={{ paddingLeft: 26 + r.depth * 12 }}>
+                    {r.text}
+                  </div>
+                )
               if (r.type === 'group')
                 return (
                   <div key={r.id} className="rv-group">
@@ -1188,7 +1296,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
                   </button>
                 )
               const e = r.entry
-              const kind = e.kind === 'file' ? changedKind.get(e.path) : e.kind
+              const kind = e.kind === 'file' ? (e.abs ? undefined : changedKind.get(e.path)) : e.kind
               const n = commentCount(e)
               return (
                 <button
@@ -1238,8 +1346,8 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
                     // to the file, in the list of the diff it was written on
-                    const t: Tab = c.anchor.startsWith('l:') ? 'local' : c.anchor.startsWith('f:') ? 'files' : 'changes'
-                    const id = t === 'changes' ? `c:${c.path}` : t === 'files' ? `f:${c.path}` : `${c.anchor}:${c.path}`
+                    const t: Tab = c.anchor.startsWith('l:') ? 'local' : c.anchor.startsWith('f:') ? 'files' : c.anchor.startsWith('dir:') ? 'folder' : 'changes'
+                    const id = t === 'changes' ? `c:${c.path}` : t === 'files' ? `f:${c.path}` : t === 'folder' ? `F:${c.path}` : `${c.anchor}:${c.path}`
                     setTab(t)
                     setFilter('')
                     setCursor((x) => ({ ...x, [t]: id }))

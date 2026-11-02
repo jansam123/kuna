@@ -14,7 +14,7 @@ import type {
   WindowsInfo
 } from './types'
 import type { SharedPatch } from './sync'
-import type { GitBlob, GitCompare, GitInfo, GitRepo, GitSide, GitStatus } from './git'
+import type { DirListing, GitBlob, GitCompare, GitInfo, GitRepo, GitSide, GitStatus } from './git'
 import type { VscodeLook } from './vscode'
 
 /** What the main process asks a window to do. */
@@ -127,6 +127,9 @@ export interface KunaApi {
     /** every file at a commit, or in the working tree (null) */
     files(host: HostId, dir: string, rev: string | null): Promise<string[] | { error: string }>
     read(host: HostId, dir: string, sides: GitSide[]): Promise<GitBlob[] | { error: string }>
+    /** the Folder tab: one folder's entries, and one file, git or not */
+    listDir(host: HostId, path: string): Promise<DirListing | { error: string }>
+    readFile(host: HostId, path: string): Promise<GitBlob | { error: string }>
   }
   /** the user's VS Code: theme, editor settings, icons */
   vscode: {
@@ -188,6 +191,8 @@ export const IPC = {
   gitCompare: 'git:compare',
   gitFiles: 'git:files',
   gitRead: 'git:read',
+  gitListDir: 'git:list-dir',
+  gitReadFile: 'git:read-file',
   vscodeLook: 'vscode:look',
   vscodeIcon: 'vscode:icon',
   fsDirs: 'fs:dirs',

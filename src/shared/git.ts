@@ -314,6 +314,42 @@ export function parseRepos(text: string): GitRepo[] {
   return out.sort((a, b) => b.active - a.active)
 }
 
+/** One entry of a folder, as the review view's Folder tab lists it. */
+export interface DirEntry {
+  name: string
+  dir: boolean
+  size: number
+  mtime: number
+}
+
+export interface DirListing {
+  entries: DirEntry[]
+  /** how many there are when only the first 3000 came */
+  more?: number
+}
+
+/**
+ * `kuna lsdir`: `type\tsize\tmtime\t./name` lines from GNU (`directory`,
+ * `regular file`) or BSD stat (`Directory`, `Regular File`); folders first,
+ * then files, each by name as VS Code sorts them.
+ */
+export function parseDirListing(text: string): DirListing {
+  const out: DirListing = { entries: [] }
+  for (const line of text.split('\n')) {
+    const more = /^more (\d+)$/.exec(line)
+    if (more) {
+      out.more = Number(more[1])
+      continue
+    }
+    const [type, size, mtime, ...rest] = line.split('\t')
+    const name = rest.join('\t').replace(/^\.\//, '')
+    if (!type || !name || name === '.' || name === '..' || name.includes('/')) continue
+    out.entries.push({ name, dir: /directory/i.test(type), size: Number(size) || 0, mtime: Number(mtime) || 0 })
+  }
+  out.entries.sort((a, b) => (a.dir !== b.dir ? (a.dir ? -1 : 1) : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })))
+  return out
+}
+
 /** "ana/src" for /work/ana/src below /work; the folder's own name for the folder itself or one above it */
 export function repoLabel(repo: string, dir: string): string {
   const d = dir.replace(/\/+$/, '')

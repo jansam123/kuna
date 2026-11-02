@@ -22,6 +22,7 @@ import {
   looksBinary,
   parseBlobs,
   parseCompare,
+  parseDirListing,
   parseInfo,
   parseRepos,
   repoLabel,
@@ -641,6 +642,15 @@ describe('review: git output', () => {
     expect(r[2]).toEqual({ path: '/w/new', branch: undefined, head: undefined, active: 0 })
     expect(repoLabel('/w/ana/src/x', '/w/')).toBe('ana/src/x')
     expect(repoLabel('/w', '/w/ana')).toBe('w')
+  })
+
+  it('reads a folder listing from GNU or BSD stat, folders first', () => {
+    const gnu = parseDirListing('directory\t4096\t1700000000\t./run\nregular file\t12\t1700000100\t./b.yaml\nregular empty file\t0\t1700000200\t./a.txt\n')
+    expect(gnu.entries.map((e) => `${e.dir ? 'd' : 'f'} ${e.name}`)).toEqual(['d run', 'f a.txt', 'f b.yaml'])
+    expect(gnu.entries[2]).toEqual({ name: 'b.yaml', dir: false, size: 12, mtime: 1700000100 })
+    const bsd = parseDirListing('more 4000\nDirectory\t64\t1\t./out\nRegular File\t3\t2\t./x\ty.txt\n')
+    expect(bsd.more).toBe(4000)
+    expect(bsd.entries.map((e) => e.name)).toEqual(['out', 'x\ty.txt'])
   })
 
   it('picks a base as a pull request would', () => {

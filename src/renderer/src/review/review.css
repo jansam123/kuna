@@ -183,14 +183,14 @@
 .rv-tabs {
   flex: none;
   display: flex;
-  gap: 2px;
-  padding: 6px 6px 0;
+  gap: 0;
+  padding: 6px 4px 0;
   border-bottom: 1px solid var(--line);
 }
 .rv-tabs button {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 5px 5px 6px;
+  padding: 5px 3px 6px;
   border: 0;
   border-radius: 5px 5px 0 0;
   background: transparent;
@@ -208,7 +208,7 @@
   box-shadow: inset 0 -2px 0 var(--accent);
 }
 .rv-count {
-  margin-left: 4px;
+  margin-left: 3px;
   padding: 0 4px;
   border-radius: 8px;
   background: var(--raised);
@@ -241,6 +241,12 @@
   padding: 16px 10px;
   color: var(--dim);
   font-size: var(--fs-small);
+}
+.rv-note {
+  padding: 3px 8px;
+  color: var(--faint);
+  font-size: var(--fs-tiny);
+  font-style: italic;
 }
 .rv-group {
   padding: 8px 8px 3px;

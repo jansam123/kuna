@@ -136,6 +136,8 @@ function registerIpc(): void {
   ipcMain.handle(IPC.gitCompare, (_e, host: string, dir: string, base: string, head: string | null) => git.compare(host, dir, base, head))
   ipcMain.handle(IPC.gitFiles, (_e, host: string, dir: string, rev: string | null) => git.files(host, dir, rev))
   ipcMain.handle(IPC.gitRead, (_e, host: string, dir: string, sides: GitSide[]) => git.read(host, dir, sides))
+  ipcMain.handle(IPC.gitListDir, (_e, host: string, path: string) => git.listDir(host, path))
+  ipcMain.handle(IPC.gitReadFile, (_e, host: string, path: string) => git.readFile(host, path))
   ipcMain.handle(IPC.vscodeLook, (_e, refresh?: boolean) => vscode.get(!!refresh))
   ipcMain.handle(IPC.vscodeIcon, (_e, id: string) => vscode.icon(String(id)))
   ipcMain.handle(IPC.fsDirs, (_e, host: string, dir: string) => claudeFiles.dirs(host, dir))

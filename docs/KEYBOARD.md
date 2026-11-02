@@ -105,13 +105,14 @@ The left side has four lists:
 - **Uncommitted** — as VS Code's Source Control lists them: staged changes (HEAD → index), changes (index → disk), untracked files, conflicts.
 - **Files** — every file, to browse: what is on disk when head is checked out here, else the files at head. Changed files are marked.
 - **Commits** — the commits in the comparison; Enter shows one commit on its own, Esc goes back to the whole branch.
+- **Folder** — the agent's folder itself, git or not: configs, builds, run folders and the repositories, as a tree read one folder at a time as you open it (a folder with thousands of files shows the first 3000). Files open in the same editor, and C comments on them too (the agent gets their paths relative to its folder). A folder with no repository opens straight on this list. ⌘P finds among the folders opened so far.
 
 | Keys | Where | Does |
 | --- | --- | --- |
 | ↑ ↓ · PgUp PgDn | file list | move; the file shows right away |
 | → ← | file list | open / close a folder, up to its folder; → on a file goes into the diff |
 | Enter · Space | file list | into the diff (a folder: open or close it; a commit: show it) |
-| Tab · ⇧Tab · ⌘1–⌘4 | anywhere | the next / previous list, or a list by number |
+| Tab · ⇧Tab · ⌘1–⌘5 | anywhere | the next / previous list, or a list by number (⌘5 the Folder) |
 | ⌘P | anywhere | find a file (or a commit) by letters in its path |
 | *type* | file list | write to the agent, as in the plot viewer; Enter sends |
 | C | diff | comment on the selected lines (or the cursor's); a click on the **+** in the gutter does it too |

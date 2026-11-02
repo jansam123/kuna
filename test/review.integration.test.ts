@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } 
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { parseBlobs, parseCompare, parseInfo, parseRepos, parseStatus, repoLabel, sections, specOf, type GitSide } from '@shared/git'
+import { parseBlobs, parseCompare, parseDirListing, parseInfo, parseRepos, parseStatus, repoLabel, sections, specOf, type GitSide } from '@shared/git'
 
 /**
  * The review view's git, end to end on the host side: `kuna git …` from the
@@ -180,6 +180,37 @@ describe.skipIf(!hasGit)('review: kuna git on a repository', () => {
     expect(parseRepos(kuna('repos', b64(join(home, 'configs'))).toString())).toEqual([])
     rmSync(join(home, 'tools'), { recursive: true, force: true })
     rmSync(join(home, 'node_modules'), { recursive: true, force: true })
+  })
+
+  it('lists and reads the folder itself, git or not', () => {
+    const run = join(home, 'run')
+    mkdirSync(join(run, 'out'), { recursive: true })
+    writeFileSync(join(run, 'config.yaml'), 'bins: 40\n')
+    writeFileSync(join(run, '.hidden'), 'h')
+    writeFileSync(join(run, '-n'), 'opt')
+    symlinkSync(join(run, 'out'), join(run, 'latest'))
+    const helper = (...args: string[]): Buffer =>
+      execFileSync(process.env.KUNA_TEST_SH || 'sh', [SCRIPT, ...args], { env: { ...process.env, HOME: home }, maxBuffer: 64 * 1024 * 1024 })
+    const l = parseDirListing(helper('lsdir', b64(run)).toString())
+    // folders (a link to one too) first, hidden files and odd names included
+    expect(l.entries.map((e) => `${e.dir ? 'd' : 'f'} ${e.name}`)).toEqual(['d latest', 'd out', 'f -n', 'f .hidden', 'f config.yaml'])
+    expect(l.entries.find((e) => e.name === 'config.yaml')).toMatchObject({ size: 9 })
+    expect(parseDirListing(helper('lsdir', b64(join(run, 'out'))).toString()).entries).toEqual([])
+    const read = (p: string, max = 1000): ReturnType<typeof parseBlobs>[number] => parseBlobs(helper('fread', String(max), b64(p)), max)[0]
+    expect(new TextDecoder().decode(read(join(run, 'config.yaml')).data)).toBe('bins: 40\n')
+    expect(new TextDecoder().decode(read(join(run, '-n')).data)).toBe('opt')
+    expect(read(join(run, 'config.yaml'), 3)).toEqual({ size: 9, tooBig: true })
+    expect(read(join(run, 'nope'))).toEqual({ size: 0, missing: true })
+    expect(read(join(run, 'out'))).toEqual({ size: 0, missing: true })
+    // a run folder with thousands of files: the first 3000, and how many there are
+    const many = join(home, 'many')
+    mkdirSync(many)
+    for (let i = 0; i < 3005; i++) writeFileSync(join(many, `f${i}`), '')
+    const big = parseDirListing(helper('lsdir', b64(many)).toString())
+    expect(big.more).toBe(3005)
+    expect(big.entries).toHaveLength(3000)
+    rmSync(many, { recursive: true, force: true })
+    rmSync(run, { recursive: true, force: true })
   })
 
   it('refuses options, ranges and paths out of the repository', () => {

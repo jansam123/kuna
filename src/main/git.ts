@@ -1,6 +1,7 @@
 import {
   parseBlobs,
   parseCompare,
+  parseDirListing,
   parseInfo,
   parseRepos,
   parseStatus,
@@ -8,6 +9,7 @@ import {
   specOf,
   validRef,
   validRepoPath,
+  type DirListing,
   type GitBlob,
   type GitCompare,
   type GitInfo,
@@ -16,6 +18,9 @@ import {
   type GitStatus
 } from '@shared/git'
 import type { HostId } from '@shared/types'
+
+/** an absolute or home-relative path on the host */
+const validFolderPath = (p: unknown): p is string => typeof p === 'string' && /^(\/|~(\/|$))/.test(p) && p.length < 4096 && !p.includes('\0')
 import type { AgentService } from './agents'
 import { b64 } from './hosts/exec'
 
@@ -76,6 +81,26 @@ export class GitService {
     if ('error' in out) return out
     // `dir/`: a nested repository or an empty folder, not a file
     return [...new Set(out.toString('utf8').split('\0').filter((p) => p && !p.endsWith('/')))]
+  }
+
+  /** what is in a folder (the Folder tab: the agent's folder, git or not), one folder at a time */
+  async listDir(hostId: HostId, path: string): Promise<Result<DirListing>> {
+    if (!validFolderPath(path)) return { error: 'Not a folder path.' }
+    const host = this.agents.host(hostId)
+    if (host.state.status !== 'ready') await host.connect()
+    const res = await host.exec(['lsdir', b64(path)], { timeoutMs: 30_000, maxBytes: 2_000_000 })
+    if (res.code !== 0) return { error: res.stderr.replace(/^kuna: /gm, '').trim() || 'Could not list the folder.' }
+    return parseDirListing(res.stdout.toString('utf8'))
+  }
+
+  /** one file of the agent's folder, whatever it is (up to 8 MB) */
+  async readFile(hostId: HostId, path: string): Promise<Result<GitBlob>> {
+    if (!validFolderPath(path)) return { error: 'Not a file path.' }
+    const host = this.agents.host(hostId)
+    if (host.state.status !== 'ready') await host.connect()
+    const res = await host.exec(['fread', String(MAX_BLOB), b64(path)], { timeoutMs: 120_000, maxBytes: MAX_BLOB + 64 })
+    if (res.code !== 0) return { error: res.stderr.replace(/^kuna: /gm, '').trim() || 'Could not read the file.' }
+    return parseBlobs(res.stdout, MAX_BLOB)[0] ?? { size: 0, missing: true }
   }
 
   /** both sides of a diff in one round trip */
