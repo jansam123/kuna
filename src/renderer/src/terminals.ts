@@ -168,6 +168,34 @@ export function termFont(): { family: string; size: number; lineHeight: number; 
   }
 }
 
+/** the agent in zen mode (⇧⌘Enter): its text is larger than the others' */
+let zenKey: string | null = null
+
+/** zen mode's text size: the one set with ⌘+ / ⌘− in zen, else a third larger than the panes' */
+export function zenFontSize(): number {
+  const z = get().settings.zenFontSize
+  return z ?? Math.min(28, Math.round(termFont().size * 1.35))
+}
+
+/** A terminal's text size: zen mode's for the agent in it, the panes' for the rest. */
+function fontSizeOf(key: string): number {
+  return key === zenKey ? zenFontSize() : termFont().size
+}
+
+/**
+ * Zen mode is on this agent (null: off). Its terminal takes zen's text size,
+ * the one before goes back to the panes'; a later fit sizes them.
+ */
+export function setZenTerminal(key: string | null): void {
+  // the same agent again: zen's size may have changed (⌘+ / ⌘−)
+  const before = zenKey
+  zenKey = key
+  for (const k of [before, key]) {
+    const e = k ? entries.get(k) : undefined
+    if (e) e.term.options.fontSize = fontSizeOf(e.key)
+  }
+}
+
 export function getTerminal(key: string): TermEntry {
   wire()
   let e = entries.get(key)
@@ -178,7 +206,7 @@ export function getTerminal(key: string): TermEntry {
   const font = termFont()
   const term = new Terminal({
     fontFamily: font.family,
-    fontSize: font.size,
+    fontSize: fontSizeOf(key),
     lineHeight: font.lineHeight,
     letterSpacing: font.letterSpacing,
     fontWeight: 'normal',
@@ -346,7 +374,7 @@ export function restyleTerminals(): void {
     const font = termFont()
     e.term.options.theme = theme
     e.term.options.fontFamily = font.family
-    e.term.options.fontSize = font.size
+    e.term.options.fontSize = fontSizeOf(e.key)
     e.term.options.lineHeight = font.lineHeight
     e.term.options.letterSpacing = font.letterSpacing
     fitTerminal(e.key)

@@ -3,7 +3,7 @@ import { gridRows } from '@shared/layout'
 import { focusPane, swapTabs } from '../actions'
 import { agentTitle, contextOf, doingText, modeLabel, needsOptions, needsText, shortModel, tokens } from '../format'
 import { isUnread, set, useKuna } from '../store'
-import { fitTerminal, getTerminal, redrawAfterMove, terminalEntry } from '../terminals'
+import { fitTerminal, getTerminal, redrawAfterMove, setZenTerminal, terminalEntry, zenFontSize } from '../terminals'
 import { folderOfAgent } from '../tree'
 import { StatusDot } from './StatusDot'
 import { TexText } from './TexText'
@@ -170,9 +170,11 @@ export function QuestionStrip({ agentKey }: { agentKey: string }): React.JSX.Ele
   )
 }
 
-function AgentPane({ agentKey, index }: { agentKey: string; index: number }): React.JSX.Element {
+function AgentPane({ agentKey, index, zen }: { agentKey: string; index: number; zen: boolean }): React.JSX.Element {
   const slot = useRef<HTMLDivElement>(null)
   const focused = useKuna((s) => s.zone === 'pane' && s.paneIndex === index)
+  const zenned = zen && focused
+  const zenSize = useKuna((s) => s.settings.zenFontSize)
   const typing = useKuna((s) => s.zone === 'pane' && s.paneIndex === index && s.mode === 'insert')
   const unread = useKuna((s) => !!s.agents[agentKey] && isUnread(s.agents[agentKey], s.lastSeen))
   const escHint = useKuna((s) => s.escHint)
@@ -201,6 +203,26 @@ function AgentPane({ agentKey, index }: { agentKey: string; index: number }): Re
     // back from a viewer's column of another width: Claude Code redraws itself at the pane's
     if (returning) redrawAfterMove(agentKey, cols)
   }, [agentKey, lent])
+
+  // into zen mode and out of it: zen's text size, a fit to the new size, and Claude Code redrawn at it
+  const wasZen = useRef(false)
+  useLayoutEffect(() => {
+    if (!zenned && !wasZen.current) return
+    wasZen.current = zenned
+    const e = terminalEntry(agentKey)
+    const cols = e?.term.cols ?? 0
+    if (zenned) setZenTerminal(agentKey)
+    else setZenTerminal(null)
+    // fitted to the new size once laid out, and again once the new text size is measured
+    // (timers, not animation frames: those wait while the window is hidden)
+    const t1 = setTimeout(() => fitTerminal(agentKey), 30)
+    const t2 = setTimeout(() => fitTerminal(agentKey), 250)
+    redrawAfterMove(agentKey, cols)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+    }
+  }, [zenned, zenSize, agentKey])
 
   useEffect(() => {
     const el = slot.current
@@ -286,19 +308,29 @@ function EmptyMain(): React.JSX.Element {
   )
 }
 
-export function PaneGrid(): React.JSX.Element {
+/**
+ * The open agents in a grid. In zen mode (⇧⌘Enter) only the focused one
+ * shows, larger, in a column in the middle of the window; the others are
+ * hidden, not closed, so they keep their place and their connection.
+ */
+export function PaneGrid({ zen = false }: { zen?: boolean }): React.JSX.Element {
   const tabs = useKuna((s) => s.tabs)
+  // zen's column: about 120 characters of zen's text, a line length that reads quickly
+  useKuna((s) => s.settings.zenFontSize)
+  useKuna((s) => s.settings.termFontSize)
+  useKuna((s) => s.fonts)
+  const zenWidth = Math.round(zenFontSize() * 0.6 * 120 + 60)
   const rows = gridRows(tabs.length)
   if (!tabs.length) return <EmptyMain />
   let i = 0
   return (
-    <div className="panes">
+    <div className={`panes ${zen ? 'zen' : ''}`} style={zen ? ({ '--zen-w': `${zenWidth}px` } as React.CSSProperties) : undefined}>
       {rows.map((count, r) => (
         <div className="pane-row" key={r}>
           {Array.from({ length: count }, () => {
             const index = i++
             const key = tabs[index]
-            return <AgentPane key={key} agentKey={key} index={index} />
+            return <AgentPane key={key} agentKey={key} index={index} zen={zen} />
           })}
         </div>
       ))}

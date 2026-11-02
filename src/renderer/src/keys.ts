@@ -18,6 +18,7 @@ import {
   movePaneInGrid,
   moveSelection,
   newWindow,
+  openTab,
   nudgeSelection,
   renameSelection,
   restoreHidden,
@@ -29,7 +30,7 @@ import {
   targetFolder
 } from './actions'
 import { get, removeFolder, removeProject, set, toast, toggleCollapsed, toggleFolder, updateSettings } from './store'
-import { copyTerminalSelection, pageAgent, reattach, screenLines, termFont, terminalEntry, writeToAgent } from './terminals'
+import { copyTerminalSelection, pageAgent, reattach, screenLines, termFont, terminalEntry, writeToAgent, zenFontSize } from './terminals'
 
 const DOUBLE_ESC_MS = 500
 let lastEsc = 0
@@ -198,7 +199,16 @@ function globalShortcut(ev: KeyboardEvent): boolean {
     }
     return true
   }
+  if (ev.key === 'Enter' && ev.shiftKey) {
+    toggleZen()
+    return true
+  }
   if ((k === '=' || k === '+' || k === '-') && !ev.shiftKey) {
+    // in zen mode its own size, kept apart from the panes'
+    if (s.zen && s.zone === 'pane') {
+      updateSettings({ zenFontSize: Math.max(10, Math.min(32, zenFontSize() + (k === '-' ? -1 : 1))) })
+      return true
+    }
     const size = Math.max(8, Math.min(24, termFont().size + (k === '-' ? -1 : 1)))
     updateSettings({ termFontSize: size })
     return true
@@ -208,6 +218,31 @@ function globalShortcut(ev: KeyboardEvent): boolean {
     return true
   }
   return false
+}
+
+/**
+ * ⇧⌘Enter: zen mode, the focused agent alone and larger, to read; again to
+ * leave it. From the sidebar it opens the selected agent in it.
+ */
+export function toggleZen(): void {
+  const s = get()
+  if (s.zen && s.zone === 'pane') {
+    set({ zen: false })
+    return
+  }
+  if (s.zone !== 'pane') {
+    const node = selectedNode()
+    if (node?.kind === 'agent') {
+      const i = s.tabs.indexOf(node.agent.key)
+      if (i >= 0) focusPane(i)
+      else openTab(node.agent.key)
+    } else if (s.tabs.length) focusPane(s.paneIndex)
+    else {
+      toast('Open an agent first: zen mode shows one agent large (⇧⌘Enter).', 'warn')
+      return
+    }
+  }
+  set({ zen: true })
 }
 
 /**
@@ -349,6 +384,14 @@ function paneKey(ev: KeyboardEvent): void {
     // ⌥ arrows carry the pane that way, swapping it with the one there
     stop(ev)
     return movePaneInGrid(ev.key === 'ArrowLeft' ? 'left' : ev.key === 'ArrowRight' ? 'right' : ev.key === 'ArrowUp' ? 'up' : 'down')
+  }
+  // zen mode: ← ↑ and → ↓ go to the previous and next agent, still in zen (no grid to move in, no sidebar to fall into)
+  if (s.zen && !ev.metaKey && !ev.ctrlKey && !ev.altKey && ev.key.startsWith('Arrow') && s.tabs.length) {
+    stop(ev)
+    const n = s.tabs.length
+    const back = ev.key === 'ArrowLeft' || ev.key === 'ArrowUp'
+    if (n > 1) focusPane((s.paneIndex + (back ? n - 1 : 1)) % n)
+    return
   }
   switch (ev.key) {
     case 'ArrowLeft':

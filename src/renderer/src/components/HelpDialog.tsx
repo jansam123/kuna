@@ -8,6 +8,7 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
       ['→ / ←', 'from the sidebar into the tabs and back'],
       ['← → ↑ ↓', 'move between tabs'],
       ['⌘1 … ⌘9', 'jump to tab'],
+      ['⇧⌘Enter', 'zen: the agent alone, larger, to read (← → the others, ⌘+ ⌘− its size)'],
       ['⌥ arrows', 'move the pane that way, swapping it with the one there'],
       ['⇧⌘← / ⇧⌘→', 'move the tab left / right'],
       ['⌘S', 'hide or show the left sidebar (← from the first pane peeks)'],

@@ -42,7 +42,7 @@ Everything started with `claude --bg` shows up under its folder with what it's d
 ![A session asking which binning to use, with its answers in the inspector](docs/images/doc-question.png)
 
 ### Keyboard first
-Arrows move between the sidebar and the panes, typing talks to the focused agent, Esc Esc stops. Everything else is one shortcut away: ⌘/ lists them. ⇧⌘N opens another window with its own panes and the same sidebar; ⌘← ⌘→ jump between windows.
+Arrows move between the sidebar and the panes, typing talks to the focused agent, Esc Esc stops. Everything else is one shortcut away: ⌘/ lists them. ⇧⌘N opens another window with its own panes and the same sidebar; ⌘← ⌘→ jump between windows. ⇧⌘Enter is zen mode: one agent alone, its text larger, in a column of reading width.
 
 ![The shortcut overview](docs/images/doc-help.png)
 

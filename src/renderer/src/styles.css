@@ -1593,6 +1593,25 @@ button.mini {
   padding: 6px;
 }
 
+/* ----------------------------------------------------------------- zen -- */
+
+/* ⇧⌘Enter: the focused agent alone, in a column of reading width in the
+   middle of the window; the other panes are hidden, not closed */
+.app.zen .main {
+  padding: 10px 0 0;
+}
+.panes.zen {
+  width: min(100%, var(--zen-w, 1180px));
+  margin: 0 auto;
+}
+.panes.zen .pane-row:not(:has(.pane.focused)),
+.panes.zen .pane:not(.focused) {
+  display: none;
+}
+.panes.zen .pane.focused:not(.typing) {
+  border-color: var(--line);
+}
+
 /* --------------------------------------------------------------- media -- */
 
 .media-overlay {

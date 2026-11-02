@@ -69,6 +69,8 @@ interface KunaState {
   sidebarPeek: boolean
   /** the hidden right panel shown for a moment (→ from the rightmost pane); ← or Esc hides it */
   inspectorPeek: boolean
+  /** zen mode (⇧⌘Enter): the focused agent alone, larger, in the middle of the window */
+  zen: boolean
   /** first Esc of a double-Esc was pressed */
   escHint: boolean
   /** fonts from the user's VS Code / iTerm2 settings (null until read) */
@@ -109,6 +111,7 @@ export const useKuna = create<KunaState>(() => ({
   sidebarPeek: false,
   inspectorPeek: false,
   escHint: false,
+  zen: false,
   windows: { index: 0, count: 1, anyFocused: true, notifier: true, elsewhere: {} }
 }))
 

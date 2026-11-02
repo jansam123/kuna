@@ -116,6 +116,13 @@ export function App(): React.JSX.Element {
   const sidebarWidth = useKuna((s) => s.settings.sidebarWidth)
   const inspectorWidth = useKuna((s) => s.settings.inspectorWidth)
   const mode = useKuna((s) => s.mode)
+  // zen mode shows while an agent's pane has the keyboard; in the sidebar the layout is back
+  const zen = useKuna((s) => s.zen && s.zone === 'pane' && s.tabs.length > 0)
+  const noTabs = useKuna((s) => !s.tabs.length)
+  useEffect(() => {
+    // the last pane closed: zen mode is over, not waiting for the next agent
+    if (noTabs && get().zen) set({ zen: false })
+  }, [noTabs])
   useInterest()
   useTitle()
 
@@ -147,35 +154,35 @@ export function App(): React.JSX.Element {
 
   // the macOS window buttons only over the sidebar (and not over the plot viewer)
   useEffect(() => {
-    window.kuna.windowButtons(loaded && (!sidebarHidden || sidebarPeek) && !fullOverlay)
-  }, [loaded, sidebarHidden, sidebarPeek, fullOverlay])
+    window.kuna.windowButtons(loaded && (!sidebarHidden || sidebarPeek) && !fullOverlay && !zen)
+  }, [loaded, sidebarHidden, sidebarPeek, fullOverlay, zen])
 
   if (!loaded) return <div className="boot" />
 
   return (
     <div
-      className={`app mode-${mode} ${sidebarHidden && sidebarPeek ? 'peek' : ''} ${!inspector && inspectorPeek ? 'peek-right' : ''}`}
+      className={`app mode-${mode} ${sidebarHidden && sidebarPeek && !zen ? 'peek' : ''} ${!inspector && inspectorPeek && !zen ? 'peek-right' : ''} ${zen ? 'zen' : ''}`}
       style={
         {
-          '--sidebar-w': `${sidebarHidden ? 0 : sidebarWidth}px`,
+          '--sidebar-w': `${sidebarHidden || zen ? 0 : sidebarWidth}px`,
           '--peek-w': `${sidebarWidth}px`,
           '--inspector-w': `${inspectorWidth ?? 300}px`
         } as React.CSSProperties
       }
     >
       <div className="titlebar" />
-      {(!sidebarHidden || sidebarPeek) && (
+      {(!sidebarHidden || sidebarPeek) && !zen && (
         <aside className="left">
           <Sidebar />
           <PromptBar />
         </aside>
       )}
       <main className="main">
-        <PaneGrid />
+        <PaneGrid zen={zen} />
       </main>
-      {(inspector || inspectorPeek) && <Inspector />}
-      {!sidebarHidden && <Splitter side="left" />}
-      {inspector && <Splitter side="right" />}
+      {(inspector || inspectorPeek) && !zen && <Inspector />}
+      {!sidebarHidden && !zen && <Splitter side="left" />}
+      {inspector && !zen && <Splitter side="right" />}
       <StatusBar />
       <Overlays />
       <Toasts />
