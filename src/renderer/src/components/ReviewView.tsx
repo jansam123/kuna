@@ -67,6 +67,8 @@ type Row =
 /** comments not sent yet, per repository: they survive closing the view */
 const pendingComments = new Map<string, ReviewComment[]>()
 
+/** while the agent works, the view reads the repository again at most this often */
+const AUTO_REFRESH_MS = 6000
 /** file contents kept for going back and forth, at most this much */
 const CACHE_BYTES = 96 * 1024 * 1024
 const MIN_LIST = 200
@@ -210,6 +212,9 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
   const [picker, setPicker] = useState<'base' | 'head' | 'repo' | null>(null)
   const [shown, setShown] = useState<Shown | null>(null)
   const [tick, setTick] = useState(0)
+  /** readings of the repository in flight, and when the last one came */
+  const [reading, setReading] = useState(0)
+  const [readAt, setReadAt] = useState<number | null>(null)
   /** readings of the repository so far: each starts one comparison */
   const [seq, setSeq] = useState(0)
   const store = `${host}:${dir}`
@@ -323,7 +328,11 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
   // the repository: branches, worktrees, uncommitted changes
   const loadOverview = useCallback(async () => {
     if (!dir) return
-    const ov = await window.kuna.git.overview(host, dir)
+    setReading((n) => n + 1)
+    const ov = await window.kuna.git.overview(host, dir).finally(() => {
+      setReading((n) => n - 1)
+      setReadAt(Date.now())
+    })
     // another repository was picked meanwhile
     if (repoRef.current !== dir) return
     if ('error' in ov) {
@@ -398,21 +407,50 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
   }, [tab, filesKey, filesRev, host, dir, info])
 
   /** re-read everything (⌘R, or the agent finished a turn) */
+  const lastRefresh = useRef(Date.now())
   const refresh = useCallback(() => {
+    lastRefresh.current = Date.now()
     // only a file at a full commit id stays the same; the index, the disk, HEAD and branches move
     for (const k of [...blobCache.current.keys()]) if (!(k.startsWith('G') && isSha(k.slice(1, k.indexOf(':'))))) blobCache.current.delete(k)
-    // the folders read in the Folder tab come again as they are shown
-    setListing(new Map())
+    // the folders open in the Folder tab are read again (what is on screen stays until then)
+    setFolderGen((g) => g + 1)
     setTick((t) => t + 1)
   }, [])
 
-  const status_ = agent?.status
-  const prevStatus = useRef(status_)
+  /**
+   * Read again by itself when the agent does something: its transcript grows
+   * (each tool call, each reply), a hook fires, its tool or status changes.
+   * Not more often than every few seconds while it works, right away when a
+   * turn ends; nothing is asked of the host while the agent is quiet.
+   */
+  const agentSig = useKuna((s) => {
+    const a = agentKey ? s.agents[agentKey] : undefined
+    return a ? `${a.transcriptSize}|${a.lastEventTs ?? ''}|${a.tool ?? ''}|${a.detail ?? ''}|${a.status}` : ''
+  })
+  const agentWorking = agent?.status === 'working'
+  const firstSig = useRef(agentSig)
   useEffect(() => {
-    const was = prevStatus.current
-    prevStatus.current = status_
-    if (was === 'working' && status_ && status_ !== 'working') refresh()
-  }, [status_, refresh])
+    if (!agentSig || agentSig === firstSig.current) return
+    const since = Date.now() - lastRefresh.current
+    const wait = agentWorking ? Math.max(1500, AUTO_REFRESH_MS - since) : 800
+    const t = setTimeout(refresh, wait)
+    return () => clearTimeout(t)
+  }, [agentSig, agentWorking, refresh])
+
+  /** ⌘R and the Refresh button: everything, the list of repositories too (one may have been cloned since) */
+  const refreshAll = (): void => {
+    void scanRepos()
+    refresh()
+  }
+
+  // and when Kuna's window comes back to the front: edits made in an editor or a terminal meanwhile
+  useEffect(() => {
+    const onFocus = (): void => {
+      if (Date.now() - lastRefresh.current > 3000) refresh()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [refresh])
 
   // ------------------------------------------------------------ the lists --
 
@@ -456,6 +494,9 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
   const [listing, setListing] = useState<Map<string, DirListing | { error: string }>>(new Map())
   const [openFolder, setOpenFolder] = useState<Set<string>>(new Set())
   const asking = useRef(new Set<string>())
+  /** each refresh bumps it; a folder read in an older one is read again when shown, and stays on screen meanwhile */
+  const [folderGen, setFolderGen] = useState(0)
+  const readIn = useRef(new Map<string, number>())
   const folderName = folder.split('/').filter(Boolean).pop() ?? folder
   const absOf = useCallback((rel: string): string => (rel ? `${folder.replace(/\/+$/, '')}/${rel}` : folder), [folder])
   useEffect(() => {
@@ -466,14 +507,16 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
       return parts.every((_, i) => openFolder.has(parts.slice(0, i + 1).join('/')))
     }
     for (const rel of ['', ...[...openFolder].filter(shown)]) {
-      if (listing.has(rel) || asking.current.has(rel)) continue
+      if ((listing.has(rel) && readIn.current.get(rel) === folderGen) || asking.current.has(rel)) continue
       asking.current.add(rel)
+      const gen = folderGen
       void window.kuna.git.listDir(host, absOf(rel)).then((res) => {
         asking.current.delete(rel)
+        readIn.current.set(rel, gen)
         setListing((m) => new Map(m).set(rel, res))
       })
     }
-  }, [tab, listing, openFolder, host, absOf])
+  }, [tab, listing, openFolder, host, absOf, folderGen])
 
   const folderEntry = useCallback(
     (rel: string): Entry => ({
@@ -832,10 +875,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
       return true
     }
     if (k === 'r' && !ev.shiftKey) {
-      // the repositories too: one may have been cloned or made since
-      void scanRepos()
-      refresh()
-      setNote('Reading the repository again…')
+      refreshAll()
       return true
     }
     if (k === 'u') {
@@ -1193,9 +1233,16 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
             {compare.commits.length ? ` · ${compare.commits.length} commit${compare.commits.length === 1 ? '' : 's'}` : ''}
           </span>
         )}
-        {comparing && <span className="media-meta">comparing…</span>}
         <span className="ph-spacer" />
         {note ? <span className="media-note">{note}</span> : <span className="media-keys">{hint}</span>}
+        <button
+          className={`media-save rv-refresh ${reading || comparing ? 'busy' : ''}`}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={refreshAll}
+          title={`Read the repository and the folder again (⌘R). It also does when the agent changes something, and when Kuna comes back to the front.${readAt ? `\nLast read ${new Date(readAt).toLocaleTimeString()}` : ''}`}
+        >
+          <span className="rv-refresh-icon">↻</span> {reading || comparing ? 'Reading…' : 'Refresh'}
+        </button>
         <button className="media-save" onMouseDown={(e) => e.preventDefault()} onClick={() => updateSettings({ reviewInline: sideBySide })} title="Side by side or inline (⌘U)">
           {sideBySide ? 'Inline' : 'Side by side'}
         </button>

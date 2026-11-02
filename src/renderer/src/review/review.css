@@ -68,6 +68,20 @@
 .rv-del {
   color: #f85149;
 }
+.rv-refresh-icon {
+  display: inline-block;
+}
+.rv-refresh.busy {
+  color: var(--dim);
+}
+.rv-refresh.busy .rv-refresh-icon {
+  animation: rv-spin 0.9s linear infinite;
+}
+@keyframes rv-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .media-save.rv-send {
   border-color: var(--accent);
   color: var(--accent);

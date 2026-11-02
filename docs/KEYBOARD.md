@@ -123,7 +123,7 @@ The left side has four lists:
 | ⌘O | anywhere | another repository in the agent's folder (when there are several) |
 | ⌘J | anywhere | to the agent's terminal and back to the files |
 | ⌘U | anywhere | side by side or inline |
-| ⌘R | anywhere | read the repository again (it also does by itself when the agent finishes a turn) |
+| ⌘R | anywhere | read everything again, as the **↻ Refresh** button does. The view also does by itself: whenever the agent does something (a tool call, a reply, its status changes; at most every 6 s while it works, right away when a turn ends) and when Kuna comes back to the front. What is on screen stays while it reads, the open file keeps its place, a comment being written stays |
 | Esc | diff · agent | back to the file list |
 | Esc · ⌘W | file list | close (comments not sent yet are kept for next time) |
 
