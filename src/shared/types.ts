@@ -38,7 +38,7 @@ export interface Settings {
   theme: string
   /** agent terminals' font size when changed with ⌘+ / ⌘−; otherwise the detected one */
   termFontSize?: number
-  /** the text size in zen mode (⇧⌘Enter) when changed there with ⌘+ / ⌘−; otherwise a third larger */
+  /** the text size in zen mode (⇧⌘Enter) when changed there with ⌘+ / ⌘−; otherwise a little (15%) larger */
   zenFontSize?: number
   /** Kuna's own text: VS Code's interface font (default) or its editor font */
   uiFont?: 'system' | 'editor'

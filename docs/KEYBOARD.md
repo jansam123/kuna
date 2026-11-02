@@ -22,7 +22,7 @@ Launching works the same way from the sidebar: start typing with a folder select
 | ⌘1 … ⌘9 | anywhere | focus pane n |
 | ⌥← ⌥→ ⌥↑ ⌥↓ | panes | move the focused pane that way, swapping it with the pane there; keep ⌥ held and press again to carry it further (while typing, ⌥← ⌥→ still jump by words) |
 | ⇧⌘← / ⇧⌘→ | panes | move the focused pane left / right |
-| ⇧⌘Enter | pane or agent row | zen mode: the agent alone, its text a third larger, in a column of about 120 characters in the middle of the window, to read; again to go back to the panes. The other panes stay open behind it. In zen ← ↑ / → ↓ (and ⌘1–9) show the previous / next agent, ⌘+ ⌘− change zen's text size (kept apart from the panes'), typing and Enter work as on a pane. Going to the sidebar shows the panes again; coming back is zen again |
+| ⇧⌘Enter | pane or agent row | zen mode: the agent alone, its text a little (15%) larger, in a column of about 120 characters in the middle of the window, to read; again to go back to the panes. The other panes stay open behind it. In zen ← ↑ / → ↓ (and ⌘1–9) show the previous / next agent, ⌘+ ⌘− change zen's text size (kept apart from the panes'), typing and Enter work as on a pane. Going to the sidebar shows the panes again; coming back is zen again |
 | ⌘S | anywhere | hide or show the left sidebar (and launch box) |
 | ⌘B | anywhere | hide or show the right inspector (⌘I works too) |
 

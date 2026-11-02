@@ -171,10 +171,10 @@ export function termFont(): { family: string; size: number; lineHeight: number; 
 /** the agent in zen mode (⇧⌘Enter): its text is larger than the others' */
 let zenKey: string | null = null
 
-/** zen mode's text size: the one set with ⌘+ / ⌘− in zen, else a third larger than the panes' */
+/** zen mode's text size: the one set with ⌘+ / ⌘− in zen, else a little (15%) larger than the panes' */
 export function zenFontSize(): number {
   const z = get().settings.zenFontSize
-  return z ?? Math.min(28, Math.round(termFont().size * 1.35))
+  return z ?? Math.min(28, Math.round(termFont().size * 1.15))
 }
 
 /** A terminal's text size: zen mode's for the agent in it, the panes' for the rest. */
