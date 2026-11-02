@@ -8,7 +8,7 @@ import { agentTitle, ago, bytes, doingText } from '../format'
 import { isPrintable, panelOnScreen, typeToAgent } from '../keys'
 import { loadMarkdownImages, renderDiagrams, renderMarkdown } from '../markdown'
 import { get, updateSettings, useKuna } from '../store'
-import { copyTerminalSelection, disposeTerminal, fitTerminal, getTerminal, terminalEntry, writeToAgent } from '../terminals'
+import { copyTerminalSelection, disposeTerminal, fitTerminal, getTerminal, redrawAfterMove, terminalEntry, writeToAgent } from '../terminals'
 import { folderOfAgent } from '../tree'
 import { closeOverlay, useOverlayKeys } from './Overlays'
 import { QuestionStrip } from './PaneGrid'
@@ -221,10 +221,13 @@ export function AgentChat({
     const off = (): void => setFocused(false)
     e.el.addEventListener('focusin', on)
     e.el.addEventListener('focusout', off)
+    const cols = e.term.cols
     slot.current?.appendChild(e.el)
     e.typed = 0
     onTyped(0)
     fitTerminal(agentKey)
+    // narrower than its pane: Claude Code redraws itself at this column's width
+    redrawAfterMove(agentKey, cols)
     if (autoFocus) e.term.focus()
     // focus events wait while the window is in the background
     setFocused(e.el.contains(document.activeElement))

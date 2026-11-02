@@ -1,6 +1,7 @@
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { Terminal } from '@xterm/xterm'
+import { screenState } from '@shared/input'
 import { get, toast } from './store'
 import { TERMINAL_FACE } from './fonts'
 import { themeById } from './themes'
@@ -246,6 +247,28 @@ export function getTerminal(key: string): TermEntry {
   entries.set(key, e)
   // attach once the element has a real size (see fitTerminal)
   return e
+}
+
+/**
+ * A terminal moved to a place of another width (into the plot viewer's or the
+ * review view's column, back to its pane): Claude Code's screen comes out of
+ * the resize garbled (tmux rewraps its old lines, and its own redraw then
+ * erases the wrong number of them). Its Ctrl+L redraws everything at the new
+ * width, so Kuna sends it once the resize has gone through, unless a question
+ * or panel is on screen (keys there are answers) or tmux is in scroll mode.
+ * Other agent programs get nothing.
+ */
+export function redrawAfterMove(key: string, colsBefore: number): void {
+  setTimeout(() => {
+    const e = entries.get(key)
+    const a = get().agents[key]
+    if (!e?.ptyId || !a?.alive || e.term.cols === colsBefore) return
+    const claude = a.kind === 'claude' || /(^|[\s/])claude(\s|$)/.test(a.command ?? '')
+    if (!claude || a.inCopyMode || e.paged) return
+    const state = screenState(screenLines(key))
+    if (state === 'question' || state === 'menu') return
+    window.kuna.pty.write(e.ptyId, '\x0c')
+  }, 700)
 }
 
 export function fitTerminal(key: string): void {

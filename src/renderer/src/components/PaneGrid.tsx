@@ -3,7 +3,7 @@ import { gridRows } from '@shared/layout'
 import { focusPane, swapTabs } from '../actions'
 import { agentTitle, contextOf, doingText, modeLabel, needsOptions, needsText, shortModel, tokens } from '../format'
 import { isUnread, set, useKuna } from '../store'
-import { fitTerminal, getTerminal, terminalEntry } from '../terminals'
+import { fitTerminal, getTerminal, redrawAfterMove, terminalEntry } from '../terminals'
 import { folderOfAgent } from '../tree'
 import { StatusDot } from './StatusDot'
 import { TexText } from './TexText'
@@ -187,13 +187,19 @@ function AgentPane({ agentKey, index }: { agentKey: string; index: number }): Re
     [projects, agents, hosts, agentKey]
   )
 
+  const wasLent = useRef(lent)
   useLayoutEffect(() => {
+    const returning = wasLent.current && !lent
+    wasLent.current = lent
     if (lent) return
     const e = getTerminal(agentKey)
+    const cols = e.term.cols
     slot.current?.appendChild(e.el)
     fitTerminal(agentKey)
     // back from a viewer at the same size: no resize redraws it, so draw it now
     e.term.refresh(0, e.term.rows - 1)
+    // back from a viewer's column of another width: Claude Code redraws itself at the pane's
+    if (returning) redrawAfterMove(agentKey, cols)
   }, [agentKey, lent])
 
   useEffect(() => {
