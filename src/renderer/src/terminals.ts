@@ -177,23 +177,44 @@ export function zenFontSize(): number {
   return z ?? Math.min(28, Math.round(termFont().size * 1.15))
 }
 
+/** zen mode's column, in characters: set with ⌘[ ⌘] in zen, else 160 */
+export function zenColumns(): number {
+  return get().settings.zenColumns ?? 160
+}
+
 /** A terminal's text size: zen mode's for the agent in it, the panes' for the rest. */
 function fontSizeOf(key: string): number {
   return key === zenKey ? zenFontSize() : termFont().size
 }
 
 /**
- * Zen mode is on this agent (null: off). Its terminal takes zen's text size,
- * the one before goes back to the panes'; a later fit sizes them.
+ * Zen mode is on this agent: its terminal takes zen's text size (the one set
+ * with ⌘+ / ⌘− in zen, the same for every agent), the one before goes back to
+ * the panes'; a later fit sizes them. Again on the same agent: zen's size may
+ * have changed.
  */
-export function setZenTerminal(key: string | null): void {
-  // the same agent again: zen's size may have changed (⌘+ / ⌘−)
+export function setZenTerminal(key: string): void {
   const before = zenKey
   zenKey = key
   for (const k of [before, key]) {
     const e = k ? entries.get(k) : undefined
     if (e) e.term.options.fontSize = fontSizeOf(e.key)
   }
+}
+
+/**
+ * This agent has left zen mode. Only when it is still the one in zen: moving
+ * zen to another agent sets that one first or after, in either order.
+ */
+export function leaveZenTerminal(key: string): void {
+  if (zenKey !== key) {
+    const e = entries.get(key)
+    if (e) e.term.options.fontSize = fontSizeOf(key)
+    return
+  }
+  zenKey = null
+  const e = entries.get(key)
+  if (e) e.term.options.fontSize = fontSizeOf(key)
 }
 
 export function getTerminal(key: string): TermEntry {

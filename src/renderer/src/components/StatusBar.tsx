@@ -85,7 +85,7 @@ export function StatusBar(): React.JSX.Element {
   let hint: string
   if (zone === 'prompt') hint = escHint ? 'Esc again to discard' : 'Enter start the agent · ← → move in the text · ↑ ↓ pick the folder · ⇧Enter new line · Esc Esc discard'
   else if (mode === 'insert') hint = escHint ? 'Esc again to stop typing' : 'Enter send · ⇧Enter new line · Esc Esc stop typing · ⌘. interrupt'
-  else if (zone === 'pane' && zen) hint = 'zen · ← → the other agents · type to write · ⌘+ ⌘− text size · ⇧⌘Enter back to the panes'
+  else if (zone === 'pane' && zen) hint = 'zen · ← → the other agents · type to write · ⌘+ ⌘− text size · ⌘[ ⌘] width · ⇧⌘Enter back to the panes'
   else if (zone === 'pane') hint = 'arrows move · type to write · Space plots · ⇧⌘Enter zen · ⇧Tab mode · ⌘W close · Ctrl+X kill · ⌘S/⌘B panels'
   else hint = 'arrows move · Enter roll out / open · type + Enter start an agent · ⌘R rename · ⌘O add folder · ⌘/ help'
 

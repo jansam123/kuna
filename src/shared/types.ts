@@ -40,6 +40,8 @@ export interface Settings {
   termFontSize?: number
   /** the text size in zen mode (⇧⌘Enter) when changed there with ⌘+ / ⌘−; otherwise a little (15%) larger */
   zenFontSize?: number
+  /** zen mode's column width in characters when changed there with ⌘[ / ⌘]; otherwise 160 */
+  zenColumns?: number
   /** Kuna's own text: VS Code's interface font (default) or its editor font */
   uiFont?: 'system' | 'editor'
   inspector: boolean

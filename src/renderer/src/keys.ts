@@ -30,7 +30,7 @@ import {
   targetFolder
 } from './actions'
 import { get, removeFolder, removeProject, set, toast, toggleCollapsed, toggleFolder, updateSettings } from './store'
-import { copyTerminalSelection, pageAgent, reattach, screenLines, termFont, terminalEntry, writeToAgent, zenFontSize } from './terminals'
+import { copyTerminalSelection, pageAgent, reattach, screenLines, termFont, terminalEntry, writeToAgent, zenColumns, zenFontSize } from './terminals'
 
 const DOUBLE_ESC_MS = 500
 let lastEsc = 0
@@ -201,6 +201,11 @@ function globalShortcut(ev: KeyboardEvent): boolean {
   }
   if (ev.key === 'Enter' && ev.shiftKey) {
     toggleZen()
+    return true
+  }
+  if ((ev.key === '[' || ev.key === ']') && s.zen && s.zone === 'pane') {
+    // zen's column narrower / wider, ten characters a step, remembered
+    updateSettings({ zenColumns: Math.max(80, Math.min(400, zenColumns() + (ev.key === '[' ? -10 : 10))) })
     return true
   }
   if ((k === '=' || k === '+' || k === '-') && !ev.shiftKey) {

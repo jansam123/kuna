@@ -3,7 +3,7 @@ import { gridRows } from '@shared/layout'
 import { focusPane, swapTabs } from '../actions'
 import { agentTitle, contextOf, doingText, modeLabel, needsOptions, needsText, shortModel, tokens } from '../format'
 import { isUnread, set, useKuna } from '../store'
-import { fitTerminal, getTerminal, redrawAfterMove, setZenTerminal, terminalEntry, zenFontSize } from '../terminals'
+import { fitTerminal, getTerminal, redrawAfterMove, leaveZenTerminal, setZenTerminal, terminalEntry, zenFontSize, zenColumns } from '../terminals'
 import { folderOfAgent } from '../tree'
 import { StatusDot } from './StatusDot'
 import { TexText } from './TexText'
@@ -175,6 +175,7 @@ function AgentPane({ agentKey, index, zen }: { agentKey: string; index: number; 
   const focused = useKuna((s) => s.zone === 'pane' && s.paneIndex === index)
   const zenned = zen && focused
   const zenSize = useKuna((s) => s.settings.zenFontSize)
+  const zenCols = useKuna((s) => s.settings.zenColumns)
   const typing = useKuna((s) => s.zone === 'pane' && s.paneIndex === index && s.mode === 'insert')
   const unread = useKuna((s) => !!s.agents[agentKey] && isUnread(s.agents[agentKey], s.lastSeen))
   const escHint = useKuna((s) => s.escHint)
@@ -212,7 +213,7 @@ function AgentPane({ agentKey, index, zen }: { agentKey: string; index: number; 
     const e = terminalEntry(agentKey)
     const cols = e?.term.cols ?? 0
     if (zenned) setZenTerminal(agentKey)
-    else setZenTerminal(null)
+    else leaveZenTerminal(agentKey)
     // fitted to the new size once laid out, and again once the new text size is measured
     // (timers, not animation frames: those wait while the window is hidden)
     const t1 = setTimeout(() => fitTerminal(agentKey), 30)
@@ -222,7 +223,7 @@ function AgentPane({ agentKey, index, zen }: { agentKey: string; index: number; 
       clearTimeout(t1)
       clearTimeout(t2)
     }
-  }, [zenned, zenSize, agentKey])
+  }, [zenned, zenSize, zenCols, agentKey])
 
   useEffect(() => {
     const el = slot.current
@@ -315,11 +316,12 @@ function EmptyMain(): React.JSX.Element {
  */
 export function PaneGrid({ zen = false }: { zen?: boolean }): React.JSX.Element {
   const tabs = useKuna((s) => s.tabs)
-  // zen's column: about 120 characters of zen's text, a line length that reads quickly
+  // zen's column: zenColumns() characters of zen's text (160 unless set with ⌘[ ⌘])
   useKuna((s) => s.settings.zenFontSize)
+  useKuna((s) => s.settings.zenColumns)
   useKuna((s) => s.settings.termFontSize)
   useKuna((s) => s.fonts)
-  const zenWidth = Math.round(zenFontSize() * 0.6 * 120 + 60)
+  const zenWidth = Math.round(zenFontSize() * 0.6 * zenColumns() + 60)
   const rows = gridRows(tabs.length)
   if (!tabs.length) return <EmptyMain />
   let i = 0
