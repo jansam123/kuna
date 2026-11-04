@@ -28,6 +28,15 @@ async function readJson(path: string): Promise<Json | undefined> {
   }
 }
 
+/** The editor in use (the first with settings or a profile folder) and its user settings. */
+export async function userSettings(): Promise<{ app?: (typeof APPS)[number]; settings: Json }> {
+  for (const app of APPS) {
+    const s = await readJson(join(homedir(), 'Library', 'Application Support', app.name, 'User', 'settings.json'))
+    if (s || (await exists(join(homedir(), app.user)))) return { app, settings: s ?? {} }
+  }
+  return { settings: {} }
+}
+
 async function exists(path: string): Promise<boolean> {
   try {
     await stat(path)
@@ -120,16 +129,7 @@ export class VscodeService {
   }
 
   private async read(): Promise<VscodeLook> {
-    let app: (typeof APPS)[number] | undefined
-    let settings: Json = {}
-    for (const a of APPS) {
-      const s = await readJson(join(homedir(), 'Library', 'Application Support', a.name, 'User', 'settings.json'))
-      if (s || (await exists(join(homedir(), a.user)))) {
-        app = a
-        settings = s ?? {}
-        break
-      }
-    }
+    const { app, settings } = await userSettings()
     const look: VscodeLook = {
       app: app?.name ?? null,
       themeName: typeof settings['workbench.colorTheme'] === 'string' ? (settings['workbench.colorTheme'] as string) : 'Default Dark Modern',

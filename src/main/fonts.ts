@@ -1,29 +1,14 @@
 import { execFile } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { parseJsonc } from '@shared/jsonc'
 import type { FontPrefs } from '@shared/types'
+import { userSettings } from './vscode'
 
 const run = promisify(execFile)
 
 /** VS Code's own interface font on macOS, and its default sizes. */
 const SYSTEM_UI = '-apple-system, BlinkMacSystemFont, sans-serif'
-
-type Json = Record<string, unknown>
-
-async function vscodeSettings(): Promise<Json> {
-  for (const app of ['Code', 'Code - Insiders', 'Cursor', 'VSCodium']) {
-    try {
-      const text = await readFile(join(homedir(), 'Library', 'Application Support', app, 'User', 'settings.json'), 'utf8')
-      return (parseJsonc(text) as Json) ?? {}
-    } catch {
-      /* next */
-    }
-  }
-  return {}
-}
 
 const ITERM = join(homedir(), 'Library', 'Preferences', 'com.googlecode.iterm2.plist')
 
@@ -67,7 +52,7 @@ function familyOf(postscript: string): string {
  * profile, else VS Code's integrated terminal) for the agent panes.
  */
 export async function detectFonts(): Promise<FontPrefs> {
-  const [vs, iterm] = await Promise.all([vscodeSettings(), process.platform === 'darwin' ? itermFont() : undefined])
+  const [{ settings: vs }, iterm] = await Promise.all([userSettings(), process.platform === 'darwin' ? itermFont() : undefined])
   const zoom = Math.pow(1.2, Number(vs['window.zoomLevel']) || 0)
   const str = (k: string): string | undefined => (typeof vs[k] === 'string' && (vs[k] as string).trim() ? (vs[k] as string) : undefined)
   const num = (k: string): number | undefined => (typeof vs[k] === 'number' && (vs[k] as number) > 0 ? (vs[k] as number) : undefined)
