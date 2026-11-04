@@ -78,7 +78,11 @@ export class Host extends EventEmitter {
   private connecting?: Promise<void>
   private disposed = false
 
-  constructor(readonly id: HostId) {
+  /** `watched`: keep a `kuna watch` stream and reconnect on failure; a host only used for one-off commands has neither */
+  constructor(
+    readonly id: HostId,
+    private readonly watched = true
+  ) {
     super()
     this.local = id === LOCAL_HOST
     this.state = { host: id, status: 'idle' }
@@ -156,6 +160,8 @@ export class Host extends EventEmitter {
     } else {
       doctor = await this.exec(['doctor'], { timeoutMs: 20_000 })
     }
+    // removed or replaced while it set up (setup can take a minute): leave no watch behind
+    if (this.disposed) return
     if (doctor.code !== 0) return this.fail(doctor.stderr || 'kuna helper failed to run')
 
     const info: Record<string, string> = {}
@@ -205,7 +211,7 @@ export class Host extends EventEmitter {
   }
 
   private scheduleRetry(): void {
-    if (this.disposed) return
+    if (this.disposed || !this.watched) return
     clearTimeout(this.retryTimer)
     // slow, jittered back-off: a struggling login node should not see a stampede
     const delay = Math.min(180_000, 10_000 * 2 ** this.retries++) * (0.8 + Math.random() * 0.4)
@@ -215,6 +221,7 @@ export class Host extends EventEmitter {
   // ------------------------------------------------------------ watch ----
 
   private startWatch(): void {
+    if (this.disposed || !this.watched) return
     this.stopWatch()
     const child = this.local
       ? spawn('sh', [LOCAL_KUNA, 'watch'])

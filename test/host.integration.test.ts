@@ -44,6 +44,14 @@ describe.skipIf(!hasTmux)('Host over (fake) ssh', () => {
     rmSync(home, { recursive: true, force: true })
   })
 
+  it('leaves no watch behind when the host is removed while it installs', async () => {
+    const { Host } = await import('../src/main/hosts/host')
+    const host = new Host('fakehost')
+    host.on('state', (s: { status: string }) => s.status === 'installing' && host.dispose())
+    await host.connect()
+    expect((host as unknown as { watcher?: unknown }).watcher).toBeUndefined()
+  })
+
   it('installs the helper, streams agents, spawns, reads and kills', async () => {
     const { Host } = await import('../src/main/hosts/host')
     const { b64 } = await import('../src/main/hosts/exec')

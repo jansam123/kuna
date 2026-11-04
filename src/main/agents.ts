@@ -29,7 +29,10 @@ interface TranscriptState {
  * 'usage' (PlanUsage — the freshest report from any host)
  */
 export class AgentService extends EventEmitter {
+  /** the hosts watch() keeps connected */
   private hosts = new Map<HostId, Host>()
+  /** hosts only used for one-off commands (a .claude browser or review on a host no project uses): never watched or listed */
+  private passing = new Map<HostId, Host>()
   private transcripts = new Map<string, TranscriptState>()
   private pendingSpawns = new Map<string, AgentRuntime>()
   /** agents the user is looking at (open panes, selection); see setInterest */
@@ -39,10 +42,22 @@ export class AgentService extends EventEmitter {
     super()
   }
 
+  /** A host to run commands on: the watched one, else one that is never watched. */
   host(id: HostId): Host {
     if (!isHostId(id)) throw new Error(`Not a host: ${JSON.stringify(id)}`)
+    let h = this.hosts.get(id) ?? this.passing.get(id)
+    if (!h) {
+      h = new Host(id, false)
+      this.passing.set(id, h)
+    }
+    return h
+  }
+
+  private watched(id: HostId): Host {
     let h = this.hosts.get(id)
     if (!h) {
+      this.passing.get(id)?.dispose()
+      this.passing.delete(id)
       h = new Host(id)
       h.on('state', () => this.emit('hosts', this.hostStates()))
       h.on('agents', (agents: AgentRuntime[]) => this.onAgents(h!, agents))
@@ -66,7 +81,7 @@ export class AgentService extends EventEmitter {
       }
     }
     for (const id of want) {
-      const h = this.host(id)
+      const h = this.watched(id)
       if (h.state.status === 'idle') void h.connect()
     }
     this.emit('hosts', this.hostStates())
@@ -357,7 +372,8 @@ export class AgentService extends EventEmitter {
   }
 
   dispose(): void {
-    for (const h of this.hosts.values()) h.dispose()
+    for (const h of [...this.hosts.values(), ...this.passing.values()]) h.dispose()
     this.hosts.clear()
+    this.passing.clear()
   }
 }
