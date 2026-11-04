@@ -101,6 +101,8 @@ function globalShortcut(ev: KeyboardEvent): boolean {
   const k = ev.key.toLowerCase()
 
   if (ev.ctrlKey && !ev.metaKey && k === 'x') {
+    // while typing it is the agent's (nano's exit, readline's Ctrl+X Ctrl+X) or the launch box's
+    if (s.mode === 'insert' || s.zone === 'prompt') return false
     killRequest()
     return true
   }
@@ -580,7 +582,11 @@ export function installKeys(): () => void {
     if (ev.isComposing) return
     const s = get()
     if (s.overlay) return // overlays own the keyboard while open
-    if (globalShortcut(ev)) return stop(ev)
+    if (globalShortcut(ev)) {
+      // an overlay opened while typing: the agent's terminal lets go of the keyboard
+      if (get().overlay && s.mode === 'insert' && s.zone === 'pane') leaveInsert(false)
+      return stop(ev)
+    }
     if (s.zone === 'prompt') return promptKey(ev)
     if (s.mode === 'insert' && s.zone === 'pane') return insertKey(ev)
     if (s.zone === 'sidebar') return sidebarKey(ev)

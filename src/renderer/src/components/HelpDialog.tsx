@@ -37,7 +37,7 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
       ['⌘R', 'rename the selected project, folder or agent'],
       ['⇧⌘R', 'resume an exited agent’s conversation'],
       ['⌘W', 'close the tab — the agent keeps running; back to where you opened it'],
-      ['Ctrl+X Ctrl+X', 'kill the agent · a background session: stop it, off the list'],
+      ['Ctrl+X Ctrl+X', 'in navigation: kill the agent · a background session: stop it, off the list'],
       ['⌘Z', 'bring back the session taken off the list last']
     ]
   },

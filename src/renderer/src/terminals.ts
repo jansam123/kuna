@@ -31,6 +31,8 @@ export interface TermEntry {
   paged?: boolean
   /** when Kuna last left tmux's scroll mode: the host's report of it lags behind */
   leftScroll?: number
+  /** leaving tmux's scroll mode, until tmux has done it */
+  leaving?: Promise<void>
   slowTimer?: ReturnType<typeof setTimeout>
 }
 

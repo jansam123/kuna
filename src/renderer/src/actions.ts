@@ -231,15 +231,18 @@ export function leaveScroll(key: string): Promise<void> | null {
   const a = get().agents[key]
   const e = terminalEntry(key)
   if (a?.kind !== 'tmux' || !e) return null
+  // still on its way out: keys typed meanwhile wait behind the ones before them, in order
+  if (e.leaving) return e.leaving
   // the host reports scroll mode a moment late: just left it is out of it
   const reported = a.inCopyMode && Date.now() - (e.leftScroll ?? 0) > 2000
   if (!reported && !e.paged) return null
   e.paged = false
   e.leftScroll = Date.now()
-  return window.kuna.agents.key(key, ['-X', 'cancel']).then(
-    () => undefined,
-    () => undefined
-  )
+  const done = (): void => {
+    e.leaving = undefined
+  }
+  e.leaving = window.kuna.agents.key(key, ['-X', 'cancel']).then(done, done)
+  return e.leaving
 }
 
 export function leaveInsert(clear: boolean): void {
