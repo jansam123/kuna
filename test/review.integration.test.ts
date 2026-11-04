@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -216,6 +216,12 @@ describe.skipIf(!hasGit)('review: kuna git on a repository', () => {
   it('refuses options, ranges and paths out of the repository', () => {
     expect(() => kuna('compare', b64(repo), b64('--output=/tmp/x'), '')).toThrow()
     expect(() => kuna('compare', b64(repo), b64('main..feat'), '')).toThrow()
+    // a branch or commit that does not exist, as base or as head: said in words
+    for (const [base, head] of [['gone', 'feat'], ['main', 'gone']]) {
+      const r = spawnSync(process.env.KUNA_TEST_SH || 'sh', [SCRIPT, 'git', 'compare', b64(repo), b64(base), b64(head)], { env: { ...process.env, HOME: home } })
+      expect(r.status).toBe(3)
+      expect(r.stderr.toString()).toBe('kuna: unknown branch or commit: gone\n')
+    }
     expect(() => kuna('cat', b64(repo), '100', b64('W../outside'))).toThrow()
     expect(() => kuna('cat', b64(repo), '100', b64('G-x:a'))).toThrow()
     expect(() => kuna('info', b64(home))).toThrow()

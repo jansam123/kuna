@@ -843,6 +843,8 @@ git_cmd() {
       head=$(b64d "$2")
       git_ref "$base"
       [ -z "$head" ] || git_ref "$head"
+      # a head that is gone (a deleted branch) says so, as an unknown base does
+      [ -z "$head" ] || gq rev-parse -q --verify "$head^{commit}" >/dev/null 2>&1 || { echo "kuna: unknown branch or commit: $head" >&2; exit 3; }
       tip=${head:-HEAD}
       mb=$(gq merge-base "$base" "$tip" 2>/dev/null) || mb=$(gq rev-parse -q --verify "$base^{commit}" 2>/dev/null) || mb=
       first=
