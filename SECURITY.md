@@ -33,6 +33,6 @@ Kuna runs commands **as you** on this Mac and on every SSH host you add a projec
 
 ## Known limits
 
-- **Prompts are visible in the process list.** An agent's first prompt is passed to `claude` as an argument, so other users on a shared node can see it with `ps` (unless the node hides other users' processes). Don't put secrets in launch prompts; type them into the agent instead.
+- **Prompts are visible in the process list.** An agent's first prompt is passed to `claude` as an argument, so other users on a shared node can see it with `ps` (unless the node hides other users' processes). It is also in the agent's environment as `KUNA_PROMPT`, which only you can read. Don't put secrets in launch prompts; type them into the agent instead.
 - **The app is not signed or notarised.** Build it from source (`npm run dist`) rather than running a copy someone sends you.
 - **Anything in the agent command is stored** in `~/.kuna` on the host (private to you) and in Kuna's state file on your Mac. Prefer your shell's environment over putting API keys there.

@@ -17,7 +17,11 @@ T=$(cat "$K/tmux-path" 2>/dev/null)
 [ -n "$T" ] && [ -x "$T" ] || T=tmux
 
 SOCK=${KUNA_TMUX_SOCKET:-kuna} # tests use their own tmux server
-CDIR=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+# Claude Code's config folder as the login shell sets it (claude --bg starts
+# through that shell, so its sessions are there), found by setup
+KUNA_CDIR=
+[ -f "$K/claude-dir" ] && read -r KUNA_CDIR < "$K/claude-dir"
+CDIR=${KUNA_CDIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}
 
 tm() { "$T" -L "$SOCK" -f "$CONF" "$@"; }
 
@@ -59,8 +63,8 @@ discover() {
   out="$K/.discover.$$"
   sh_=${SHELL:-/bin/sh}
   case "$sh_" in
-    *csh) "$sh_" -c 'echo "@@tmux `which tmux`"; echo "@@claude `which claude`"' </dev/null >"$out" 2>/dev/null & ;;
-    *) "$sh_" -lic 'printf "@@tmux %s\n@@claude %s\n" "$(command -v tmux)" "$(command -v claude)"' </dev/null >"$out" 2>/dev/null & ;;
+    *csh) "$sh_" -c 'echo "@@tmux `which tmux`"; echo "@@claude `which claude`"; echo "@@ccdir `printenv CLAUDE_CONFIG_DIR`"' </dev/null >"$out" 2>/dev/null & ;;
+    *) "$sh_" -lic 'printf "@@tmux %s\n@@claude %s\n@@ccdir %s\n" "$(command -v tmux)" "$(command -v claude)" "$CLAUDE_CONFIG_DIR"' </dev/null >"$out" 2>/dev/null & ;;
   esac
   pid=$!
   ( sleep 20; kill "$pid" 2>/dev/null ) >/dev/null 2>&1 &
@@ -69,10 +73,14 @@ discover() {
   kill "$killer" 2>/dev/null
   tpath=$(sed -n 's/^@@tmux \(\/.*\)$/\1/p' "$out" | head -n 1)
   cpath=$(sed -n 's/^@@claude \(\/.*\)$/\1/p' "$out" | head -n 1)
+  ccdir=$(sed -n 's/^@@ccdir \(\/.*\)$/\1/p' "$out" | head -n 1)
+  # the shell answered: its CLAUDE_CONFIG_DIR, or none (a shell that hung keeps the last one)
+  grep -q '^@@ccdir' "$out" && rm -f "$K/claude-dir"
   rm -f "$out"
   [ -n "$tpath" ] || tpath=$(command -v tmux 2>/dev/null)
   [ -n "$tpath" ] && printf '%s' "$tpath" > "$K/tmux-path"
   [ -n "$cpath" ] && printf '%s' "$cpath" > "$K/claude-path"
+  [ -n "$ccdir" ] && printf '%s\n' "$ccdir" > "$K/claude-dir"
 }
 
 write_conf() {
@@ -173,16 +181,8 @@ run() {
   KUNA_AGENT_ID=$1
   KUNA_DIR=$d
   COLORTERM=truecolor
-  # an interactive login shell may stop at oh-my-zsh's update question
-  DISABLE_AUTO_UPDATE=true
-  DISABLE_UPDATE_PROMPT=true
-  export KUNA_AGENT_ID KUNA_DIR COLORTERM DISABLE_AUTO_UPDATE DISABLE_UPDATE_PROMPT
-  cmd=$(cat "$d/cmd")
-  sh_=${SHELL:-/bin/sh}
-  case "$sh_" in
-    *csh) "$sh_" -c "$cmd" ;;
-    *) "$sh_" -lic "$cmd" ;;
-  esac
+  export KUNA_AGENT_ID KUNA_DIR COLORTERM
+  login_run "$(cat "$d/cmd")" "$(cat "$d/prompt" 2>/dev/null)"
   code=$?
   printf '%s' "$code" > "$d/exit"
   printf '%s' "$(date +%s)" > "$d/attn"
@@ -231,20 +231,26 @@ attach() {
 # with `claude attach`, and stops/removes/respawns them with the claude CLI.
 
 claude_bin() {
+  # $c: the claude the login shell finds, run with that shell's config folder
+  [ -z "$KUNA_CDIR" ] || { CLAUDE_CONFIG_DIR=$KUNA_CDIR; export CLAUDE_CONFIG_DIR; }
   c=$(cat "$K/claude-path" 2>/dev/null)
-  [ -n "$c" ] && [ -x "$c" ] && { printf '%s' "$c"; return; }
-  printf 'claude'
+  [ -n "$c" ] && [ -x "$c" ] || c=claude
 }
 
 login_run() {
-  # run a command line through the user's login shell (PATH, modules, conda)
+  # login_run <command line> [prompt]: run it through the user's login shell
+  # (PATH, modules, conda), the prompt as its last argument. The prompt goes
+  # in through the environment so the shell never parses it: csh has no
+  # "$(...)" and stops at a newline in "$v", but keeps $v:q as one word.
   sh_=${SHELL:-/bin/sh}
+  # an interactive login shell may stop at oh-my-zsh's update question
   DISABLE_AUTO_UPDATE=true
   DISABLE_UPDATE_PROMPT=true
-  export DISABLE_AUTO_UPDATE DISABLE_UPDATE_PROMPT
+  KUNA_PROMPT=$2
+  export DISABLE_AUTO_UPDATE DISABLE_UPDATE_PROMPT KUNA_PROMPT
   case "$sh_" in
-    *csh) "$sh_" -c "$1" ;;
-    *) "$sh_" -lic "$1" ;;
+    *csh) [ -z "$2" ] || set -- "$1"' $KUNA_PROMPT:q'; "$sh_" -c "$1" ;;
+    *) [ -z "$2" ] || set -- "$1"' "$KUNA_PROMPT"'; "$sh_" -lic "$1" ;;
   esac
 }
 
@@ -252,13 +258,8 @@ bgspawn() {
   # bgspawn <cwd64> <cmd64> <prompt64>: start `claude --bg …` in cwd, print its id
   cwd=$(expand "$(b64d "$1")")
   if [ ! -d "$cwd" ]; then echo "kuna: directory does not exist: $cwd" >&2; exit 3; fi
-  mkdir -p "$K/tmp"
-  KUNA_PROMPT_FILE="$K/tmp/prompt.$$"
-  export KUNA_PROMPT_FILE
-  b64d "$3" > "$KUNA_PROMPT_FILE"
   cd "$cwd" || exit 3
-  out=$(login_run "$(b64d "$2")" < /dev/null 2>&1)
-  rm -f "$KUNA_PROMPT_FILE"
+  out=$(login_run "$(b64d "$2")" "$(b64d "$3")" < /dev/null 2>&1)
   id=$(printf '%s\n' "$out" | sed -n 's/.*claude attach \([0-9a-f]\{8\}\).*/\1/p' | head -n 1)
   if [ -z "$id" ]; then printf '%s\n' "$out" | grep -v -i 'job control\|terminal process group\|no job control' | tail -n 5 >&2; exit 4; fi
   echo "$id"
@@ -268,13 +269,15 @@ cc() {
   # cc <stop|rm|respawn|logs> <id>: claude CLI subcommands for background sessions
   case "$1" in stop|rm|respawn|logs) ;; *) echo "kuna: unsupported: $1" >&2; exit 2 ;; esac
   valid_id "$2"
-  "$(claude_bin)" "$1" "$2" < /dev/null 2>&1
+  claude_bin
+  "$c" "$1" "$2" < /dev/null 2>&1
 }
 
 cattach() {
   # attach this terminal to a background session (revives a stopped one)
   valid_id "$1"
-  exec "$(claude_bin)" attach "$1"
+  claude_bin
+  exec "$c" attach "$1"
 }
 
 bg_snapshot() {
@@ -716,7 +719,7 @@ real_paths() {
 
 claude_files() {
   # claude-files <cwds64>: Claude Code config, skills, agents and commands
-  c="$HOME/.claude"
+  c=$CDIR
   for f in "$c/CLAUDE.md" "$c/settings.json" "$c/settings.local.json" "$c/keybindings.json"; do
     [ -f "$f" ] && printf 'G\t%s\n' "$f"
   done

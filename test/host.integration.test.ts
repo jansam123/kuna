@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -101,4 +101,78 @@ describe.skipIf(!hasTmux)('Host over (fake) ssh', () => {
     expect(frames.at(-1)?.some((a) => a.id === 'abc123')).toBe(false)
     host.dispose()
   }, 40_000)
+
+  it('runs one-off commands on a host nobody watches without watching it', async () => {
+    const { AgentService } = await import('../src/main/agents')
+    const agents = new AgentService(() => [])
+    const passing = agents.host('fakehost')
+    await passing.connect()
+    expect(passing.state.status).toBe('ready')
+    expect((passing as unknown as { watcher?: unknown }).watcher).toBeUndefined()
+    expect(agents.hostStates()).toEqual([])
+    // once a project uses it, it is watched (and listed)
+    agents.watch(['fakehost'])
+    expect(agents.host('fakehost')).not.toBe(passing)
+    expect(agents.hostStates().map((h) => h.host)).toEqual(['fakehost'])
+    agents.dispose()
+  })
+})
+
+describe('the agent command through the login shell', () => {
+  const script = resolve(__dirname, '../src/main/remote/kuna.sh')
+  const b64 = (s: string): string => Buffer.from(s, 'utf8').toString('base64')
+  const prompt = `it's "quoted" $HOME \`x\` !hist\n\n  and a line more`
+  // stands in for claude: records its arguments, prints what claude --bg prints
+  const agent = `sh -c 'printf "%s:%s" "$#" "$1" > "$HOME/got"; echo "claude attach 0123abcd"' agent`
+  const shells = ['/bin/sh', '/bin/tcsh'].filter((s) => existsSync(s))
+
+  for (const shell of shells) {
+    it(`gives the prompt as one argument (${shell})`, () => {
+      const home = mkdtempSync(join(tmpdir(), 'kuna-login-'))
+      const env = { ...process.env, HOME: home, SHELL: shell }
+      const got = (): string => readFileSync(join(home, 'got'), 'utf8')
+      try {
+        const d = join(home, '.kuna', 'agents', 'a1')
+        mkdirSync(d, { recursive: true })
+        writeFileSync(join(d, 'cmd'), agent)
+        writeFileSync(join(d, 'prompt'), prompt)
+        execFileSync('sh', [script, 'run', 'a1'], { env, stdio: 'ignore' })
+        expect(got()).toBe(`1:${prompt}`)
+        writeFileSync(join(d, 'prompt'), '')
+        execFileSync('sh', [script, 'run', 'a1'], { env, stdio: 'ignore' })
+        expect(got()).toBe('0:')
+        // a background session: the same, and its id from claude's output
+        const out = execFileSync('sh', [script, 'bgspawn', b64(home), b64(agent), b64(prompt)], { env }).toString()
+        expect(out).toBe('0123abcd\n')
+        expect(got()).toBe(`1:${prompt}`)
+      } finally {
+        rmSync(home, { recursive: true, force: true })
+      }
+    })
+  }
+
+  it("uses Claude Code's config folder from the login shell", () => {
+    const home = mkdtempSync(join(tmpdir(), 'kuna-ccdir-'))
+    const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, SHELL: '/bin/sh', KUNA_TMUX_SOCKET: SOCKET }
+    delete env.CLAUDE_CONFIG_DIR
+    try {
+      const cc = join(home, 'cc')
+      mkdirSync(join(cc, 'jobs', 'abcd1234'), { recursive: true })
+      writeFileSync(join(cc, 'jobs', 'abcd1234', 'state.json'), JSON.stringify({ state: 'done', sessionId: 's1', cwd: home }))
+      writeFileSync(join(cc, 'CLAUDE.md'), 'mine\n')
+      // set only for login shells, as in a .zprofile
+      writeFileSync(join(home, '.profile'), `CLAUDE_CONFIG_DIR="${cc}"; export CLAUDE_CONFIG_DIR\n`)
+      execFileSync('sh', [script, 'setup'], { env, stdio: 'ignore' })
+      expect(readFileSync(join(home, '.kuna', 'claude-dir'), 'utf8')).toBe(`${cc}\n`)
+      const kuna = (...args: string[]): string => execFileSync('sh', [script, ...args], { env }).toString()
+      expect(kuna('bg-snapshot')).toMatch(/^J\tabcd1234\t/)
+      expect(kuna('claude-files', b64(''))).toContain(`G\t${join(cc, 'CLAUDE.md')}`)
+      // taken out of the login files again: back to the default
+      writeFileSync(join(home, '.profile'), '')
+      execFileSync('sh', [script, 'setup'], { env, stdio: 'ignore' })
+      expect(existsSync(join(home, '.kuna', 'claude-dir'))).toBe(false)
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
 })

@@ -70,7 +70,7 @@ Host lxplus-mine
 
 ## Login shells
 
-Agents start through your login shell (`$SHELL -lic '<command>'`), so they see the same environment as an interactive terminal. Kuna sets `DISABLE_AUTO_UPDATE=true` so oh-my-zsh doesn't stop at its update question. For `csh`/`tcsh` users the command runs with `$SHELL -c`; a launch prompt is passed through a file so quoting never matters.
+Agents start through your login shell (`$SHELL -lic '<command>'`), so they see the same environment as an interactive terminal. Kuna sets `DISABLE_AUTO_UPDATE=true` so oh-my-zsh doesn't stop at its update question. For `csh`/`tcsh` users the command runs with `$SHELL -c`. A launch prompt reaches the agent as one argument through the environment (`$KUNA_PROMPT`), so the login shell never parses it and quoting never matters. Setup also asks the login shell for `CLAUDE_CONFIG_DIR`, so Kuna looks for background sessions where `claude --bg` puts them even when only your shell startup files set it.
 
 ## Troubleshooting
 

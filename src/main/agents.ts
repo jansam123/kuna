@@ -10,6 +10,8 @@ import { Host } from './hosts/host'
 
 const FIRST_READ_MAX = 3 * 1024 * 1024
 const DELTA_READ_MAX = 4 * 1024 * 1024
+/** a spawned agent no frame has reported by then is dropped rather than left "starting" */
+const PENDING_SPAWN_S = 120
 
 interface TranscriptState {
   path: string
@@ -130,6 +132,8 @@ export class AgentService extends EventEmitter {
 
   private onAgents(host: Host, agents: AgentRuntime[]): void {
     for (const a of agents) this.pendingSpawns.delete(a.key)
+    const now = Date.now() / 1000
+    for (const [key, a] of this.pendingSpawns) if (now - a.createdAt > PENDING_SPAWN_S) this.pendingSpawns.delete(key)
     this.emitAgents()
     for (const a of agents) {
       if (a.transcriptPath && this.wants(a)) this.pullTranscript(host, a)
@@ -164,7 +168,7 @@ export class AgentService extends EventEmitter {
     let cmd = base
     if (isClaude) cmd += resume ? ` --resume ${resume}` : ` --session-id ${sessionId}`
     if (isClaude) cmd += ` --settings "$HOME/.kuna/claude-hooks.json"`
-    if (prompt) cmd += ` "$(cat "$KUNA_DIR/prompt")"`
+    // the helper adds the prompt as the last argument, in the login shell's own syntax
     const createdAt = Math.floor(Date.now() / 1000)
     const meta = {
       id,
@@ -218,8 +222,8 @@ export class AgentService extends EventEmitter {
     projectId: string,
     folderId: string
   ): Promise<{ key: string } | { error: string }> {
-    let cmd = `${base} --bg --settings "$HOME/.kuna/claude-hooks.json"`
-    if (prompt) cmd += ` "$(cat "$KUNA_PROMPT_FILE")"`
+    // the helper adds the prompt as the last argument
+    const cmd = `${base} --bg --settings "$HOME/.kuna/claude-hooks.json"`
     const res = await host.exec(['bgspawn', b64(cwd), b64(cmd), b64(prompt)], { timeoutMs: 60_000 })
     const short = res.stdout.toString('utf8').trim()
     if (res.code !== 0 || !/^[0-9a-f]{8}$/.test(short)) {

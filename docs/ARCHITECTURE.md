@@ -30,7 +30,7 @@ Opening a pane runs `ssh -tt <host> sh .kuna/bin/kuna attach <id>` inside a loca
 
 | Command | Purpose |
 | --- | --- |
-| `setup`, `doctor` | locate tmux/claude via the login shell, write tmux config and hook settings, report versions |
+| `setup`, `doctor` | locate tmux/claude and Claude Code's config folder via the login shell, write tmux config and hook settings, report versions |
 | `spawn <id> …` | create `~/.kuna/agents/<id>/`, start `tmux new-session` running `kuna run <id>` |
 | `run <id>` | inside tmux: `$SHELL -lic "<agent command>"`, then record the exit code |
 | `watch` | stream state frames (see below) |
