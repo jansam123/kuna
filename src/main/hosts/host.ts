@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { LOCAL_HOST, type AgentRuntime, type HostId, type HostState, type PlanUsage } from '@shared/types'
@@ -190,8 +190,10 @@ export class Host extends EventEmitter {
   private async install(): Promise<{ ok: true } | { ok: false; error: string }> {
     if (this.local) {
       mkdirSync(join(homedir(), '.kuna', 'bin'), { recursive: true, mode: 0o700 })
-      writeFileSync(LOCAL_KUNA, KUNA_SCRIPT)
-      chmodSync(LOCAL_KUNA, 0o755)
+      // a new file moved into place, as on remote hosts: running `sh kuna run`s keep reading the old one
+      writeFileSync(`${LOCAL_KUNA}.tmp`, KUNA_SCRIPT)
+      chmodSync(`${LOCAL_KUNA}.tmp`, 0o755)
+      renameSync(`${LOCAL_KUNA}.tmp`, LOCAL_KUNA)
       return { ok: true }
     }
     const cmd = `sh -c 'mkdir -p "$HOME/.kuna/bin" && chmod 700 "$HOME/.kuna" && cat > "$HOME/.kuna/bin/kuna.tmp" && chmod 755 "$HOME/.kuna/bin/kuna.tmp" && mv -f "$HOME/.kuna/bin/kuna.tmp" "$HOME/.kuna/bin/kuna"'`
