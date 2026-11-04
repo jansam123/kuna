@@ -567,42 +567,43 @@ watch() {
   # while something changes, every 5 s once quiet for ~30 s; Claude background
   # sessions are re-read only when their state or the roster changed, when a
   # transcript grew (checked every ~10 s) or every ~30 s, and a heartbeat goes
-  # out at least every 30 s so a dead connection is noticed.
+  # out at least every 30 s so a dead connection is noticed. Those times are
+  # by the clock: on a loaded node the work between sleeps takes a while too.
   prev=""
   quiet=0
-  since=0
+  sent=0
   bgsig=""
   tsig=""
   bgtsig=""
   bgout=""
-  bgage=0
+  bgat=0
   tps=""
   while :; do
+    now=$(date +%s)
     sig=$(ls -l "$CDIR"/jobs/*/state.json "$CDIR/daemon/roster.json" 2>/dev/null | cksum)
     # grown transcripts (context sizes) count too, looked at every ~10 s;
     # their paths are Claude's sanitized names: safe to word-split
-    [ -n "$tps" ] && [ "$bgage" -ge 10 ] && tsig=$(ls -l $tps 2>/dev/null | cksum)
-    if [ "$sig" != "$bgsig" ] || [ "$tsig" != "$bgtsig" ] || [ "$bgage" -ge 30 ]; then
+    [ -n "$tps" ] && [ $((now - bgat)) -ge 10 ] && tsig=$(ls -l $tps 2>/dev/null | cksum)
+    if [ "$sig" != "$bgsig" ] || [ "$tsig" != "$bgtsig" ] || [ $((now - bgat)) -ge 30 ]; then
       bgout=$(bg_snapshot)
       tps=$(printf '%s\n' "$bgout" | sed -n 's/^S	[0-9]*	//p')
       bgsig=$sig
       bgtsig=$tsig
-      bgage=0
+      bgat=$now
     fi
     cur=$(snapshot; [ -n "$bgout" ] && printf '%s\n' "$bgout")
-    if [ "$cur" != "$prev" ] || [ "$since" -ge 30 ]; then
+    now=$(date +%s)
+    if [ "$cur" != "$prev" ] || [ $((now - sent)) -ge 30 ]; then
       # printing also detects a dead connection: the write fails and we exit
-      printf '%s\n@@END\t%s\n' "$cur" "$(date +%s)" || exit 0
+      printf '%s\n@@END\t%s\n' "$cur" "$now" || exit 0
       [ "$cur" != "$prev" ] && quiet=0
       prev=$cur
-      since=0
+      sent=$now
     else
       quiet=$((quiet + 1))
     fi
     if [ "$quiet" -ge 15 ]; then step=5; else step=2; fi
     sleep "$step"
-    since=$((since + step))
-    bgage=$((bgage + step))
   done
 }
 
