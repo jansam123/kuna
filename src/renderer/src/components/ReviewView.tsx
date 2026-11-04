@@ -428,9 +428,9 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
       if ('error' in res) {
         setCompareError(res.error)
         setCompare(null)
-        // a head typed by name, or a branch since deleted, that does not compare: back to what is checked out
-        if (!commit && info && cmpHead && cmpHead !== 'HEAD' && !isSha(cmpHead) && !info.refs.some((r) => r.short === cmpHead)) {
-          setNote(`${cmpHead}: ${res.error}`)
+        // the helper says head is gone (a branch deleted, a name typed wrong): back to what is checked out; any other error keeps it
+        if (!commit && info && cmpHead && res.error === `unknown branch or commit: ${cmpHead}`) {
+          setNote(res.error)
           setHead(checkedOut(info))
         }
       } else {
