@@ -12,6 +12,8 @@ const MB = 1024 * 1024
 const MAX_MEDIA_BYTES = 1024 * MB
 /** a Markdown file past this is not a note to read in the viewer */
 const MAX_MD_BYTES = 4 * MB
+/** a .claude file past this is not shown */
+const MAX_CLAUDE_FILE_BYTES = 2 * MB
 /** files kept for going back and forth, at most this much in all (the newest is kept whatever its size) */
 const CACHE_BYTES = 512 * MB
 const CACHE_FILES = 30
@@ -215,8 +217,9 @@ export class ClaudeFilesService {
 
   async read(hostId: HostId, path: string): Promise<string> {
     if (!this.listed.get(hostId)?.has(path)) return `Not one of the listed .claude files: ${path}`
-    const res = await this.agents.host(hostId).exec(['cat', b64(path)], { timeoutMs: 30_000, maxBytes: 2 * 1024 * 1024 })
+    const res = await this.agents.host(hostId).exec(['cat', b64(path)], { timeoutMs: 30_000, maxBytes: MAX_CLAUDE_FILE_BYTES })
     if (res.code !== 0) return `Could not read ${path}\n\n${res.stderr}`
+    if (res.stdout.length > MAX_CLAUDE_FILE_BYTES) return `${path} is larger than ${sizeText(MAX_CLAUDE_FILE_BYTES)}; open it in an editor.`
     return res.stdout.toString('utf8')
   }
 
