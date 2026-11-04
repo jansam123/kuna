@@ -116,7 +116,7 @@ The left side has five lists:
 | → ← | file list | open / close a folder, up to its folder; → on a file goes into the diff |
 | Enter · Space | file list | into the diff (a folder: open or close it; a commit: show it) |
 | Tab · ⇧Tab · ⌘1–⌘5 | anywhere | the next / previous list, or a list by number (⌘5 the Folder) |
-| ⌘P | anywhere | find a file (or a commit) by letters in its path |
+| ⌘P | anywhere | find a file by letters in its path, or a commit by the words of its subject, id or author |
 | *type* | file list | write to the agent, as in the plot viewer; Enter sends |
 | C | diff | comment on the selected lines (or the cursor's); a click on the **+** in the gutter does it too |
 | ⌘Enter | comment box | add the comment (Esc Esc discards it) |
@@ -124,11 +124,11 @@ The left side has five lists:
 | ⌘F | diff | find in the file |
 | ⌘Enter | anywhere else | send the review: every comment, with its file, lines and the code it is about, to the agent as one message (no agent: copied to the clipboard). ⇧⌘C copies it |
 | ⌘O | anywhere | another repository in the agent's folder (when there are several) |
-| ⌘J | anywhere | to the agent's terminal and back to the files |
+| ⌘J | anywhere | to the agent's terminal and back to the files; a stopped session comes back here first |
 | ⌘U | anywhere | side by side or inline |
 | ⌘R | anywhere | read everything again, as the **↻ Refresh** button does. The view also does by itself: whenever the agent does something (a tool call, a reply, its status changes; at most every 6 s while it works, right away when a turn ends) and when Kuna comes back to the front. What is on screen stays while it reads, the open file keeps its place, a comment being written stays |
 | Esc | diff · agent | back to the file list |
-| Esc · ⌘W | file list | close (comments not sent yet are kept for next time) |
+| Esc · ⌘W | file list | close (comments not sent yet are kept for next time). A comment half written, on this file or another, is brought back first; Esc Esc closes anyway |
 
 ## Projects and folders
 

@@ -29,6 +29,7 @@ import {
   parseStatus,
   reviewMessage,
   specOf,
+  touchCache,
   validRef,
   validRepoPath,
   type GitInfo,
@@ -687,6 +688,22 @@ describe('review: git output', () => {
     expect(b[3].data).toHaveLength(0)
     expect(new TextDecoder().decode(b[4].data)).toBe('ok')
     expect(looksBinary(b[0].data!)).toBe(true)
+  })
+
+  it('keeps the file cache bounded, dropping what was looked at longest ago but never the file shown', () => {
+    const blob = (n: number) => ({ size: n, data: new Uint8Array(n) })
+    const cache = new Map([['a', blob(4)], ['b', blob(4)], ['c', blob(4)]])
+    // a was cached long ago: shown again, it is the newest, and b goes first
+    cache.set('d', blob(4))
+    touchCache(cache, ['d', 'a'], 12, 400)
+    expect([...cache.keys()]).toEqual(['c', 'd', 'a'])
+    // too many files: down to the limit
+    touchCache(cache, [], 1000, 1)
+    expect([...cache.keys()]).toEqual(['a'])
+    // one file larger than the whole cache still stays while it is shown
+    cache.set('big', blob(50))
+    touchCache(cache, ['big'], 10, 400)
+    expect([...cache.keys()]).toEqual(['big'])
   })
 
   it('only lets names and repository paths through', () => {

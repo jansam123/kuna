@@ -7,6 +7,8 @@ import {
   isSha,
   looksBinary,
   reviewMessage,
+  touchCache,
+  validRef,
   type ChangeKind,
   type DirListing,
   type FileChange,
@@ -76,6 +78,8 @@ const MIN_LIST = 200
 const MIN_CHAT = 320
 const chatDefault = (): number => Math.round(Math.min(600, Math.max(400, window.innerWidth * 0.3)))
 const EMPTY: GitSide = { kind: 'empty' }
+/** what is checked out: its branch, else HEAD; nothing before the first commit */
+const checkedOut = (i: GitInfo): string | null => i.branch ?? (i.head ? 'HEAD' : null)
 
 /** a pull request's files: each as it was where the branch left base, and as it is at head */
 function compareEntries(c: GitCompare, context: string): Entry[] {
@@ -202,6 +206,8 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
   /** one commit on its own (from the Commits tab): base and head stay for going back */
   const [commit, setCommit] = useState<GitCommit | null>(null)
   const [compare, setCompare] = useState<GitCompare | null>(null)
+  /** head's commit, from the last base...head comparison (not from a commit shown on its own) */
+  const [headTip, setHeadTip] = useState<string | null>(null)
   const [compareError, setCompareError] = useState<string | null>(null)
   const [comparing, setComparing] = useState(false)
   const [files, setFiles] = useState<string[] | null>(null)
@@ -220,7 +226,8 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
   const [readAt, setReadAt] = useState<number | null>(null)
   /** readings of the repository so far: each starts one comparison */
   const [seq, setSeq] = useState(0)
-  const store = `${host}:${dir}`
+  /** where the comments not sent yet are kept: the repository, else the folder itself (also while repositories are looked for) */
+  const store = `${host}:${dir || folder}`
   const [comments, setCommentsState] = useState<ReviewComment[]>(() => pendingComments.get(store) ?? [])
   const [draft, setDraft] = useState<Draft | null>(null)
   const [note, setNote] = useState<string | null>(null)
@@ -232,6 +239,8 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
   const filterRef = useRef<HTMLInputElement>(null)
   const urls = useRef<string[]>([])
   const blobCache = useRef(new Map<string, GitBlob>())
+  /** bumped whenever the cache is emptied: a file read before that is not put back */
+  const cacheGen = useRef(0)
   const sideBySide = !settings.reviewInline
   const root = info?.root ?? dir
   const repoRef = useRef(dir)
@@ -312,7 +321,13 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
       setClosedDirs(new Set(memo?.closedDirs ?? []))
       setOpenDirs(new Set(memo?.openDirs ?? []))
     }
-    setCommentsState(pendingComments.get(`${host}:${dir}`) ?? [])
+    const early = `${host}:${folder}`
+    if (first && store !== early && pendingComments.has(early)) {
+      // comments written on the folder while its repositories were being looked for come along
+      pendingComments.set(store, [...(pendingComments.get(store) ?? []), ...pendingComments.get(early)!])
+      pendingComments.delete(early)
+    }
+    setCommentsState(pendingComments.get(store) ?? [])
     if (first) return remembered()
     setInfo(null)
     setStatus(null)
@@ -320,6 +335,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
     setBase(undefined)
     setCommit(null)
     setCompare(null)
+    setHeadTip(null)
     setCompareError(null)
     setFiles(null)
     if (tab !== 'folder') setTab('changes')
@@ -329,16 +345,42 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
     remembered()
     chose.current = tab === 'folder'
     blobCache.current.clear()
+    cacheGen.current++
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dir])
+
+  /** re-read everything (⌘R, or the agent finished a turn) */
+  const lastRefresh = useRef(Date.now())
+  /** readings of the repository in flight, and whether a refresh was asked for meanwhile */
+  const inFlight = useRef(0)
+  const again = useRef(false)
+  const refresh = useCallback(() => {
+    // one reading at a time: a slow host is not asked again until it answers, then once more
+    if (inFlight.current) return void (again.current = true)
+    lastRefresh.current = Date.now()
+    // only a file at a full commit id stays the same; the index, the disk, HEAD and branches move
+    for (const k of [...blobCache.current.keys()]) if (!(k.startsWith('G') && isSha(k.slice(1, k.indexOf(':'))))) blobCache.current.delete(k)
+    cacheGen.current++
+    // the folders open in the Folder tab are read again (what is on screen stays until then)
+    setFolderGen((g) => g + 1)
+    setTick((t) => t + 1)
+  }, [])
 
   // the repository: branches, worktrees, uncommitted changes
   const loadOverview = useCallback(async () => {
     if (!dir) return
+    inFlight.current++
     setReading((n) => n + 1)
     const ov = await window.kuna.git.overview(host, dir).finally(() => {
+      inFlight.current--
+      // the next reading by itself counts its few seconds from here
+      lastRefresh.current = Date.now()
       setReading((n) => n - 1)
       setReadAt(Date.now())
+      if (!inFlight.current && again.current) {
+        again.current = false
+        refresh()
+      }
     })
     // another repository was picked meanwhile
     if (repoRef.current !== dir) return
@@ -356,14 +398,11 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
       // no main, master or origin: the branch itself, until another is picked (⌘B)
       return defaultBase(ov.info) ?? ov.info.branch ?? (ov.info.head ? 'HEAD' : undefined)
     })
-    // the head picked last time, while it still exists; else what is checked out
-    setHead((h) => {
-      const known = h === null || h === 'HEAD' || (!!h && (isSha(h) || ov.info.refs.some((r) => r.short === h)))
-      return known ? h! : (ov.info.branch ?? (ov.info.head ? 'HEAD' : null))
-    })
+    // the head picked (now or last time), any name git takes: one that does not compare falls back below; else what is checked out
+    setHead((h) => (h === null || (!!h && validRef(h)) ? h : checkedOut(ov.info)))
     // what follows (the comparison, the file list) goes once per reading of the repository
     setSeq((n) => n + 1)
-  }, [host, dir])
+  }, [host, dir, refresh])
 
   useEffect(() => {
     void loadOverview()
@@ -389,18 +428,25 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
       if ('error' in res) {
         setCompareError(res.error)
         setCompare(null)
+        // a head typed by name, or a branch since deleted, that does not compare: back to what is checked out
+        if (!commit && info && cmpHead && cmpHead !== 'HEAD' && !isSha(cmpHead) && !info.refs.some((r) => r.short === cmpHead)) {
+          setNote(`${cmpHead}: ${res.error}`)
+          setHead(checkedOut(info))
+        }
       } else {
         setCompareError(null)
         setCompare(res)
       }
+      if (!commit) setHeadTip('error' in res ? null : res.tip || null)
     })
     return () => {
       live = false
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seq, noCommits, host, dir, cmpBase, cmpHead])
 
-  // every file, once the Files tab is looked at: what is on disk when head is checked out here
-  const filesRev = head === null || (info && head === info.branch) ? null : (compare?.tip ?? null)
+  // every file, once the Files tab is looked at: what is on disk when head is checked out here, else at head (not at a commit shown on its own)
+  const filesRev = head === null || (info && head === info.branch) ? null : headTip
   const filesKey = `${dir}:${filesRev ?? 'disk'}:${seq}`
   const filesAsked = useRef<string | null>(null)
   useEffect(() => {
@@ -417,17 +463,6 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
     })
   }, [tab, filesKey, filesRev, host, dir, info])
 
-  /** re-read everything (⌘R, or the agent finished a turn) */
-  const lastRefresh = useRef(Date.now())
-  const refresh = useCallback(() => {
-    lastRefresh.current = Date.now()
-    // only a file at a full commit id stays the same; the index, the disk, HEAD and branches move
-    for (const k of [...blobCache.current.keys()]) if (!(k.startsWith('G') && isSha(k.slice(1, k.indexOf(':'))))) blobCache.current.delete(k)
-    // the folders open in the Folder tab are read again (what is on screen stays until then)
-    setFolderGen((g) => g + 1)
-    setTick((t) => t + 1)
-  }, [])
-
   /**
    * Read again by itself when the agent does something: its transcript grows
    * (each tool call, each reply), a hook fires, its tool or status changes.
@@ -439,14 +474,19 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
     return a ? `${a.transcriptSize}|${a.lastEventTs ?? ''}|${a.tool ?? ''}|${a.detail ?? ''}|${a.status}` : ''
   })
   const agentWorking = agent?.status === 'working'
-  const firstSig = useRef(agentSig)
+  /** the agent as it was when the view last read by itself */
+  const seenSig = useRef(agentSig)
   useEffect(() => {
-    if (!agentSig || agentSig === firstSig.current) return
+    // while a reading is in flight, nothing is asked: this runs again when it answers
+    if (!agentSig || agentSig === seenSig.current || reading) return
     const since = Date.now() - lastRefresh.current
     const wait = agentWorking ? Math.max(1500, AUTO_REFRESH_MS - since) : 800
-    const t = setTimeout(refresh, wait)
+    const t = setTimeout(() => {
+      seenSig.current = agentSig
+      refresh()
+    }, wait)
     return () => clearTimeout(t)
-  }, [agentSig, agentWorking, refresh])
+  }, [agentSig, agentWorking, refresh, reading])
 
   /** ⌘R and the Refresh button: everything, the list of repositories too (one may have been cloned since) */
   const refreshAll = (): void => {
@@ -582,6 +622,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
   }, [tab, cursor, head, closedDirs, openDirs, openFolder, dir, info])
   useEffect(() => () => memoNow.current(), [])
 
+  // paths match by letters in order, spaces ignored; commits by every word typed
   const q = filter.trim().toLowerCase().replace(/\s+/g, '')
   const rows = useMemo<Row[]>(() => {
     const flat = (entries: Entry[]): Row[] =>
@@ -622,7 +663,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
       }
       case 'commits':
         return (compare?.commits ?? [])
-          .filter((c) => !q || `${c.subject} ${c.short} ${c.author}`.toLowerCase().includes(q))
+          .filter((c) => filter.toLowerCase().split(/\s+/).every((w) => `${c.subject} ${c.short} ${c.author}`.toLowerCase().includes(w)))
           .map((c) => ({ type: 'commit' as const, id: `k:${c.sha}`, commit: c }))
       case 'folder': {
         if (q) {
@@ -651,7 +692,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
         return out
       }
     }
-  }, [tab, q, changeEntries, fileEntries, groups, compare, closedDirs, openDirs, listing, openFolder, folderEntry])
+  }, [tab, q, filter, changeEntries, fileEntries, groups, compare, closedDirs, openDirs, listing, openFolder, folderEntry])
 
   // the row the cursor is on: kept, else the first file
   const selectable = rows.filter((r) => r.type !== 'group' && r.type !== 'note')
@@ -687,6 +728,8 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
     // a short wait, so holding ↓ does not read every file on the way
     const t = setTimeout(async () => {
       setShown((s) => (s?.key === `${e.anchor}|${e.id}` ? s : { key: `${e.anchor}|${e.id}`, anchor: e.anchor, context: e.context, path: e.path, oldPath: e.oldPath, mode: e.mode, loading: true }))
+      // read before a refresh or in another repository: neither kept nor shown (the view reads again)
+      const gen = cacheGen.current
       // the Folder tab: the file itself, git or not
       if (e.abs && !blobCache.current.has(`A${e.abs}`)) {
         const res = await window.kuna.git.readFile(host, e.abs)
@@ -694,8 +737,8 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
           if (live) setShown({ key: `${e.anchor}|${e.id}`, anchor: e.anchor, context: e.context, path: e.path, mode: e.mode, error: res.error })
           return
         }
+        if (gen !== cacheGen.current) return
         blobCache.current.set(`A${e.abs}`, res)
-        if (!live) return
       }
       const missing = sides.filter((s) => s.kind !== 'empty' && !blobCache.current.has(ck(s)))
       if (missing.length) {
@@ -704,26 +747,13 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
           if (live) setShown({ key: `${e.anchor}|${e.id}`, anchor: e.anchor, context: e.context, path: e.path, mode: e.mode, error: res.error })
           return
         }
+        if (gen !== cacheGen.current) return
         // kept even when the user has moved on: going back is then instant
         missing.forEach((s, i) => blobCache.current.set(ck(s), res[i]))
-        let total = 0
-        for (const b of blobCache.current.values()) total += b.data?.length ?? 0
-        while (blobCache.current.size > 2 && (total > CACHE_BYTES || blobCache.current.size > 400)) {
-          const oldest = blobCache.current.keys().next().value!
-          total -= blobCache.current.get(oldest)?.data?.length ?? 0
-          blobCache.current.delete(oldest)
-        }
-        if (!live) return
-      } else {
-        // the newest last, so the cache drops what was looked at longest ago
-        for (const s of sides) {
-          const b = s.kind !== 'empty' ? blobCache.current.get(ck(s)) : undefined
-          if (b) {
-            blobCache.current.delete(ck(s))
-            blobCache.current.set(ck(s), b)
-          }
-        }
       }
+      // the newest last, so the cache drops what was looked at longest ago, never this file
+      touchCache(blobCache.current, e.abs ? [`A${e.abs}`] : sides.filter((s) => s.kind !== 'empty').map(ck), CACHE_BYTES, 400)
+      if (!live) return
       const blob = (s: GitSide): GitBlob | undefined => (s.kind === 'empty' ? { size: 0, missing: true } : blobCache.current.get(ck(s)))
       const old = urls.current
       urls.current = []
@@ -826,6 +856,16 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
     updateSettings({ reviewRepo: { ...(get().settings.reviewRepo ?? {}), [repoKey]: path } })
   }
 
+  /** to a comment's file, in the list of the diff it was written on */
+  const toComment = (c: { path: string; anchor: string; context: string }): void => {
+    const t: Tab = c.anchor.startsWith('l:') ? 'local' : c.anchor.startsWith('f:') ? 'files' : c.anchor.startsWith('dir:') ? 'folder' : 'changes'
+    const id = t === 'changes' ? `c:${c.path}` : t === 'files' ? `f:${c.path}` : t === 'folder' ? `F:${c.path}` : `${c.anchor}:${c.path}`
+    setTab(t)
+    setFilter('')
+    setCursor((x) => ({ ...x, [t]: id }))
+    if (t === 'changes' && changeEntries[0]?.anchor !== c.anchor) setNote(`That comment is on ${c.context}`)
+  }
+
   const saveDraft = (): void => {
     if (!draft) return
     const text = pane.current?.draftText().trim() ?? ''
@@ -916,6 +956,12 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
       return true
     }
     if (k === 'b') {
+      if (!dir) {
+        setNote(`No git repository in ${folder}: nothing to compare`)
+        return true
+      }
+      // the pickers are in the branch's header: a commit shown on its own makes way
+      setCommit(null)
       setPicker(ev.shiftKey ? 'head' : 'base')
       return true
     }
@@ -939,9 +985,10 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
     }
     if (k === 'j') {
       const e = agentKey ? terminalEntry(agentKey) : undefined
-      if (e && e.el.contains(document.activeElement)) focusList()
+      // a stopped session first comes back here (Enter is the file list's)
+      if (agentKey && agent && !live) setLive(true)
+      else if (e && e.el.contains(document.activeElement)) focusList()
       else if (e?.ptyId) e.term.focus()
-      else if (agentKey && agent && !live) setLive(true)
       return true
     }
     if (/^[1-5]$/.test(k)) {
@@ -1119,9 +1166,10 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
           setCommit(null)
           return true
         }
-        // a comment half written: back to it, not away from it
-        if (draft && pane.current?.draftText().trim()) {
-          pane.current.focusDraft()
+        // a comment half written, its box on this file or another: back to it, not away from it (Esc Esc leaves it)
+        if (draft?.text?.trim() && !doubleEsc()) {
+          if (pane.current?.draftText()) pane.current.focusDraft()
+          else toComment(draft)
           setNote('Finish the comment (⌘↵) or discard it (Esc Esc) first')
           return true
         }
@@ -1135,10 +1183,6 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
         term.typed = k === 'Backspace' ? Math.max(0, term.typed - 1) : term.typed + 1
         setTyped(term.typed)
       })
-      return true
-    }
-    if (agentKey && !live && agent && ev.key === 'Enter') {
-      setLive(true)
       return true
     }
     return true
@@ -1441,15 +1485,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
                   key={c.id}
                   className="rv-review-item"
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    // to the file, in the list of the diff it was written on
-                    const t: Tab = c.anchor.startsWith('l:') ? 'local' : c.anchor.startsWith('f:') ? 'files' : c.anchor.startsWith('dir:') ? 'folder' : 'changes'
-                    const id = t === 'changes' ? `c:${c.path}` : t === 'files' ? `f:${c.path}` : t === 'folder' ? `F:${c.path}` : `${c.anchor}:${c.path}`
-                    setTab(t)
-                    setFilter('')
-                    setCursor((x) => ({ ...x, [t]: id }))
-                    if (t === 'changes' && changeEntries[0]?.anchor !== c.anchor) setNote(`That comment is on ${c.context}`)
-                  }}
+                  onClick={() => toComment(c)}
                 >
                   <span className="rv-review-where">
                     {c.path.split('/').pop()}:{c.start === c.end ? c.start : `${c.start}–${c.end}`}
@@ -1502,7 +1538,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
               onSave={saveDraft}
               onRemove={(id) => setComments(comments.filter((c) => c.id !== id))}
               api={pane}
-              scope={`${host}:${dir || folder}`}
+              scope={store}
             />
           ) : (
             <div className="rv-msg">{envError ?? 'Loading the editor…'}</div>
@@ -1522,6 +1558,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
                 live={live}
                 autoFocus={false}
                 onTyped={setTyped}
+                wake="⌘J"
                 hint={escHint ? 'Esc again takes it back' : typed ? 'Enter sends · Esc Esc takes it back' : 'typing to the agent · Enter sends · Esc back to the files'}
               />
             </aside>

@@ -196,7 +196,8 @@ export function AgentChat({
   live,
   hint,
   onTyped,
-  autoFocus = true
+  autoFocus = true,
+  wake = 'Enter'
 }: {
   agentKey: string
   live: boolean
@@ -204,6 +205,8 @@ export function AgentChat({
   onTyped: (n: number) => void
   /** the terminal takes the keyboard when it comes up (the review view keeps it on its file list) */
   autoFocus?: boolean
+  /** the key that brings a stopped session back (the review view's Enter is its file list's) */
+  wake?: string
 }): React.JSX.Element {
   const a = useKuna((s) => s.agents[agentKey])
   const d = useKuna((s) => s.details[agentKey])
@@ -280,7 +283,7 @@ export function AgentChat({
         <div className="pane-body" ref={slot} onMouseDown={() => getTerminal(agentKey).term.focus()} />
       ) : (
         <div className="media-chat-msg">
-          {a ? 'This session is stopped. Enter brings it back here, to talk to it.' : 'This agent is gone.'}
+          {a ? `This session is stopped. ${wake} brings it back here, to talk to it.` : 'This agent is gone.'}
         </div>
       )}
       {focused && <div className="typing-hint">{hint}</div>}

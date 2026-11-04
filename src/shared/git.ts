@@ -557,6 +557,28 @@ export function parseBlobs(buf: Uint8Array, max: number): GitBlob[] {
   return out
 }
 
+/**
+ * The review view's file cache, oldest first: `keys` (the file about to show)
+ * become the newest, then the oldest go until it holds at most `maxBytes` and
+ * `maxEntries`. The file's own `keys` never go.
+ */
+export function touchCache(cache: Map<string, GitBlob>, keys: string[], maxBytes: number, maxEntries: number): void {
+  for (const k of keys) {
+    const b = cache.get(k)
+    if (!b) continue
+    cache.delete(k)
+    cache.set(k, b)
+  }
+  const keep = new Set(keys.filter((k) => cache.has(k))).size
+  let total = 0
+  for (const b of cache.values()) total += b.data?.length ?? 0
+  while (cache.size > keep && (total > maxBytes || cache.size > maxEntries)) {
+    const oldest = cache.keys().next().value!
+    total -= cache.get(oldest)?.data?.length ?? 0
+    cache.delete(oldest)
+  }
+}
+
 /** a file that is shown as a picture rather than text */
 export function isImagePath(path: string): boolean {
   return /\.(png|jpe?g|gif|webp|bmp|ico|svg)$/i.test(path)
