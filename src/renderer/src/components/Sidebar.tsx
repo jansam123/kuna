@@ -4,7 +4,7 @@ import { LOCAL_HOST, type HostState } from '@shared/types'
 import { activateSelection } from '../actions'
 import { agentTitle, ago, contextOf, doingText, needsText, shortPath, tokens } from '../format'
 import { arrange, get, isUnread, set, toggleCollapsed, toggleFolder, useKuna } from '../store'
-import { OTHER_FOLDER_ID, agentCounts, assignAgents, buildTree, type TreeNode } from '../tree'
+import { OTHER_FOLDER_ID, agentCounts, assignAgents, buildTree, folderOfAgent, type TreeNode } from '../tree'
 import { StatusDot } from './StatusDot'
 import { TexText } from './TexText'
 
@@ -250,9 +250,13 @@ export function Sidebar(): React.JSX.Element {
     }
   })
 
-  // keep the selection valid when rows disappear
+  // keep the selection valid when rows disappear; one rolled in (a new agent in a closed folder) goes to the row it is under
   useEffect(() => {
-    if (nodes.length && !nodes.some((n) => n.id === sel)) set({ sel: nodes[0].id })
+    if (!nodes.length || nodes.some((n) => n.id === sel)) return
+    const where = sel?.startsWith('a:') ? folderOfAgent(projects, Object.values(agents), hosts).get(sel.slice(2)) : undefined
+    const pid = where?.project.id ?? (sel?.startsWith('f:') ? sel.split(':')[1] : undefined)
+    const up = [where && `f:${pid}:${where.folder.id}`, `p:${pid}`].find((id) => nodes.some((n) => n.id === id))
+    set({ sel: up ?? nodes[0].id })
   }, [nodes, sel])
 
   return (
