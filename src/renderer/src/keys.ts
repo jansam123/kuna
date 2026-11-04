@@ -431,6 +431,8 @@ function paneKey(ev: KeyboardEvent): void {
       return
     case 'Escape':
       stop(ev)
+      // in zen a single Esc leaves it, unless a question or panel on the agent's screen takes it
+      if (s.zen && !(key && panelOnScreen(key))) return set({ zen: false })
       return escToAgent(key)
   }
   if (isPrintable(ev)) {
