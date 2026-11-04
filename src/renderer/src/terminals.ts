@@ -33,6 +33,8 @@ export interface TermEntry {
   leftScroll?: number
   /** leaving tmux's scroll mode, until tmux has done it */
   leaving?: Promise<void>
+  /** when the current pty attached */
+  attachedAt?: number
   slowTimer?: ReturnType<typeof setTimeout>
 }
 
@@ -97,6 +99,9 @@ function wire(): void {
     byPty.delete(id)
     if (!e || e.disposed) return
     e.ptyId = undefined
+    // a drop after a good while attached (sleep, Wi-Fi) starts the count again; failed
+    // attempts end sooner (ssh gives up connecting after 20 s), even when they print an error
+    if (Date.now() - (e.attachedAt ?? 0) > 60_000) e.retries = 0
     const agent = get().agents[e.key]
     if (agent?.alive && e.retries < 3) {
       e.retries++
@@ -131,7 +136,14 @@ async function attach(e: TermEntry): Promise<void> {
       return
     }
     e.ptyId = id
+    e.attachedAt = Date.now()
     byPty.set(id, e)
+  } catch (err) {
+    clearTimeout(e.slowTimer)
+    // nothing tries again by itself (each fit would print this once more): Enter does
+    e.retries++
+    const why = String(err).replace(/^(Error: )?Error invoking remote method '[^']*': (Error: )?/, '').trim()
+    if (!e.disposed) e.term.write(`\x1b[2m[kuna] could not attach: ${why.replace(/[.:]?$/, '.')} Press Enter on this tab to try again.\x1b[0m\r\n`)
   } finally {
     e.attaching = false
   }
