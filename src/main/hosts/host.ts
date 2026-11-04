@@ -100,11 +100,13 @@ export class Host extends EventEmitter {
 
   /** Run `kuna <args>` on the host (queued: at most two at a time per host). */
   async exec(args: string[], opts: ExecOptions = {}): Promise<ExecResult> {
-    if (this.local) return run('sh', [LOCAL_KUNA, ...args], opts)
+    // the helper stops long read-only work itself a little before we give up on it
+    const argv = ['within', String(Math.max(1, Math.floor((opts.timeoutMs ?? 30_000) / 1000) - 2)), ...args]
+    if (this.local) return run('sh', [LOCAL_KUNA, ...argv], { ...opts, group: true })
     if (this.running >= MAX_PARALLEL_EXEC) await new Promise<void>((go) => this.queue.push(go))
     this.running++
     try {
-      return await run('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', ...this.sshArgs(), '--', this.id, ['sh', REMOTE_KUNA, ...args].map(shq).join(' ')], opts)
+      return await run('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', ...this.sshArgs(), '--', this.id, ['sh', REMOTE_KUNA, ...argv].map(shq).join(' ')], opts)
     } finally {
       this.running--
       this.queue.shift()?.()

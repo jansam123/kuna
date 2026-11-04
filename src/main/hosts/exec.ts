@@ -9,14 +9,28 @@ export interface ExecResult {
 export interface ExecOptions {
   stdin?: string | Buffer
   timeoutMs?: number
-  /** Stop reading (and kill the process) after this many bytes. */
+  /** Stop reading (and kill the process) after this many bytes; stdout is then longer than this. */
   maxBytes?: number
+  /**
+   * Run in a process group of its own and kill all of it, so a timeout also
+   * stops what it started. Only for local commands: an ssh client's group can
+   * hold the jump host connection its shared master still uses.
+   */
+  group?: boolean
 }
 
 /** Run a process to completion and collect its output. Never rejects. */
 export function run(file: string, args: string[], opts: ExecOptions = {}): Promise<ExecResult> {
   return new Promise((resolve) => {
-    const child = spawn(file, args, { stdio: ['pipe', 'pipe', 'pipe'] })
+    const child = spawn(file, args, { stdio: ['pipe', 'pipe', 'pipe'], detached: opts.group })
+    const kill = (): void => {
+      try {
+        if (opts.group && child.pid) process.kill(-child.pid, 'SIGKILL')
+        else child.kill('SIGKILL')
+      } catch {
+        /* already gone */
+      }
+    }
     const out: Buffer[] = []
     let outBytes = 0
     let err = ''
@@ -29,7 +43,7 @@ export function run(file: string, args: string[], opts: ExecOptions = {}): Promi
     }
     const timer = setTimeout(() => {
       err += `\n[kuna] timed out after ${opts.timeoutMs}ms`
-      child.kill('SIGKILL')
+      kill()
       finish(124)
     }, opts.timeoutMs ?? 30_000)
 
@@ -37,7 +51,7 @@ export function run(file: string, args: string[], opts: ExecOptions = {}): Promi
       out.push(b)
       outBytes += b.length
       if (opts.maxBytes && outBytes > opts.maxBytes) {
-        child.kill('SIGKILL')
+        kill()
         finish(0)
       }
     })

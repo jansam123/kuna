@@ -131,6 +131,8 @@ setup() {
   write_hooks
   # context sizes of transcripts nobody touched for a month (recomputed if needed)
   [ -d "$K/ctx" ] && find "$K/ctx" -type f -mtime +30 -exec rm -f {} + 2>/dev/null
+  # `timeout <s> cmd` (GNU, BSD, newer busybox) bounds long read-only work; see within
+  if timeout 5 true 2>/dev/null; then : > "$K/has-timeout"; else rm -f "$K/has-timeout"; fi
   printf '%s' "$KUNA_VERSION" > "$K/version"
   doctor
 }
@@ -925,6 +927,26 @@ git_cmd() {
 
 cmd=$1
 [ $# -gt 0 ] && shift
+if [ "$cmd" = within ]; then
+  # within <seconds> <command> ...: the app gives up on a command after a while,
+  # but sshd lets it run on, so long read-only work (git, find) on a slow disk
+  # stops itself a bit earlier, its children too (timeout kills its process
+  # group). Without a working timeout it just runs.
+  valid_num "$1"
+  s=$1
+  shift
+  case "$1" in
+    git|media|lsdir|claude-files)
+      if [ -f "$K/has-timeout" ]; then
+        timeout "$s" sh "$0" "$@"
+        c=$?
+        [ "$c" -eq 124 ] && echo "kuna: gave up after ${s}s" >&2
+        exit "$c"
+      fi ;;
+  esac
+  cmd=$1
+  [ $# -gt 0 ] && shift
+fi
 case "$cmd" in
   version) echo "$KUNA_VERSION" ;;
   setup) setup ;;

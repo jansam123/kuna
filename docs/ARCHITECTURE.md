@@ -39,6 +39,7 @@ Opening a pane runs `ssh -tt <host> sh .kuna/bin/kuna attach <id>` inside a loca
 | `attach`, `kill`, `key`, `send` | tmux plumbing |
 | `read`, `stat`, `cat`, `media`, `ls`, `claude-files` | file access for transcripts, plots, completion and the `.claude` browser |
 | `git info`, `status`, `compare`, `files`, `cat` | the review view's read-only git (below) |
+| `within <s> <command>` | every command comes this way: git, `media`, `lsdir` and `claude-files` stop themselves (with `timeout`, where it works) a little before the app gives up on them, since sshd lets a command run on after its connection went |
 
 ## State: two sources, merged
 
