@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { describeActivity, shortActivity } from '@shared/activity'
-import { baseModelId, contextInfo, contextLevel, contextWindowSize, modelFlag } from '@shared/context'
+import { baseModelId, contextInfo, contextLevel, contextWindowSize, modelFlag, shortModel } from '@shared/context'
 import { compactBlocker, hasInputBox, screenState } from '@shared/input'
 import { parseJsonc } from '@shared/jsonc'
 import { cleanTypedPath, pastePath } from '@shared/paths'
@@ -199,6 +199,18 @@ describe('context fullness', () => {
     expect(modelFlag('claude')).toBeUndefined()
     expect(contextWindowSize(160_000, 'claude-sonnet-4-5-20250929', 0, 'sonnet[1m]')).toBe(1_000_000)
     expect(contextInfo(160_000, 'claude-sonnet-4-5-20250929', 0, 'sonnet[1m]').level).toBe('ok')
+  })
+
+  it('names models shortly', () => {
+    expect(shortModel('claude-sonnet-4-20250514')).toBe('sonnet 4')
+    expect(shortModel('claude-opus-4-5-20251101')).toBe('opus 4.5')
+    expect(shortModel('claude-opus-4-1')).toBe('opus 4.1')
+    expect(shortModel('claude-sonnet-4-5')).toBe('sonnet 4.5')
+    expect(shortModel('claude-sonnet-4-5[1m]')).toBe('sonnet 4.5[1m]')
+    expect(shortModel('us.anthropic.claude-sonnet-4-5-20250929-v1:0')).toBe('sonnet 4.5')
+    expect(shortModel('claude-opus-4-1@20250805')).toBe('opus 4.1')
+    expect(shortModel('claude-3-5-haiku-20241022')).toBe('3-5-haiku')
+    expect(shortModel(undefined)).toBeUndefined()
   })
 
   it('starts over after a compaction in a transcript', () => {

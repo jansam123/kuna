@@ -32,6 +32,17 @@ export function baseModelId(model: string): string {
     .replace(/@(\d{8})$/, '-$1')
 }
 
+/** A model for people: `claude-sonnet-4-5-20250929` (or a provider's spelling of it) → `sonnet 4.5`, `claude-sonnet-4-20250514` → `sonnet 4`. */
+export function shortModel(model?: string): string | undefined {
+  if (!model) return undefined
+  const name = baseModelId(model)
+    .replace(/^claude-/, '')
+    // the date first, or it would pass for a minor version
+    .replace(/-\d{8}$/, '')
+    .replace(/-(\d+)(?:-(\d{1,2}))?$/, (_, major: string, minor?: string) => ` ${major}${minor ? `.${minor}` : ''}`)
+  return /\[1m\]$/i.test(model) ? `${name}[1m]` : name
+}
+
 /** The `--model` an agent was started with (`claude --model sonnet[1m]` → `sonnet[1m]`). */
 export function modelFlag(command?: string): string | undefined {
   const m = /(?:^|\s)--model(?:=|\s+)(['"]?)([^\s'"]+)\1/.exec(command ?? '')

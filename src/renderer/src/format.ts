@@ -85,11 +85,6 @@ export function agentTitle(a: AgentRuntime, d?: AgentDetails): string {
   )
 }
 
-export function shortModel(model?: string): string | undefined {
-  if (!model) return undefined
-  return model.replace(/^claude-/, '').replace(/-(\d+)-(\d+)/, ' $1.$2').replace(/-\d{8}$/, '')
-}
-
 /** What the agent is waiting on, in one line ("approve Bash: …", a question). */
 export function needsText(a: AgentRuntime, d?: AgentDetails): string | undefined {
   if (a.status !== 'waiting') return undefined
