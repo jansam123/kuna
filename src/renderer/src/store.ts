@@ -146,7 +146,8 @@ let fromElsewhere = false
 export function applyRemote(patch: SharedPatch): void {
   fromElsewhere = true
   try {
-    set(applyPatch(shared(get()), patch))
+    // this window's changes not sent yet are newer: they stay, so it sends what it shows
+    set(applyPatch(applyPatch(shared(get()), patch), pending ?? {}))
   } finally {
     fromElsewhere = false
   }
@@ -176,7 +177,10 @@ export function reopenTabs(): void {
     set(focus && s.zone !== 'prompt' ? { tabs, zone: 'pane', paneIndex: tabs.indexOf(focus), mode: 'nav' } : { tabs })
   }
   const left = keep.filter((k) => !running(k))
+  const dropped = keep.length < pendingTabs.keys.length
   pendingTabs = left.length ? { ...pendingTabs, keys: left } : null
+  // main still counts the dropped panes as open here (other windows see them "elsewhere")
+  if (dropped) persist()
 }
 
 // what changes here goes to the other windows; panes opened, closed or moved are part of what is saved
@@ -369,9 +373,10 @@ export function arrange(next: Project[]): void {
 }
 
 /** Drop hand placements of agents that are gone (once their host reported a full list). */
-export function pruneArrangement(): void {
+export function pruneArrangement(all: AgentRuntime[]): void {
   const s = get()
-  const next = pruneArranged(s.projects, new Set(Object.keys(s.agents)), (h) => !!s.hosts[h]?.synced)
+  // `all`: sessions off the list (⌘Z) keep their place
+  const next = pruneArranged(s.projects, new Set(all.map((a) => a.key)), (h) => !!s.hosts[h]?.synced)
   if (next !== s.projects) arrange(next)
 }
 
@@ -533,10 +538,10 @@ export function isUnread(a: AgentRuntime, lastSeen: Record<string, number>): boo
   return a.attnTs > 0 && a.attnTs > (lastSeen[a.key] ?? 0)
 }
 
-/** Forget lastSeen entries for agents that no longer exist anywhere. */
-export function pruneLastSeen(): void {
+/** Forget lastSeen entries for agents that no longer exist anywhere (`all`: hidden ones included, they still exist). */
+export function pruneLastSeen(all: AgentRuntime[]): void {
   const s = get()
-  const live = new Set(Object.keys(s.agents))
+  const live = new Set(all.map((a) => a.key))
   const watched = new Set(s.projects.map((p) => p.host))
   const next: Record<string, number> = {}
   let changed = false

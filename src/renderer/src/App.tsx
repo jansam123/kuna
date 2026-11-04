@@ -62,8 +62,8 @@ function wireMain(): () => void {
       notifyTransitions(list)
       set({ agents })
       seedSeen(list)
-      pruneLastSeen()
-      pruneArrangement()
+      pruneLastSeen(all)
+      pruneArrangement(all)
       reopenTabs()
     }),
     window.kuna.agents.onDetails((key, details) => set((s) => ({ details: { ...s.details, [key]: details } }))),
