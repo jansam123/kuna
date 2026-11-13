@@ -83,7 +83,7 @@ A single **Esc** goes to the agent, on a pane or while typing, as in a terminal:
 | ⌘V · ⌘. | paste into your message · interrupt the agent (sends it Esc) |
 | ⌘+ ⌘− | zoom in, out (pinch on the trackpad, or ⌘ + wheel, zooms around the pointer) |
 | ⌘0 · ⌘1 | fit to the window · actual pixels (100% for a PDF) |
-| ⌘O | open the file in its app: Preview for plots and PDFs, your Markdown app for `.md`, your browser for a page (an SVG is shown in Finder instead, since its default app is a browser) |
+| ⌘O | open the file in its app: Preview for plots and PDFs, your Markdown app for `.md` (an SVG or an HTML page is shown in Finder instead, since its default app is a browser, which would run its scripts unsandboxed) |
 | ⌘U | a Markdown file: switch between the rendered page and its source (also the **Source** / **Rendered** button); the **Copy** button copies the whole file as Markdown |
 | ⌘A, ⌘C | a Markdown file: select all of it (rendered or source), copy what is selected |
 | ⌘S | save a copy in your Downloads folder (also the **Save to Downloads** button; a taken name becomes `fit (1).pdf`) |

@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -171,6 +171,40 @@ describe('the agent command through the login shell', () => {
       writeFileSync(join(home, '.profile'), '')
       execFileSync('sh', [script, 'setup'], { env, stdio: 'ignore' })
       expect(existsSync(join(home, '.kuna', 'claude-dir'))).toBe(false)
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('files for an HTML page in the viewer (pcat)', () => {
+  const script = resolve(__dirname, '../src/main/remote/kuna.sh')
+  const b64 = (s: string): string => Buffer.from(s, 'utf8').toString('base64')
+
+  it('reads only files inside the page folder as it is on disk, never through a symlink', () => {
+    const home = mkdtempSync(join(tmpdir(), 'kuna-pcat-'))
+    const env = { ...process.env, HOME: home }
+    const pcat = (root: string, path: string): { code: number; out: string } => {
+      const r = spawnSync('sh', [script, 'pcat', b64(root), b64(path)], { env })
+      return { code: r.status ?? -1, out: r.stdout.toString() }
+    }
+    try {
+      const page = join(home, 'work', 'docs')
+      mkdirSync(join(page, 'plots'), { recursive: true })
+      writeFileSync(join(page, 'plots', 'a.json'), 'inside')
+      writeFileSync(join(home, 'secret.json'), 'outside')
+      symlinkSync(join(home, 'secret.json'), join(page, 'k.json'))
+      symlinkSync(home, join(page, 'up'))
+      symlinkSync(join(page, 'plots'), join(page, 'same'))
+      expect(pcat(page, join(page, 'plots', 'a.json'))).toEqual({ code: 0, out: 'inside' })
+      // a link within the folder is fine; one that leads out, or a linked file, is not
+      expect(pcat(page, join(page, 'same', 'a.json'))).toEqual({ code: 0, out: 'inside' })
+      expect(pcat(page, join(page, 'k.json')).code).toBe(3)
+      expect(pcat(page, join(page, 'up', 'secret.json')).code).toBe(3)
+      expect(pcat(page, join(page, 'nope.json')).code).toBe(3)
+      // `~` and a folder reached through a symlink of its own
+      symlinkSync(page, join(home, 'docs-link'))
+      expect(pcat('~/docs-link', '~/docs-link/plots/a.json')).toEqual({ code: 0, out: 'inside' })
     } finally {
       rmSync(home, { recursive: true, force: true })
     }

@@ -325,10 +325,21 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
   // an HTML page has the keyboard (after a click in it): its keys are its own, until Esc
   const [inPage, setInPage] = useState(false)
   const pageFrame = useRef<HTMLIFrameElement>(null)
+  // a page that grabs the keyboard as it loads doesn't keep it: until a second after its load event, it goes back to the agent
+  const loadingUntil = useRef(0)
+  const checkFocus = useRef(() => {})
+  checkFocus.current = () => {
+    const frame = pageFrame.current
+    if (frame && document.activeElement === frame && Date.now() < loadingUntil.current) {
+      frame.blur()
+      terminalEntry(agentKey)?.term.focus()
+    }
+    setInPage(!!frame && document.activeElement === frame)
+  }
 
   // a frame's keys never reach the window: notice the page taking the keyboard, and its Esc giving it back
   useEffect(() => {
-    const check = (): void => setInPage(!!pageFrame.current && document.activeElement === pageFrame.current)
+    const check = (): void => checkFocus.current()
     const blur = (): void => void setTimeout(check)
     const back = window.kuna.media.onPageEscape(() => {
       pageFrame.current?.blur()
@@ -396,6 +407,7 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
     setNatural(null)
     setZoom(1)
     if (current.kind === 'html') {
+      loadingUntil.current = Date.now() + 10_000 // until it says it has loaded
       void window.kuna.media.page(host, current.path).then((res) => {
         if (cancelled) return
         setFile('error' in res ? { path: current.path, error: res.error } : { path: current.path, page: res.url })
@@ -888,8 +900,13 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
               className="media-page"
               src={file.page}
               title={rel(current.path)}
-              // scripts run, on the folder's own origin; no leaving the frame (top navigation, popups, downloads)
-              sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-pointer-lock"
+              // scripts run, on the folder's own origin; no leaving the frame (top navigation, popups, downloads), no alert() boxes passing for Kuna's
+              sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock"
+              onFocus={() => checkFocus.current()}
+              onLoad={() => {
+                loadingUntil.current = Date.now() + 1000
+                checkFocus.current()
+              }}
             />
           )}
           {ready && current && current.size > SLOW_FILE && !file?.error && !file?.url && !file?.page && !pdf && file?.html == null && (

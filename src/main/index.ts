@@ -215,13 +215,15 @@ function makeWindow(bounds: Rect | undefined, fullScreen: boolean): BrowserWindo
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (e) => e.preventDefault())
+  // Kuna's window has no use for WebRTC: no UDP for a page in the viewer to reach the web with (a CSP can't stop it)
+  win.webContents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
   // an HTML page in the viewer stays in its frame: no going to the web (links included)
   win.webContents.on('will-frame-navigate', (e) => {
     if (!e.isMainFrame && !/^(kuna-page|about|data|blob):/.test(e.url)) e.preventDefault()
   })
-  // the window never sees the keys typed into such a page: its Esc gives the keyboard back
+  // the window never sees the keys typed into such a page (or a frame of its own): its Esc gives the keyboard back
   win.webContents.on('before-input-event', (_e, input) => {
-    if (input.type === 'keyDown' && input.key === 'Escape' && win.webContents.focusedFrame?.url.startsWith('kuna-page:')) win.webContents.send(IPC.pageEscape)
+    if (input.type === 'keyDown' && input.key === 'Escape' && win.webContents.focusedFrame?.parent) win.webContents.send(IPC.pageEscape)
   })
   if (automation) {
     win.webContents.on('console-message', (e) => console.log(`[renderer] ${e.message}`))
@@ -322,9 +324,9 @@ app.whenReady().then(async () => {
   if (app.isPackaged) await adoptLoginShellPath()
   store.load()
   // the page needs notifications and nothing else the browser could grant; an HTML page in the viewer, nothing at all
-  const allowed = (permission: string, from = ''): boolean => permission === 'notifications' && !from.startsWith('kuna-page:')
-  session.defaultSession.setPermissionRequestHandler((_wc, permission, done, details) => done(allowed(permission, details.requestingUrl)))
-  session.defaultSession.setPermissionCheckHandler((_wc, permission, origin) => allowed(permission, origin))
+  const allowed = (permission: string, mainFrame: boolean): boolean => permission === 'notifications' && mainFrame
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, done, details) => done(allowed(permission, details.isMainFrame)))
+  session.defaultSession.setPermissionCheckHandler((_wc, permission, _origin, details) => allowed(permission, details.isMainFrame))
   protocol.handle('kuna-page', (req) => media.servePage(req))
   // a built Kuna.app has its icon; running from source, the Dock shows Electron's otherwise
   if (fromSource) app.dock?.setIcon(join(__dirname, '../../build/icon.png'))

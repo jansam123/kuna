@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, extname, join } from 'node:path'
@@ -17,8 +17,10 @@ const MAX_MD_BYTES = 4 * MB
 const MAX_PAGE_BYTES = 64 * MB
 /**
  * What a page in the viewer may run and load: its own folder (inline code
- * included) and the CDNs artifacts and plotting libraries load from, nothing
- * else on the web, so it can't send what it reads anywhere.
+ * included) and the CDNs artifacts and plotting libraries load from; no other
+ * request to the web. (WebRTC and DNS lookups are beyond a CSP's reach; the
+ * window turns WebRTC's UDP off, but this is no guarantee that nothing a page
+ * reads gets out, so what it can read is kept to web files inside its folder.)
  */
 const CDNS = [
   'https://cdnjs.cloudflare.com',
@@ -37,6 +39,8 @@ const PAGE_CSP = [
   "form-action 'none'",
   "base-uri 'self'"
 ].join('; ')
+/** page addresses can't be guessed (and so not navigated to) by another page; new each run */
+const PAGE_SECRET = randomBytes(16)
 /** a .claude file past this is not shown */
 const MAX_CLAUDE_FILE_BYTES = 2 * MB
 /** files kept for going back and forth, at most this much in all (the newest is kept whatever its size) */
@@ -56,6 +60,8 @@ export class MediaService {
   private cache = new Map<string, { data: Buffer; at: number }>()
   /** the folders of the HTML pages shown so far, by their `kuna-page://` host */
   private pages = new Map<string, { host: HostId; dir: string }>()
+  /** a page's reads, one at a time per host: a busy page never takes both of the host's command slots from the agents */
+  private pageReads = new Map<HostId, Promise<unknown>>()
 
   constructor(private agents: AgentService) {}
 
@@ -111,7 +117,7 @@ export class MediaService {
   async fetch(hostId: HostId, path: string, stamp = ''): Promise<{ data: Uint8Array; mime: string } | { error: string }> {
     // only plots, PDFs and Markdown: the viewer has no business reading other files
     const kind = typeof path === 'string' ? mediaKind(path) : null
-    if (!kind) return { error: 'Not an image, PDF or Markdown file.' }
+    if (!kind) return { error: 'Not an image, PDF, HTML page or Markdown file.' }
     const max = kind === 'md' ? MAX_MD_BYTES : kind === 'html' ? MAX_PAGE_BYTES : MAX_MEDIA_BYTES
     const ck = `${hostId}\0${path}\0${stamp}`
     const hit = this.cache.get(ck)
@@ -135,43 +141,54 @@ export class MediaService {
 
   /**
    * The address an HTML page is shown at: `kuna-page://<folder token>/<name>`.
-   * Each folder is its own origin, so pages in one can't read another's
-   * files or storage; the token is only made here, for a page the window shows.
+   * Each folder is its own origin (storage included) and reads only what is
+   * inside it; the token is only made here, for a page the window shows.
    */
   page(hostId: HostId, path: string): { url: string } | { error: string } {
     const cut = typeof path === 'string' ? path.lastIndexOf('/') : -1
     if (cut < 0 || mediaKind(path) !== 'html') return { error: 'Not an HTML page.' }
     this.agents.host(hostId) // a real host name, or this throws
     const dir = path.slice(0, cut)
-    const token = createHash('sha256').update(`${hostId}\0${dir}`).digest('hex').slice(0, 32)
+    const token = createHash('sha256').update(PAGE_SECRET).update(`${hostId}\0${dir}`).digest('hex').slice(0, 32)
     this.pages.set(token, { host: hostId, dir })
     return { url: `kuna-page://${token}/${encodeURIComponent(path.slice(cut + 1))}` }
   }
 
-  /** A request from a page in the viewer: a file below its folder, of a kind web pages are made of. */
+  /**
+   * A request from a page in the viewer: a file below its folder, of a kind
+   * web pages are made of. The helper's `pcat` checks it on the host as well:
+   * no symlinked file, and no symlinked folder leading out of the page's.
+   */
   async servePage(req: Request): Promise<Response> {
     const u = new URL(req.url)
     const page = this.pages.get(u.hostname)
     const file = page && pageFile(page.dir, u.pathname)
     if (!page || !file) return new Response('Not found', { status: 404 })
-    const res = await this.agents.host(page.host).exec(['cat', b64(file.path)], { timeoutMs: readTimeout(MAX_PAGE_BYTES), maxBytes: MAX_PAGE_BYTES })
+    const host = this.agents.host(page.host)
+    const read = (this.pageReads.get(page.host) ?? Promise.resolve()).then(() =>
+      host.exec(['pcat', b64(page.dir || '/'), b64(file.path)], { timeoutMs: readTimeout(MAX_PAGE_BYTES), maxBytes: MAX_PAGE_BYTES })
+    )
+    this.pageReads.set(page.host, read.catch(() => undefined))
+    const res = await read
     if (res.code !== 0) return new Response(res.stderr.trim() || 'Not found', { status: 404 })
     if (res.stdout.length > MAX_PAGE_BYTES) return new Response(`Larger than ${sizeText(MAX_PAGE_BYTES)}`, { status: 413 })
     return new Response(new Uint8Array(res.stdout), {
-      headers: { 'content-type': file.mime, 'content-security-policy': PAGE_CSP, 'cache-control': 'no-store' }
+      headers: { 'content-type': file.mime, 'content-security-policy': PAGE_CSP, 'x-dns-prefetch-control': 'off', 'cache-control': 'no-store' }
     })
   }
 
   /**
-   * Copy the file locally and open it in the default macOS app. SVGs are shown
-   * in Finder instead: their default app is a browser, which runs scripts in them.
+   * Copy the file locally and open it in the default macOS app. SVGs and HTML
+   * pages are shown in Finder instead: their default app is a browser, which
+   * runs their scripts unsandboxed.
    */
   async openExternal(hostId: HostId, path: string, stamp = ''): Promise<void> {
     const res = await this.fetch(hostId, path, stamp)
     if ('error' in res) return
     const file = join(mkdtempSync(join(tmpdir(), 'kuna-media-')), basename(path))
     writeFileSync(file, res.data, { flag: 'wx' })
-    if (mediaKind(path) === 'svg') shell.showItemInFolder(file)
+    const kind = mediaKind(path)
+    if (kind === 'svg' || kind === 'html') shell.showItemInFolder(file)
     else await shell.openPath(file)
   }
 

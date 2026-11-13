@@ -301,6 +301,20 @@ describe('plots by reply', () => {
     )
     expect(p.details().mediaRefs).toEqual([{ path: '/home/alice/.claude/jobs/x/tmp/fit.html', turn: 1 }])
   })
+  it("takes pages from replies and the pages it wrote, not every HTML file it read, edited or listed", () => {
+    const p = new TranscriptParser()
+    const feed = (o: object): void => p.feed(JSON.stringify(o) + '\n')
+    const tool = (id: string, name: string, input: object): void =>
+      feed({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name, input } ] } })
+    feed({ type: 'user', message: { content: 'fix the site and plot it' } })
+    tool('t1', 'Read', { file_path: '/w/src/index.html' })
+    tool('t2', 'Edit', { file_path: '/w/src/index.html', old_string: 'a', new_string: 'b' })
+    tool('t3', 'Bash', { command: 'find . -name "*.html" > list.txt; python plot.py' })
+    feed({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't3', content: './a/x.html\n./b/y.html\nsaved out/m.png' }] } })
+    tool('t4', 'Write', { file_path: '/w/out/report.html', content: '<img src="m.png">' })
+    feed({ type: 'assistant', message: { content: [{ type: 'text', text: 'The dashboard is out/dash.html.' }] } })
+    expect(p.details().mediaRefs.map((r) => r.path)).toEqual(['out/m.png', 'm.png', '/w/out/report.html', 'out/dash.html'])
+  })
   it('remembers which reply mentioned each file last', () => {
     const p = new TranscriptParser()
     const feed = (o: object): void => p.feed(JSON.stringify(o) + '\n')

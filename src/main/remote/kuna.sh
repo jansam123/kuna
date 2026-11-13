@@ -649,6 +649,18 @@ cat_file() {
   cat "$(expand "$(b64d "$1")")"
 }
 
+page_cat() {
+  # pcat <root64> <path64>: a file for an HTML page in the viewer, only from
+  # inside the page's folder as it is on disk: not a symlink, and no folder on
+  # the way that leads out of it (a link to ~ or /)
+  root=$(cd "$(expand "$(b64d "$1")")" 2>/dev/null && pwd -P) || { echo "kuna: no such folder" >&2; exit 3; }
+  f=$(expand "$(b64d "$2")")
+  d=$(cd "$(dirname "$f")" 2>/dev/null && pwd -P) || { echo "kuna: not found" >&2; exit 3; }
+  if [ ! -f "$f" ] || [ -L "$f" ]; then echo "kuna: not found" >&2; exit 3; fi
+  case "$d/" in "${root%/}"/*) ;; *) echo "kuna: outside the page's folder" >&2; exit 3 ;; esac
+  cat "$d/${f##*/}"
+}
+
 ls_dirs() {
   # ls <path64>: subdirectories of a directory (for path completion), without
   # doubled slashes ("proj/" lists "proj/sub", not "proj//sub")
@@ -973,11 +985,12 @@ case "$cmd" in
   stat) stat_paths "$@" ;;
   media) media "$@" ;;
   cat) cat_file "$@" ;;
+  pcat) page_cat "$@" ;;
   ls) ls_dirs "$@" ;;
   realpath) real_paths "$@" ;;
   lsdir) list_dir "$@" ;;
   fread) read_file "$@" ;;
   claude-files) claude_files "$@" ;;
   git) git_cmd "$@" ;;
-  *) echo "usage: kuna {version|setup|doctor|spawn|run|kill|key|send|attach|hook|watch|read|stat|media|cat|ls|realpath|lsdir|fread|claude-files|git}" >&2; exit 2 ;;
+  *) echo "usage: kuna {version|setup|doctor|spawn|run|kill|key|send|attach|hook|watch|read|stat|media|cat|pcat|ls|realpath|lsdir|fread|claude-files|git}" >&2; exit 2 ;;
 esac

@@ -1,4 +1,4 @@
-import { extractMediaPaths } from './media'
+import { extractMediaPaths, mediaKind } from './media'
 import type { AgentDetails, SubagentInfo, TodoItem, ToolCallInfo } from './types'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -144,8 +144,10 @@ export class TranscriptParser {
     }
   }
 
-  private addMedia(text: string): void {
+  /** `pages`: HTML files count too (from replies and pages the agent wrote; not every index.html it read or edited) */
+  private addMedia(text: string, pages = false): void {
     for (const p of extractMediaPaths(text)) {
+      if (!pages && mediaKind(p) === 'html') continue
       this.media.delete(p)
       this.media.set(p, this.d.turns)
     }
@@ -211,7 +213,7 @@ export class TranscriptParser {
       if (!c) continue
       if (c.type === 'text' && typeof c.text === 'string') {
         if (c.text.trim()) this.d.lastText = c.text.slice(-2000)
-        this.addMedia(c.text)
+        this.addMedia(c.text, true)
       } else if (c.type === 'tool_use') {
         this.toolUse(c, e.timestamp)
       }
@@ -231,6 +233,7 @@ export class TranscriptParser {
     const strings: string[] = []
     stringsIn(input, strings)
     for (const s of strings) this.addMedia(s)
+    if ((name === 'Write' || name === 'Artifact') && typeof input.file_path === 'string') this.addMedia(input.file_path, true)
 
     if (FILE_TOOLS.has(name) && typeof input.file_path === 'string') {
       this.files = this.files.filter((f) => f !== input.file_path)
