@@ -22,7 +22,7 @@ function MediaCount({ agentKey }: { agentKey: string }): React.JSX.Element | nul
   const status = useKuna((s) => s.agents[agentKey]?.status)
   const reply = useKuna((s) => s.agents[agentKey]?.lastReply)
   const turns = useKuna((s) => s.details[agentKey]?.turns)
-  const [count, setCount] = useState<{ pdf: number; img: number; md: number } | null>(null)
+  const [count, setCount] = useState<{ pdf: number; img: number; md: number; html: number } | null>(null)
   const settled = status !== undefined && status !== 'working' && status !== 'starting'
   useEffect(() => {
     if (!settled) return
@@ -33,15 +33,17 @@ function MediaCount({ agentKey }: { agentKey: string }): React.JSX.Element | nul
         if (!live) return
         const pdf = page.items.filter((it) => it.kind === 'pdf').length
         const md = page.items.filter((it) => it.kind === 'md').length
-        setCount({ pdf, md, img: page.items.length - pdf - md })
+        const html = page.items.filter((it) => it.kind === 'html').length
+        setCount({ pdf, md, html, img: page.items.length - pdf - md - html })
       })
       .catch(() => {})
     return () => {
       live = false
     }
   }, [agentKey, settled, reply, turns])
-  if (!count || count.pdf + count.img + count.md === 0) return null
+  if (!count || count.pdf + count.img + count.md + count.html === 0) return null
   const what = [
+    count.html && `${count.html} HTML page${count.html > 1 ? 's' : ''}`,
     count.pdf && `${count.pdf} PDF${count.pdf > 1 ? 's' : ''}`,
     count.img && `${count.img} image${count.img > 1 ? 's' : ''}`,
     count.md && `${count.md} Markdown file${count.md > 1 ? 's' : ''}`
@@ -50,6 +52,11 @@ function MediaCount({ agentKey }: { agentKey: string }): React.JSX.Element | nul
     .join(', ')
   return (
     <span className="chip media-count" title={`${what} from its latest replies · Space shows them`} onClick={() => set({ overlay: { kind: 'media', key: agentKey } })}>
+      {count.html > 0 && (
+        <span>
+          <b>{count.html}</b> html
+        </span>
+      )}
       {count.pdf > 0 && (
         <span>
           <b>{count.pdf}</b> pdf

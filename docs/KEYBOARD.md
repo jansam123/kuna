@@ -74,7 +74,7 @@ A single **Esc** goes to the agent, on a pane or while typing, as in a terminal:
 
 | Keys | Does |
 | --- | --- |
-| Space | preview the plots, PDFs and Markdown files of the agent's latest reply, fitted to the window: all PDFs first, then the images, then Markdown, rendered as a page with its pictures, LaTeX math (`$…$`, `$$…$$`) and Mermaid diagrams (newest reply first, in the order the reply names them). A pane's header counts them ("2 pdf 3 img 1 md"); clicking the count opens them too. The file fills the left; on the right are the list of files and, under it, the agent itself, its own terminal as on its pane |
+| Space | preview the plots, PDFs, HTML pages and Markdown files of the agent's latest reply, fitted to the window: PDFs and pages first, then the images, then Markdown, rendered as a page with its pictures, LaTeX math (`$…$`, `$$…$$`) and Mermaid diagrams (newest reply first, in the order the reply names them). An HTML page (an artifact, a dashboard, an interactive plot) runs live, so you can click, hover and play with it. A pane's header counts them ("1 html 2 pdf 3 img 1 md"); clicking the count opens them too. The file fills the left; on the right are the list of files and, under it, the agent itself, its own terminal as on its pane |
 | → / ← | older / newer file (with nothing typed); past the last one, → loads an earlier reply's files, and the folder scan comes last. A click in the list shows that file |
 | ↑ ↓, PgUp PgDn | scroll the file (PDF pages, zoomed plots); the wheel over the agent scrolls its conversation |
 | *type* | write to the agent beside the file, right away, into its own input box; while something is typed the arrows move between its letters |
@@ -83,11 +83,12 @@ A single **Esc** goes to the agent, on a pane or while typing, as in a terminal:
 | ⌘V · ⌘. | paste into your message · interrupt the agent (sends it Esc) |
 | ⌘+ ⌘− | zoom in, out (pinch on the trackpad, or ⌘ + wheel, zooms around the pointer) |
 | ⌘0 · ⌘1 | fit to the window · actual pixels (100% for a PDF) |
-| ⌘O | open the file in its app: Preview for plots and PDFs, your Markdown app for `.md` (an SVG is shown in Finder instead, since its default app is a browser) |
+| ⌘O | open the file in its app: Preview for plots and PDFs, your Markdown app for `.md`, your browser for a page (an SVG is shown in Finder instead, since its default app is a browser) |
 | ⌘U | a Markdown file: switch between the rendered page and its source (also the **Source** / **Rendered** button); the **Copy** button copies the whole file as Markdown |
 | ⌘A, ⌘C | a Markdown file: select all of it (rendered or source), copy what is selected |
 | ⌘S | save a copy in your Downloads folder (also the **Save to Downloads** button; a taken name becomes `fit (1).pdf`) |
-| ⌘R | start over from the latest reply |
+| *click the page* | an HTML page takes the keyboard (its own keys, Space included); **Esc** gives it back to Kuna |
+| ⌘R | start over from the latest reply (reloads a page) |
 | Space or Esc | close (with nothing typed); the agent's terminal goes back to its pane |
 | *a panel of the agent's* | while it shows a question, a permission prompt or a panel (`/config`, `/usage`, `/model`), the arrows, Space, Enter and Esc are the agent's: Esc closes the panel, the next Esc the viewer |
 | ⌘G | review the agent's changes, as a pull request would show them (below) |

@@ -46,8 +46,8 @@ Arrows move between the sidebar and the panes, typing talks to the focused agent
 
 ![The shortcut overview](docs/images/doc-help.png)
 
-### Plots, PDFs and notes on Space
-The figures from the agent's latest reply, PDFs first, sharp and zoomable, and the Markdown files it wrote, rendered with their pictures, LaTeX and flowcharts. Each pane counts them in its header. The agent sits beside the file, under a list of all of them: read what it said and type your reply right there; ⌘S saves the file.
+### Plots, PDFs, pages and notes on Space
+The figures from the agent's latest reply, PDFs first, sharp and zoomable, the HTML pages it made (artifacts, dashboards, interactive plots), live so you can click around in them, and the Markdown files it wrote, rendered with their pictures, LaTeX and flowcharts. Each pane counts them in its header. The agent sits beside the file, under a list of all of them: read what it said and type your reply right there; ⌘S saves the file.
 
 ![The plot viewer: a PDF from the agent's reply, a comment being written to it, and Save to Downloads](docs/images/doc-viewer.png)
 

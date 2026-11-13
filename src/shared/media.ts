@@ -1,6 +1,6 @@
 import type { MediaItem } from './types'
 
-const EXT = 'png|jpe?g|gif|webp|svg|pdf|md|markdown'
+const EXT = 'png|jpe?g|gif|webp|svg|pdf|md|markdown|html?'
 
 // A path-ish token ending in a media (or Markdown) extension, preceded by a delimiter so
 // URLs (`https://x/a.png`) and identifiers (`foo.png_bar`) are not matched.
@@ -16,6 +16,7 @@ export function mediaKind(path: string): MediaItem['kind'] | null {
   if (ext === 'pdf') return 'pdf'
   if (ext === 'svg') return 'svg'
   if (ext === 'md' || ext === 'markdown') return 'md'
+  if (ext === 'html' || ext === 'htm') return 'html'
   if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) return 'image'
   return null
 }
@@ -39,6 +40,9 @@ export function mimeFor(path: string): string {
     case 'md':
     case 'markdown':
       return 'text/markdown'
+    case 'html':
+    case 'htm':
+      return 'text/html'
     default:
       return 'application/octet-stream'
   }
@@ -81,11 +85,58 @@ export function resolveAgainst(cwd: string, p: string): string {
 }
 
 /**
- * The order the viewer shows files in: PDFs first, then images, then
- * Markdown, each in the order given (the order a reply mentions them, left
- * to right; newest first for the folder scan).
+ * The order the viewer shows files in: PDFs and HTML pages first, then
+ * images, then Markdown, each in the order given (the order a reply mentions
+ * them, left to right; newest first for the folder scan).
  */
 export function viewerOrder<T extends { kind: string }>(items: T[]): T[] {
-  const rank = (it: T): number => (it.kind === 'pdf' ? 0 : it.kind === 'md' ? 2 : 1)
+  const rank = (it: T): number => (it.kind === 'pdf' || it.kind === 'html' ? 0 : it.kind === 'md' ? 2 : 1)
   return [0, 1, 2].flatMap((r) => items.filter((it) => rank(it) === r))
+}
+
+/** What a page in the viewer may load, by extension: the files a web page is made of. */
+const PAGE_TYPES: Record<string, string> = {
+  html: 'text/html; charset=utf-8',
+  htm: 'text/html; charset=utf-8',
+  css: 'text/css; charset=utf-8',
+  js: 'text/javascript; charset=utf-8',
+  mjs: 'text/javascript; charset=utf-8',
+  json: 'application/json',
+  geojson: 'application/geo+json',
+  csv: 'text/csv; charset=utf-8',
+  tsv: 'text/tab-separated-values; charset=utf-8',
+  txt: 'text/plain; charset=utf-8',
+  md: 'text/markdown; charset=utf-8',
+  xml: 'application/xml',
+  svg: 'image/svg+xml',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  ico: 'image/x-icon',
+  woff: 'font/woff',
+  woff2: 'font/woff2',
+  ttf: 'font/ttf',
+  otf: 'font/otf',
+  wasm: 'application/wasm'
+}
+
+/**
+ * The file a page shown in the viewer asks for with a URL path
+ * (`/plots/a%20b.png`), below the page's folder `dir`, and its type. None
+ * for hidden files and folders, `..` steps, or files a web page is not made of.
+ */
+export function pageFile(dir: string, urlPath: string): { path: string; mime: string } | null {
+  let rel: string
+  try {
+    rel = decodeURIComponent(urlPath)
+  } catch {
+    return null
+  }
+  const segs = rel.split('/').filter(Boolean)
+  if (!segs.length || segs.some((s) => s.startsWith('.') || s.includes('\0'))) return null
+  const mime = PAGE_TYPES[(/\.([a-z0-9]+)$/i.exec(segs[segs.length - 1])?.[1] ?? '').toLowerCase()]
+  return mime ? { path: `${dir}/${segs.join('/')}`, mime } : null
 }

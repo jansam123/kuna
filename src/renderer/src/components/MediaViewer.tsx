@@ -55,6 +55,8 @@ interface Loaded {
   /** a Markdown file, rendered and sanitised, and its source */
   html?: string
   text?: string
+  /** an HTML page: the `kuna-page:` address it is shown at, live, in a sandboxed frame */
+  page?: string
   error?: string
 }
 
@@ -320,6 +322,27 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
   const savedSide = useKuna((s) => s.settings.viewerChatWidth)
   // Markdown as its source text instead of rendered (⌘U), kept while the viewer is open
   const [mdSource, setMdSource] = useState(false)
+  // an HTML page has the keyboard (after a click in it): its keys are its own, until Esc
+  const [inPage, setInPage] = useState(false)
+  const pageFrame = useRef<HTMLIFrameElement>(null)
+
+  // a frame's keys never reach the window: notice the page taking the keyboard, and its Esc giving it back
+  useEffect(() => {
+    const check = (): void => setInPage(!!pageFrame.current && document.activeElement === pageFrame.current)
+    const blur = (): void => void setTimeout(check)
+    const back = window.kuna.media.onPageEscape(() => {
+      pageFrame.current?.blur()
+      terminalEntry(agentKey)?.term.focus()
+      check()
+    })
+    window.addEventListener('blur', blur)
+    window.addEventListener('focus', check)
+    return () => {
+      back()
+      window.removeEventListener('blur', blur)
+      window.removeEventListener('focus', check)
+    }
+  }, [agentKey])
 
   /** Load pages until something new turns up (or nothing is left), and append it. */
   const loadMore = useCallback(
@@ -358,7 +381,8 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
 
   const current = items?.[index]
   const prefetch = (it: MediaItem | undefined): void => {
-    if (it && host && it.size <= PREFETCH_MAX) void window.kuna.media.fetch(host, it.path, stampOf(it))
+    // a page loads itself, from the host, when it is shown
+    if (it && host && it.kind !== 'html' && it.size <= PREFETCH_MAX) void window.kuna.media.fetch(host, it.path, stampOf(it))
   }
 
   // the file itself, and the next one in the background
@@ -367,9 +391,20 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
     let url: string | undefined
     let cancelled = false
     setFile({ path: current.path })
+    setInPage(false)
     setPdf(null)
     setNatural(null)
     setZoom(1)
+    if (current.kind === 'html') {
+      void window.kuna.media.page(host, current.path).then((res) => {
+        if (cancelled) return
+        setFile('error' in res ? { path: current.path, error: res.error } : { path: current.path, page: res.url })
+        prefetch(items?.[index + 1])
+      })
+      return () => {
+        cancelled = true
+      }
+    }
     void window.kuna.media.fetch(host, current.path, stampOf(current)).then((res) => {
       if (cancelled) return
       if ('error' in res) return setFile({ path: current.path, error: res.error })
@@ -766,30 +801,36 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
   const ready = file?.path === current?.path
   const side = Math.round(Math.min(savedSide ?? sideWidth(), window.innerWidth * MAX_SIDE_SHARE))
   const md = current?.kind === 'md'
+  const page = current?.kind === 'html'
 
   return (
     <div className="media-overlay" style={{ '--side-w': `${side}px` } as React.CSSProperties}>
       <header className="media-head">
         <span className="media-count">{items ? (items.length ? `${index + 1} / ${items.length}${next ? '+' : ''}` : '0') : '…'}</span>
-        <span className="media-name">{current ? rel(current.path).split('/').pop() : 'Plots, PDFs & Markdown'}</span>
+        <span className="media-name">{current ? rel(current.path).split('/').pop() : 'Plots, PDFs, pages & Markdown'}</span>
         {current && <span className="media-path">{rel(current.path)}</span>}
         <span className="ph-spacer" />
         {busy && items && <span className="media-meta">{busy}</span>}
         {current && (
           <span className="media-meta">
-            {ago(current.mtime)} ago · {bytes(current.size)} · {pdf && pdf.sizes.length > 1 ? `${pdf.sizes.length} pages · ` : ''}
-            {md ? `${Math.round(zoom * 100)}%` : zoom === 1 ? 'fit' : `${zoom < 1 ? zoom.toFixed(2) : zoom.toFixed(1)}×`}
+            {ago(current.mtime)} ago · {bytes(current.size)}
+            {page ? '' : ` · ${pdf && pdf.sizes.length > 1 ? `${pdf.sizes.length} pages · ` : ''}`}
+            {page ? '' : md ? `${Math.round(zoom * 100)}%` : zoom === 1 ? 'fit' : `${zoom < 1 ? zoom.toFixed(2) : zoom.toFixed(1)}×`}
           </span>
         )}
         {note ? (
           <span className="media-note">{note}</span>
         ) : (
           <span className="media-keys">
-            {escHint
-              ? 'Esc again takes what you typed back out'
-              : typed
-                ? '← → move in your message · Enter sends · ⇧Enter new line · Esc Esc takes it back'
-                : `← → files · type to the agent · ⌘P the file's path · ${md ? '⌘U source · ' : ''}pinch or ⌘+ ⌘− zoom · ⌘0 fit · ⌘O open · ⌘S save · Space close`}
+            {inPage
+              ? 'the page has the keyboard · Esc gives it back'
+              : escHint
+                ? 'Esc again takes what you typed back out'
+                : typed
+                  ? '← → move in your message · Enter sends · ⇧Enter new line · Esc Esc takes it back'
+                  : page
+                    ? "← → files · type to the agent · click the page to use its keys · ⌘P the file's path · ⌘R reload · ⌘O open · ⌘S save · Space close"
+                    : `← → files · type to the agent · ⌘P the file's path · ${md ? '⌘U source · ' : ''}pinch or ⌘+ ⌘− zoom · ⌘0 fit · ⌘O open · ⌘S save · Space close`}
           </span>
         )}
         {md && (
@@ -835,12 +876,23 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
           {!items && <div className="media-msg">{busy}</div>}
           {items && !items.length && !busy && (
             <div className="media-msg">
-              No plots, PDFs or Markdown files yet. Kuna looks at the paths in the agent's replies, newest first, and then at files written in its
-              folder since it started.
+              No plots, PDFs, HTML pages or Markdown files yet. Kuna looks at the paths in the agent's replies and tool calls, newest first, and
+              then at plots and notes written in its folder since it started.
             </div>
           )}
           {ready && file?.error && <div className="media-msg">{file.error}</div>}
-          {ready && current && current.size > SLOW_FILE && !file?.error && !file?.url && !pdf && file?.html == null && (
+          {current && ready && file?.page && (
+            <iframe
+              key={`${current.path}:${stampOf(current)}`}
+              ref={pageFrame}
+              className="media-page"
+              src={file.page}
+              title={rel(current.path)}
+              // scripts run, on the folder's own origin; no leaving the frame (top navigation, popups, downloads)
+              sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-pointer-lock"
+            />
+          )}
+          {ready && current && current.size > SLOW_FILE && !file?.error && !file?.url && !file?.page && !pdf && file?.html == null && (
             <div className="media-msg">
               Loading {rel(current.path).split('/').pop()}, {bytes(current.size)}
               {host && host !== 'local' ? `, from ${host}` : ''}…

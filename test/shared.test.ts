@@ -5,7 +5,7 @@ import { compactBlocker, hasInputBox, screenState } from '@shared/input'
 import { parseJsonc } from '@shared/jsonc'
 import { cleanTypedPath, pastePath } from '@shared/paths'
 import { gridRows, neighbor } from '@shared/layout'
-import { extractMediaPaths, mediaKind, normalizePosix, resolveAgainst, viewerOrder } from '@shared/media'
+import { extractMediaPaths, mediaKind, normalizePosix, pageFile, resolveAgainst, viewerOrder } from '@shared/media'
 import { parseSshConfig } from '@shared/sshConfig'
 import { applyPatch, diffShared, mergePatch } from '@shared/sync'
 import { hasMath, splitMath, texToText } from '@shared/tex'
@@ -83,6 +83,25 @@ describe('media paths', () => {
     expect(mediaKind('docs/RESULTS.md')).toBe('md')
     expect(mediaKind('a.MARKDOWN')).toBe('md')
     expect(mediaKind('notes.mdx')).toBeNull()
+  })
+  it('finds HTML pages (artifacts), shown live in the viewer', () => {
+    expect(extractMediaPaths('The dashboard is at out/fit.html (and old.htm); https://x.org/index.html is not ours.')).toEqual([
+      'out/fit.html',
+      'old.htm'
+    ])
+    expect(mediaKind('a/B.HTML')).toBe('html')
+    expect(viewerOrder([{ kind: 'image', path: 'a.png' }, { kind: 'html', path: 'p.html' }, { kind: 'pdf', path: 'f.pdf' }]).map((it) => it.path)).toEqual([
+      'p.html',
+      'f.pdf',
+      'a.png'
+    ])
+  })
+  it('lets a page load only the web files below its folder', () => {
+    expect(pageFile('/w/out', '/fit.html')).toEqual({ path: '/w/out/fit.html', mime: 'text/html; charset=utf-8' })
+    expect(pageFile('~/r', '/plots/a%20b.png')).toEqual({ path: '~/r/plots/a b.png', mime: 'image/png' })
+    expect(pageFile('', '/x.json')?.path).toBe('/x.json')
+    for (const bad of ['/../secret.json', '/%2E%2E/a.css', '/a/..%2Fb.js', '/.env', '/.git/config.json', '/id_rsa', '/notes', '/', '/%E0%A4%A.js', '/a%00.js'])
+      expect(pageFile('/w/out', bad), bad).toBeNull()
   })
   it('resolves relative paths', () => {
     expect(resolveAgainst('/work/ana/', './plots/../out/a.png')).toBe('/work/ana/out/a.png')
@@ -271,6 +290,17 @@ describe('plot order', () => {
 })
 
 describe('plots by reply', () => {
+  it('takes a page made with the Artifact tool from its file path', () => {
+    const p = new TranscriptParser()
+    p.feed(JSON.stringify({ type: 'user', message: { content: 'make a dashboard' } }) + '\n')
+    p.feed(
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', id: 't1', name: 'Artifact', input: { file_path: '/home/alice/.claude/jobs/x/tmp/fit.html', icon: 'chart' } }] }
+      }) + '\n'
+    )
+    expect(p.details().mediaRefs).toEqual([{ path: '/home/alice/.claude/jobs/x/tmp/fit.html', turn: 1 }])
+  })
   it('remembers which reply mentioned each file last', () => {
     const p = new TranscriptParser()
     const feed = (o: object): void => p.feed(JSON.stringify(o) + '\n')

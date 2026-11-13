@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, clipboard, ipcMain, Menu, session, shell, type MenuItemConstructorOptions, type WebContents } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, Menu, protocol, session, shell, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import { IPC } from '@shared/ipc'
 import { applyPatch, sharedOf, type SharedPatch } from '@shared/sync'
 import type { GitSide } from '@shared/git'
@@ -128,6 +128,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.mediaFetch, (_e, host: string, path: string, stamp?: string) => media.fetch(host, path, stamp))
   ipcMain.handle(IPC.mediaOpen, (_e, host: string, path: string, stamp?: string) => media.openExternal(host, path, stamp))
   ipcMain.handle(IPC.mediaSave, (_e, host: string, path: string, stamp?: string) => media.save(host, path, stamp))
+  ipcMain.handle(IPC.mediaPage, (_e, host: string, path: string) => media.page(host, path))
 
   ipcMain.handle(IPC.claudeList, (_e, host: string, cwds: string[]) => claudeFiles.list(host, cwds))
   ipcMain.handle(IPC.claudeRead, (_e, host: string, path: string) => claudeFiles.read(host, path))
@@ -214,6 +215,14 @@ function makeWindow(bounds: Rect | undefined, fullScreen: boolean): BrowserWindo
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (e) => e.preventDefault())
+  // an HTML page in the viewer stays in its frame: no going to the web (links included)
+  win.webContents.on('will-frame-navigate', (e) => {
+    if (!e.isMainFrame && !/^(kuna-page|about|data|blob):/.test(e.url)) e.preventDefault()
+  })
+  // the window never sees the keys typed into such a page: its Esc gives the keyboard back
+  win.webContents.on('before-input-event', (_e, input) => {
+    if (input.type === 'keyDown' && input.key === 'Escape' && win.webContents.focusedFrame?.url.startsWith('kuna-page:')) win.webContents.send(IPC.pageEscape)
+  })
   if (automation) {
     win.webContents.on('console-message', (e) => console.log(`[renderer] ${e.message}`))
     // the script runs in the first window; kunaDev.eval reaches the others
@@ -230,6 +239,8 @@ function makeWindow(bounds: Rect | undefined, fullScreen: boolean): BrowserWindo
 }
 
 app.setName('Kuna')
+// HTML pages in the viewer: each folder its own origin, served by the main process (MediaService.page)
+protocol.registerSchemesAsPrivileged([{ scheme: 'kuna-page', privileges: { standard: true, secure: true, supportFetchAPI: true } }])
 
 // When Kuna is started from inside a Claude Code session (e.g. `npm run dev` in
 // a terminal agent), don't let that session's identity leak into new agents.
@@ -310,10 +321,11 @@ function registerAutomation(): void {
 app.whenReady().then(async () => {
   if (app.isPackaged) await adoptLoginShellPath()
   store.load()
-  // the page needs notifications and nothing else the browser could grant
-  const allowed = (permission: string): boolean => permission === 'notifications'
-  session.defaultSession.setPermissionRequestHandler((_wc, permission, done) => done(allowed(permission)))
-  session.defaultSession.setPermissionCheckHandler((_wc, permission) => allowed(permission))
+  // the page needs notifications and nothing else the browser could grant; an HTML page in the viewer, nothing at all
+  const allowed = (permission: string, from = ''): boolean => permission === 'notifications' && !from.startsWith('kuna-page:')
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, done, details) => done(allowed(permission, details.requestingUrl)))
+  session.defaultSession.setPermissionCheckHandler((_wc, permission, origin) => allowed(permission, origin))
+  protocol.handle('kuna-page', (req) => media.servePage(req))
   // a built Kuna.app has its icon; running from source, the Dock shows Electron's otherwise
   if (fromSource) app.dock?.setIcon(join(__dirname, '../../build/icon.png'))
   registerIpc()

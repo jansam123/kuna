@@ -1,8 +1,9 @@
+import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, extname, join } from 'node:path'
 import { app, shell } from 'electron'
-import { mediaKind, mimeFor, resolveAgainst, viewerOrder } from '@shared/media'
+import { mediaKind, mimeFor, pageFile, resolveAgainst, viewerOrder } from '@shared/media'
 import type { ClaudeFileEntry, HostId, MediaItem, MediaPage } from '@shared/types'
 import type { AgentService } from './agents'
 import { b64 } from './hosts/exec'
@@ -12,6 +13,30 @@ const MB = 1024 * 1024
 const MAX_MEDIA_BYTES = 1024 * MB
 /** a Markdown file past this is not a note to read in the viewer */
 const MAX_MD_BYTES = 4 * MB
+/** an HTML page, or a file it loads, past this is not served (an artifact is at most 16 MB) */
+const MAX_PAGE_BYTES = 64 * MB
+/**
+ * What a page in the viewer may run and load: its own folder (inline code
+ * included) and the CDNs artifacts and plotting libraries load from, nothing
+ * else on the web, so it can't send what it reads anywhere.
+ */
+const CDNS = [
+  'https://cdnjs.cloudflare.com',
+  'https://cdn.jsdelivr.net',
+  'https://unpkg.com',
+  'https://cdn.tailwindcss.com',
+  'https://code.jquery.com',
+  'https://cdn.plot.ly',
+  'https://cdn.bokeh.org'
+].join(' ')
+const PAGE_CSP = [
+  `default-src 'self' data: blob: ${CDNS}`,
+  `script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' data: blob: ${CDNS}`,
+  `style-src 'self' 'unsafe-inline' ${CDNS} https://fonts.googleapis.com`,
+  `font-src 'self' data: ${CDNS} https://fonts.gstatic.com`,
+  "form-action 'none'",
+  "base-uri 'self'"
+].join('; ')
 /** a .claude file past this is not shown */
 const MAX_CLAUDE_FILE_BYTES = 2 * MB
 /** files kept for going back and forth, at most this much in all (the newest is kept whatever its size) */
@@ -29,6 +54,8 @@ const sizeText = (n: number): string => (n >= 1024 * MB ? `${n / 1024 / MB} GB` 
  */
 export class MediaService {
   private cache = new Map<string, { data: Buffer; at: number }>()
+  /** the folders of the HTML pages shown so far, by their `kuna-page://` host */
+  private pages = new Map<string, { host: HostId; dir: string }>()
 
   constructor(private agents: AgentService) {}
 
@@ -85,7 +112,7 @@ export class MediaService {
     // only plots, PDFs and Markdown: the viewer has no business reading other files
     const kind = typeof path === 'string' ? mediaKind(path) : null
     if (!kind) return { error: 'Not an image, PDF or Markdown file.' }
-    const max = kind === 'md' ? MAX_MD_BYTES : MAX_MEDIA_BYTES
+    const max = kind === 'md' ? MAX_MD_BYTES : kind === 'html' ? MAX_PAGE_BYTES : MAX_MEDIA_BYTES
     const ck = `${hostId}\0${path}\0${stamp}`
     const hit = this.cache.get(ck)
     if (hit && (stamp || Date.now() - hit.at < 5000)) return { data: hit.data, mime: mimeFor(path) }
@@ -104,6 +131,35 @@ export class MediaService {
       this.cache.delete(oldest)
     }
     return { data: res.stdout, mime: mimeFor(path) }
+  }
+
+  /**
+   * The address an HTML page is shown at: `kuna-page://<folder token>/<name>`.
+   * Each folder is its own origin, so pages in one can't read another's
+   * files or storage; the token is only made here, for a page the window shows.
+   */
+  page(hostId: HostId, path: string): { url: string } | { error: string } {
+    const cut = typeof path === 'string' ? path.lastIndexOf('/') : -1
+    if (cut < 0 || mediaKind(path) !== 'html') return { error: 'Not an HTML page.' }
+    this.agents.host(hostId) // a real host name, or this throws
+    const dir = path.slice(0, cut)
+    const token = createHash('sha256').update(`${hostId}\0${dir}`).digest('hex').slice(0, 32)
+    this.pages.set(token, { host: hostId, dir })
+    return { url: `kuna-page://${token}/${encodeURIComponent(path.slice(cut + 1))}` }
+  }
+
+  /** A request from a page in the viewer: a file below its folder, of a kind web pages are made of. */
+  async servePage(req: Request): Promise<Response> {
+    const u = new URL(req.url)
+    const page = this.pages.get(u.hostname)
+    const file = page && pageFile(page.dir, u.pathname)
+    if (!page || !file) return new Response('Not found', { status: 404 })
+    const res = await this.agents.host(page.host).exec(['cat', b64(file.path)], { timeoutMs: readTimeout(MAX_PAGE_BYTES), maxBytes: MAX_PAGE_BYTES })
+    if (res.code !== 0) return new Response(res.stderr.trim() || 'Not found', { status: 404 })
+    if (res.stdout.length > MAX_PAGE_BYTES) return new Response(`Larger than ${sizeText(MAX_PAGE_BYTES)}`, { status: 413 })
+    return new Response(new Uint8Array(res.stdout), {
+      headers: { 'content-type': file.mime, 'content-security-policy': PAGE_CSP, 'cache-control': 'no-store' }
+    })
   }
 
   /**

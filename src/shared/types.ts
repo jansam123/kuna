@@ -327,7 +327,7 @@ export interface MediaItem {
   path: string
   mtime: number
   size: number
-  kind: 'image' | 'pdf' | 'svg' | 'md'
+  kind: 'image' | 'pdf' | 'svg' | 'md' | 'html'
 }
 
 /** One step back through an agent's plots: newest reply first, the folder scan last. */

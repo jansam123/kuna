@@ -44,7 +44,8 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
   {
     title: 'Looking at things',
     keys: [
-      ['Space', "plots, PDFs and Markdown files of the agent's latest reply"],
+      ['Space', "plots, PDFs, HTML pages and Markdown files of the agent's latest reply"],
+      ['click · Esc', 'in the preview: a page takes the keys, Esc gives them back'],
       ['→ / ←', 'older / newer file (→ keeps going into earlier replies)'],
       ['⌘+ ⌘− ⌘0', 'zoom in, out, fit (or pinch; drag to pan)'],
       ['type, Enter', 'in the preview: write to the agent beside the file'],
