@@ -144,6 +144,11 @@ function globalShortcut(ev: KeyboardEvent): boolean {
     restoreHidden()
     return true
   }
+  if (k === 'e' && ev.shiftKey) {
+    // VS Code's Explorer key
+    openReview(true)
+    return true
+  }
   if (k === 'e') {
     renameSelection()
     return true
@@ -255,22 +260,23 @@ export function toggleZen(): void {
 /**
  * ⌘G: the review view for the agent in the focused pane or on the selected
  * row (its worktree, else its folder), or for the selected folder.
+ * ⇧⌘E (`browse`): the same view on the folder's files alone, git or not.
  */
-export function openReview(): void {
+export function openReview(browse = false): void {
   const s = get()
   if (s.mode === 'insert' && s.zone === 'pane') leaveInsert(false)
   const key = s.zone === 'pane' ? focusedKey() : activeAgentKey()
   const agent = key ? s.agents[key] : undefined
   if (agent) {
-    set({ overlay: { kind: 'review', host: agent.host, dir: agent.worktree ?? agent.cwd, key: agent.key }, mode: 'nav' })
+    set({ overlay: { kind: 'review', host: agent.host, dir: agent.worktree ?? agent.cwd, key: agent.key, browse }, mode: 'nav' })
     return
   }
   const node = selectedNode()
   if (node?.kind === 'folder' && !node.virtual) {
-    set({ overlay: { kind: 'review', host: node.project.host, dir: node.folder.path }, mode: 'nav' })
+    set({ overlay: { kind: 'review', host: node.project.host, dir: node.folder.path, browse }, mode: 'nav' })
     return
   }
-  toast('Select an agent or a folder to review its changes (⌘G).', 'warn')
+  toast(browse ? 'Select an agent or a folder to browse its files (⇧⌘E).' : 'Select an agent or a folder to review its changes (⌘G).', 'warn')
 }
 
 /**

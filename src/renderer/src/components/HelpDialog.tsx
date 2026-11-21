@@ -58,6 +58,7 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
       ['⌘O · ⌘S', 'in the preview: open in Preview · save to Downloads'],
       ['⌘U', 'in the preview: a Markdown file as source or rendered'],
       ['⌥ drag', 'select text in an agent; copied when you let go, ⌘C too'],
+      ['⇧⌘E', "browse the files of the agent's folder (or of the selected folder), coloured as in VS Code"],
       ['⌘K', 'browse skills, agents, commands and CLAUDE.md'],
       ['⌘,', 'colour scheme and fonts']
     ]

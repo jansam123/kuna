@@ -97,6 +97,7 @@ A single **Esc** goes to the agent, on a pane or while typing, as in a terminal:
 | ⌘R | read the list and the files again (reloads a page) |
 | Space or Esc | close; the agent's terminal goes back to its pane. The files side by side come back the next time, until Kuna quits |
 | ⌘G | review the agent's changes, as a pull request would show them (below) |
+| ⇧⌘E | browse the files of the agent's folder, or of the folder selected in the sidebar (no agent needed; the **files** button on a folder's row does the same): the review view with only its Folder list, so the same tree, editor, colours and keys as below, and no git is asked of the host. Text files are coloured by VS Code's own grammars in your VS Code theme, images are shown, and C comments on lines for the agent |
 | ⌘K | browse `.claude`: skills, agents, commands, `CLAUDE.md`, settings (Tab switches host) |
 | ⌘, | colour scheme, fonts, notifications |
 | ⌘+ / ⌘− | agent font size (starts from your iTerm2 profile's) |

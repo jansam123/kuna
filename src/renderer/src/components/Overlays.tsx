@@ -78,7 +78,7 @@ export function Overlays(): React.JSX.Element | null {
     case 'media':
       return <MediaViewer agentKey={overlay.key} />
     case 'review':
-      return <ReviewView host={overlay.host} dir={overlay.dir} agentKey={overlay.key} />
+      return <ReviewView host={overlay.host} dir={overlay.dir} agentKey={overlay.key} browse={overlay.browse} />
     case 'claude':
       return <ClaudeBrowser initialHost={overlay.host} />
     case 'project':

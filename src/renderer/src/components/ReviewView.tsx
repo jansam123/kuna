@@ -181,8 +181,10 @@ function decode(blob: GitBlob | undefined, path: string, urls: string[]): { text
  * file to browse; Monaco shows them with VS Code's own diff, in the user's
  * VS Code theme, font and icons. Comments on lines (C) collect into a review
  * that ⌘↵ sends to the agent, whose terminal sits on the right.
+ * `browse` (⇧⌘E) is the same view as a file browser: the folder's files alone
+ * (the Folder list), and no git is asked of the host.
  */
-export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir: string; agentKey?: string }): React.JSX.Element {
+export function ReviewView({ host, dir: folder, agentKey, browse }: { host: string; dir: string; agentKey?: string; browse?: boolean }): React.JSX.Element {
   const agent = useKuna((s) => (agentKey ? s.agents[agentKey] : undefined))
   const settings = useKuna((s) => s.settings)
   /**
@@ -213,7 +215,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
   const [files, setFiles] = useState<string[] | null>(null)
   /** how the view was left from this folder last time: the list, the Folder tab's open folders and pick */
   const [folderMemo] = useState(() => get().settings.reviewView?.[`${host}:${folder}`])
-  const [tab, setTab] = useState<Tab>(() => (TABS.includes(folderMemo?.tab as Tab) ? (folderMemo!.tab as Tab) : 'changes'))
+  const [tab, setTab] = useState<Tab>(() => (browse ? 'folder' : TABS.includes(folderMemo?.tab as Tab) ? (folderMemo!.tab as Tab) : 'changes'))
   const [cursor, setCursor] = useState<Partial<Record<Tab, string>>>(() => (folderMemo?.cursor?.folder ? { folder: folderMemo.cursor.folder } : {}))
   const [closedDirs, setClosedDirs] = useState<Set<string>>(new Set())
   const [openDirs, setOpenDirs] = useState<Set<string>>(new Set())
@@ -279,6 +281,8 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
 
   // which repositories: the one the folder is in, else those below it; the one used last here, else the one worked in last
   const scanRepos = useCallback(async () => {
+    // browsing files: no repository, so only the Folder list
+    if (browse) return setRepos([])
     const res = await window.kuna.git.repos(host, folder)
     if ('error' in res) {
       setRepos([])
@@ -299,7 +303,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
     // several and none picked here before: the latest worked in shows, and the list is open to choose from
     setRepo(res[0].path)
     if (res.length > 1) setPicker('repo')
-  }, [host, folder, repoKey])
+  }, [host, folder, repoKey, browse])
 
   useEffect(() => {
     void scanRepos()
@@ -594,7 +598,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
     const at = Date.now()
     const { folder: folderCursor, ...gitCursor } = cursor
     const fk = `${host}:${folder}`
-    all[fk] = { ...all[fk], at, tab, openFolder: [...openFolder], cursor: { ...(fk === `${host}:${dir}` ? all[fk]?.cursor : {}), ...(folderCursor ? { folder: folderCursor } : {}) } }
+    all[fk] = { ...all[fk], at, tab: browse ? all[fk]?.tab : tab, openFolder: [...openFolder], cursor: { ...(fk === `${host}:${dir}` ? all[fk]?.cursor : {}), ...(folderCursor ? { folder: folderCursor } : {}) } }
     if (dir && info) {
       const rk = `${host}:${dir}`
       all[rk] = {
@@ -702,7 +706,7 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
 
   // which tab to open on: the branch's changes, else what is uncommitted, else the files
   // left on a list last time: that one, not a guess
-  const chose = useRef(!!folderMemo?.tab)
+  const chose = useRef(browse || !!folderMemo?.tab)
   useEffect(() => {
     if (chose.current || !status || (!compare && !compareError)) return
     chose.current = true
@@ -955,6 +959,8 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
       sendReview()
       return true
     }
+    // nothing to compare while browsing files
+    if (browse && (k === 'b' || k === 'o' || k === 'u')) return true
     if (k === 'b') {
       if (!dir) {
         setNote(`No git repository in ${folder}: nothing to compare`)
@@ -1255,12 +1261,14 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
       ? 'Enter sends to the agent · Esc Esc takes it back'
       : draft
         ? '⌘↵ add the comment · Esc Esc discard'
-        : `↑↓ files · → into the diff · C comment · N next change · ⌘↵ send review${comments.length ? ` (${comments.length})` : ''} · ⌘B base · ⌘P find · ⌘U ${sideBySide ? 'inline' : 'side by side'} · Esc close`
+        : browse
+          ? `↑↓ files · → ← open, close a folder · Enter into the file · ⌘F find in it · ⌘P go to file · C comment${comments.length ? ` · ⌘↵ send (${comments.length})` : ''} · Esc close`
+          : `↑↓ files · → into the diff · C comment · N next change · ⌘↵ send review${comments.length ? ` (${comments.length})` : ''} · ⌘B base · ⌘P find · ⌘U ${sideBySide ? 'inline' : 'side by side'} · Esc close`
 
   return (
     <div className="media-overlay rv" style={{ '--rv-list': `${listW}px`, '--side-w': `${chatW}px` } as React.CSSProperties}>
       <header className="media-head rv-head">
-        <span className="rv-title">Review</span>
+        <span className="rv-title">{browse ? 'Files' : 'Review'}</span>
         {repos && repos.length > 1 ? (
           <span className="rv-ref-wrap rv-refs">
             <button className="rv-ref rv-repo" title={`${root}\nAnother repository in ${folder} (⌘O)`} onMouseDown={(e) => e.preventDefault()} onClick={() => setPicker(picker === 'repo' ? null : 'repo')}>
@@ -1290,7 +1298,9 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
           </span>
         )}
         {host !== 'local' && <span className="media-meta">on {host}</span>}
-        {!dir ? (
+        {browse ? (
+          <span className="media-meta">{folder}</span>
+        ) : !dir ? (
           <span className="media-meta">{repos ? 'no git repository here: the folder as it is' : 'looking for repositories…'}</span>
         ) : commit ? (
           <span className="rv-refs">
@@ -1337,29 +1347,35 @@ export function ReviewView({ host, dir: folder, agentKey }: { host: string; dir:
         >
           <span className="rv-refresh-icon">↻</span> {reading || comparing ? 'Reading…' : 'Refresh'}
         </button>
-        <button className="media-save" onMouseDown={(e) => e.preventDefault()} onClick={() => updateSettings({ reviewInline: sideBySide })} title="Side by side or inline (⌘U)">
-          {sideBySide ? 'Inline' : 'Side by side'}
-        </button>
-        <button
-          className={`media-save ${comments.length ? 'rv-send' : ''}`}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={sendReview}
-          title={agentKey ? 'Send the comments to the agent as one message (⌘↵)' : 'Copy the comments as one message (⌘↵)'}
-        >
-          {agentKey ? 'Send review' : 'Copy review'}
-          {comments.length ? ` (${comments.length})` : ''}
-        </button>
+        {!browse && (
+          <button className="media-save" onMouseDown={(e) => e.preventDefault()} onClick={() => updateSettings({ reviewInline: sideBySide })} title="Side by side or inline (⌘U)">
+            {sideBySide ? 'Inline' : 'Side by side'}
+          </button>
+        )}
+        {(!browse || comments.length > 0) && (
+          <button
+            className={`media-save ${comments.length ? 'rv-send' : ''}`}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={sendReview}
+            title={agentKey ? 'Send the comments to the agent as one message (⌘↵)' : 'Copy the comments as one message (⌘↵)'}
+          >
+            {agentKey ? 'Send review' : 'Copy review'}
+            {comments.length ? ` (${comments.length})` : ''}
+          </button>
+        )}
       </header>
       <div className="media-body">
         <aside className="rv-side">
-          <nav className="rv-tabs">
-            {tabs.map((t) => (
-              <button key={t} className={t === tab ? 'on' : ''} onMouseDown={(e) => e.preventDefault()} onClick={() => pickTab(t)} title={`${tabTitle[t]} (⌘${TABS.indexOf(t) + 1})`}>
-                {tabName[t]}
-                {counts[t] !== null && <span className="rv-count">{counts[t]}</span>}
-              </button>
-            ))}
-          </nav>
+          {!browse && (
+            <nav className="rv-tabs">
+              {tabs.map((t) => (
+                <button key={t} className={t === tab ? 'on' : ''} onMouseDown={(e) => e.preventDefault()} onClick={() => pickTab(t)} title={`${tabTitle[t]} (⌘${TABS.indexOf(t) + 1})`}>
+                  {tabName[t]}
+                  {counts[t] !== null && <span className="rv-count">{counts[t]}</span>}
+                </button>
+              ))}
+            </nav>
+          )}
           <input
             ref={filterRef}
             className="rv-filter"

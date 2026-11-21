@@ -148,6 +148,14 @@ function Row({
         {!node.virtual && (
           <span className="row-actions">
             <button
+              title="Browse its files (⇧⌘E)"
+              onClick={(e) => (
+                e.stopPropagation(), set({ sel: node.id, overlay: { kind: 'review', host: node.project.host, dir: node.folder.path, browse: true }, mode: 'nav' })
+              )}
+            >
+              files
+            </button>
+            <button
               title="Rename folder (⌘R)"
               onClick={(e) => (e.stopPropagation(), set({ overlay: { kind: 'folder-edit', projectId: node.project.id, folderId: node.folder.id } }))}
             >

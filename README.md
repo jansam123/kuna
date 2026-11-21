@@ -52,7 +52,7 @@ The figures from the agent's latest reply, PDFs first, sharp and zoomable, the H
 ![The plot viewer: a PDF from the agent's reply, a comment being written to it, and Save to Downloads](docs/images/doc-viewer.png)
 
 ### Review the agent's work before the pull request (⌘G)
-The agent's branch against `main` (or any branch, tag or commit), as a pull request shows it, in VS Code's own diff editor with your VS Code theme, font and file icons. Also its uncommitted changes, grouped as in VS Code's Source Control, every file to browse, and each commit on its own. Press C on a line to comment; ⌘Enter sends all comments to the agent, whose terminal sits on the right, so you can read its reply as it works. Works on SSH hosts too; Kuna only reads the repository.
+The agent's branch against `main` (or any branch, tag or commit), as a pull request shows it, in VS Code's own diff editor with your VS Code theme, font and file icons. Also its uncommitted changes, grouped as in VS Code's Source Control, every file to browse, and each commit on its own. Press C on a line to comment; ⌘Enter sends all comments to the agent, whose terminal sits on the right, so you can read its reply as it works. Works on SSH hosts too; Kuna only reads the repository. ⇧⌘E opens the same editor as a plain file browser, for an agent's folder or any folder in the sidebar without starting an agent.
 
 ### Status you can trust
 Working, waiting on a job, needs you, idle or failed, and what it's running right now. Context gauges warn before Claude Code compacts on its own, and your plan usage sits in the status bar.
