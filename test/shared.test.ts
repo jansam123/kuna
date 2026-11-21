@@ -11,7 +11,7 @@ import { applyPatch, diffShared, mergePatch } from '@shared/sync'
 import { hasMath, splitMath, texToText } from '@shared/tex'
 import { TranscriptParser } from '@shared/transcript'
 import { isAgentId, isHostId, isTmuxKeys, splitAgentKey } from '@shared/validate'
-import { deriveStatus, frameToAgents, parseFrame, parseRateLimits } from '@shared/watch'
+import { deriveStatus, frameToAgents, onLocalClock, parseFrame, parseRateLimits } from '@shared/watch'
 import { cascade, placeOnScreen, stepWindow, windowOrder } from '@shared/windows'
 import type { SharedState } from '@shared/types'
 import {
@@ -196,6 +196,11 @@ describe('watch frames', () => {
       attnTs: 1700000050,
       permissionMode: 'auto'
     })
+  })
+  it('turns the host\'s times into ours, leaving "never" alone', () => {
+    const [gone, live] = onLocalClock(frameToAgents('cluster1', parseFrame(lines, 1700000101)), 100)
+    expect(live).toMatchObject({ attnTs: 1699999950, createdAt: 1699999900 })
+    expect(gone.attnTs).toBe(0)
   })
 })
 

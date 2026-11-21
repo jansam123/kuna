@@ -4,7 +4,7 @@ import { chmodSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { LOCAL_HOST, type AgentRuntime, type HostId, type HostState, type PlanUsage } from '@shared/types'
-import { frameToAgents, parseFrame, type WatchFrame } from '@shared/watch'
+import { frameToAgents, onLocalClock, parseFrame, type WatchFrame } from '@shared/watch'
 import { looksLikeAuthError, run, shq, type ExecOptions, type ExecResult } from './exec'
 import { KUNA_SCRIPT, KUNA_VERSION } from './script'
 
@@ -298,14 +298,7 @@ export class Host extends EventEmitter {
   }
 
   private records(frame: WatchFrame): AgentRuntime[] {
-    const off = this.clockOffset
-    return frameToAgents(this.id, frame).map((a) => ({
-      ...a,
-      createdAt: a.createdAt - off,
-      attnTs: a.attnTs ? a.attnTs - off : 0,
-      activityTs: a.activityTs - off,
-      lastEventTs: a.lastEventTs ? a.lastEventTs - off : undefined
-    }))
+    return onLocalClock(frameToAgents(this.id, frame), this.clockOffset)
   }
 
   /**

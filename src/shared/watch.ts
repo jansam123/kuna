@@ -448,3 +448,14 @@ export function frameToAgents(host: HostId, frame: WatchFrame): AgentRuntime[] {
   }
   return [...out, ...bgAgents(host, frame)].sort((a, b) => a.createdAt - b.createdAt)
 }
+
+/** Agents with the host's timestamps turned into this machine's: `off` is the host's clock minus ours, in seconds. */
+export function onLocalClock(agents: AgentRuntime[], off: number): AgentRuntime[] {
+  return agents.map((a) => ({
+    ...a,
+    createdAt: a.createdAt - off,
+    attnTs: a.attnTs ? a.attnTs - off : 0,
+    activityTs: a.activityTs - off,
+    lastEventTs: a.lastEventTs ? a.lastEventTs - off : undefined
+  }))
+}

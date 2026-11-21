@@ -48,7 +48,9 @@
     "rebuild": "electron-rebuild -f -w node-pty",
     "postinstall": "electron-rebuild -f -w node-pty && sh scripts/dev-app.sh",
     "icon": "sh scripts/make-icon.sh",
-    "dist": "electron-vite build && electron-builder --mac --dir"
+    "dist": "electron-vite build && electron-builder --mac --dir",
+    "ios:bundle": "node scripts/ios-bundle.mjs",
+    "ios:test": "node scripts/ios-bundle.mjs && cd ios && swift test"
   },
   "dependencies": {
     "@shikijs/monaco": "4.5.0",

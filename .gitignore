@@ -6,3 +6,7 @@ release/
 *.log
 .claude/worktrees/
 *.lock
+ios/.build/
+ios/.swiftpm/
+ios/Sources/KunaCore/Resources/kuna-shared.js
+xcuserdata/
