@@ -2,9 +2,9 @@ import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, extname, join } from 'node:path'
-import { app, shell } from 'electron'
+import { app, shell, type WebContents } from 'electron'
 import { mediaKind, mimeFor, pageFile, resolveAgainst, viewerOrder } from '@shared/media'
-import type { ClaudeFileEntry, HostId, MediaItem, MediaPage } from '@shared/types'
+import { LOCAL_HOST, type ClaudeFileEntry, type HostId, type MediaItem, type MediaPage } from '@shared/types'
 import type { AgentService } from './agents'
 import { b64 } from './hosts/exec'
 
@@ -106,7 +106,7 @@ export class MediaService {
       const res = await host.exec(['stat', b64(paths.join('\n'))], { timeoutMs: 20_000 })
       if (res.code !== 0) continue
       const found = new Map(parseStat(res.stdout.toString('utf8')).map((it) => [it.path, it]))
-      // PDFs first, then images, then Markdown; each newest reply first, in the order the reply names them
+      // PDFs first, then pages, images, Markdown; each newest reply first, in the order the reply names them
       const items = viewerOrder(dedupe(paths.flatMap((p) => found.get(p) ?? [])))
       if (items.length) return { items, next: i < turns.length ? { before: batch[batch.length - 1] } : { scan: true } }
     }
@@ -177,19 +177,43 @@ export class MediaService {
     })
   }
 
+  /** A copy of the file on this Mac, in a folder of its own, for another app to take. */
+  private async localCopy(hostId: HostId, path: string, stamp: string): Promise<string | null> {
+    const res = await this.fetch(hostId, path, stamp)
+    if ('error' in res) return null
+    const file = join(mkdtempSync(join(tmpdir(), 'kuna-media-')), basename(path))
+    writeFileSync(file, res.data, { flag: 'wx' })
+    return file
+  }
+
   /**
    * Copy the file locally and open it in the default macOS app. SVGs and HTML
    * pages are shown in Finder instead: their default app is a browser, which
    * runs their scripts unsandboxed.
    */
   async openExternal(hostId: HostId, path: string, stamp = ''): Promise<void> {
-    const res = await this.fetch(hostId, path, stamp)
-    if ('error' in res) return
-    const file = join(mkdtempSync(join(tmpdir(), 'kuna-media-')), basename(path))
-    writeFileSync(file, res.data, { flag: 'wx' })
+    const file = await this.localCopy(hostId, path, stamp)
+    if (!file) return
     const kind = mediaKind(path)
     if (kind === 'svg' || kind === 'html') shell.showItemInFolder(file)
     else await shell.openPath(file)
+  }
+
+  /**
+   * ⌥-drag out of the viewer, into Finder or another app: a copy, so a drop
+   * in Finder never moves the agent's own file. The system's drag has to start
+   * while the mouse is still down, so a file on another host that is not read
+   * yet is fetched for the next try instead. Returns why not, if not.
+   */
+  async drag(sender: WebContents, hostId: HostId, path: string, stamp = ''): Promise<string | undefined> {
+    if (hostId !== LOCAL_HOST && !this.cache.has(`${hostId}\0${path}\0${stamp}`)) {
+      void this.fetch(hostId, path, stamp)
+      return 'Copying it to this Mac: drag it again in a moment'
+    }
+    const file = await this.localCopy(hostId, path, stamp)
+    if (!file) return 'Could not read the file to drag it'
+    sender.startDrag({ file, icon: await app.getFileIcon(file) })
+    return undefined
   }
 
   /** Save a copy in ~/Downloads (the viewer's cached bytes, so no second read on the host). */

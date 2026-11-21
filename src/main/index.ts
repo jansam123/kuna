@@ -128,6 +128,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.mediaFetch, (_e, host: string, path: string, stamp?: string) => media.fetch(host, path, stamp))
   ipcMain.handle(IPC.mediaOpen, (_e, host: string, path: string, stamp?: string) => media.openExternal(host, path, stamp))
   ipcMain.handle(IPC.mediaSave, (_e, host: string, path: string, stamp?: string) => media.save(host, path, stamp))
+  ipcMain.handle(IPC.mediaDrag, (e, host: string, path: string, stamp?: string) => media.drag(e.sender, host, path, stamp))
   ipcMain.handle(IPC.mediaPage, (_e, host: string, path: string) => media.page(host, path))
 
   ipcMain.handle(IPC.claudeList, (_e, host: string, cwds: string[]) => claudeFiles.list(host, cwds))

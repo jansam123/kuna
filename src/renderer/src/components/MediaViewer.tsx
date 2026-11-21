@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import { viewerOrder } from '@shared/media'
+import { gridRows, neighbor, type Direction } from '@shared/layout'
+import { MEDIA_GROUPS, mediaGroup, mediaPlace, viewerOrder, type MediaPlace } from '@shared/media'
 import type { MediaItem, MediaPage } from '@shared/types'
 import { discardTyped, leaveScroll, sendEsc } from '../actions'
 import { agentTitle, ago, bytes, doingText } from '../format'
-import { isPrintable, panelOnScreen, typeToAgent } from '../keys'
+import { escPressed, escToAgent, panelOnScreen, typeToAgent } from '../keys'
 import { loadMarkdownImages, renderDiagrams, renderMarkdown } from '../markdown'
 import { get, updateSettings, useKuna } from '../store'
 import { copyTerminalSelection, disposeTerminal, fitTerminal, getTerminal, redrawAfterMove, terminalEntry, writeToAgent } from '../terminals'
@@ -36,17 +37,31 @@ const MIN_SIDE = 320
 const MAX_SIDE_SHARE = 0.7
 /** its width until its edge is dragged: room for Claude Code's screen */
 const sideWidth = (): number => Math.round(Math.min(640, Math.max(420, window.innerWidth * 0.36)))
-const CURSOR_KEY: Record<string, string> = { ArrowUp: 'A', ArrowDown: 'B', ArrowRight: 'C', ArrowLeft: 'D' }
-
-/** What a key sends to the agent's terminal, for the keys the viewer types there itself. */
-function keyBytes(ev: KeyboardEvent, appCursor: boolean): string | undefined {
-  if (ev.metaKey || ev.ctrlKey || ev.altKey) return undefined
-  if (CURSOR_KEY[ev.key]) return (appCursor ? '\x1bO' : '\x1b[') + CURSOR_KEY[ev.key]
-  if (ev.key === 'Enter') return '\r'
-  if (ev.key === 'Tab') return ev.shiftKey ? '\x1b[Z' : '\t'
-  if (ev.key === 'Backspace') return '\x7f'
-  return ev.key.length === 1 ? ev.key : undefined
+/** files side by side, at most (each holds its pixels) */
+const MAX_TILES = 6
+/** narrowest and lowest a file is dragged to */
+const MIN_TILE = 160
+/** drag-and-drop type for a file of the viewer (`Dragged`) */
+const MEDIA_DRAG = 'application/x-kuna-media'
+/** where a file lives, in a word, and in a sentence */
+const PLACE: Record<MediaPlace, [string, string]> = {
+  folder: ['folder', "Among the files of the agent's folder"],
+  claude: ['.claude', 'In a .claude folder (plans, memory, skills), not among the files of the project'],
+  tmp: ['tmp', 'In a temporary folder: gone after a restart or a cleanup'],
+  outside: ['outside', "Outside the agent's folder"]
 }
+
+/** One file shown: tiles sit in the rows of `gridRows`, as the agents' panes do. */
+interface Tile {
+  id: number
+  item: MediaItem
+  /** its share of its row's width (1 unless dragged) */
+  w: number
+}
+let tileIds = 0
+const newTile = (item: MediaItem): Tile => ({ id: ++tileIds, item, w: 1 })
+/** each agent's files side by side and rolled-in groups, until Kuna quits: Space brings them back */
+const kept = new Map<string, { tiles: Tile[]; heights: number[]; focus: number; collapsed: string[] }>()
 
 interface Loaded {
   path: string
@@ -190,7 +205,7 @@ function PdfPages({ pdf, scale, root }: { pdf: PdfDoc; scale: number; root: HTML
  * The agent beside its files: its own terminal, moved here from its pane
  * while the viewer is open (the pane takes it back after), or one attached
  * for the viewer and closed with it when the agent has no tab. What is typed
- * goes straight to the agent. A stopped background session only comes back
+ * while it has the keyboard goes straight to the agent. A stopped background session only comes back
  * on Enter (`live`), since attaching starts it again.
  */
 export function AgentChat({
@@ -234,6 +249,7 @@ export function AgentChat({
     // narrower than its pane: Claude Code redraws itself at this column's width
     redrawAfterMove(agentKey, cols)
     if (autoFocus) e.term.focus()
+    else e.term.blur()
     // focus events wait while the window is in the background
     setFocused(e.el.contains(document.activeElement))
     const typing = e.term.onData(() => onTyped(e.typed))
@@ -293,127 +309,150 @@ export function AgentChat({
   )
 }
 
-export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Element {
-  const agent = useKuna((s) => s.agents[agentKey])
-  const host = agent?.host
-  const [items, setItems] = useState<MediaItem[] | null>(null)
-  const [next, setNext] = useState<MediaPage['next']>(null)
-  const [busy, setBusy] = useState<string | null>('Looking at the latest reply…')
-  const [index, setIndex] = useState(0)
+/** Follow the pointer from a press on a resize edge until it is let go. */
+function followPointer(e: React.PointerEvent<HTMLElement>, move: (ev: PointerEvent) => void): void {
+  if (e.button !== 0) return
+  e.preventDefault()
+  const el = e.currentTarget
+  try {
+    el.setPointerCapture(e.pointerId)
+  } catch {
+    /* synthetic events have no pointer to capture */
+  }
+  document.body.classList.add('resizing')
+  let frame = 0
+  const onMove = (ev: PointerEvent): void => {
+    cancelAnimationFrame(frame)
+    frame = requestAnimationFrame(() => move(ev))
+  }
+  const up = (): void => {
+    el.removeEventListener('pointermove', onMove)
+    el.removeEventListener('pointerup', up)
+    el.removeEventListener('pointercancel', up)
+    document.body.classList.remove('resizing')
+  }
+  el.addEventListener('pointermove', onMove)
+  el.addEventListener('pointerup', up)
+  el.addEventListener('pointercancel', up)
+}
+
+/**
+ * The edge between two files side by side (`across`) or two rows of them:
+ * drag it and they share their room anew, double-click and they share it
+ * evenly. `total` is their two shares together; `onShare` gets the first's.
+ */
+function TileSplit({ across, total, onShare }: { across: boolean; total: number; onShare: (first: number) => void }): React.JSX.Element {
+  return (
+    <div
+      className={`tile-split ${across ? '' : 'rows'}`}
+      title="Drag to resize · double-click to even out"
+      onDoubleClick={() => onShare(total / 2)}
+      onPointerDown={(e) => {
+        const a = e.currentTarget.previousElementSibling?.getBoundingClientRect()
+        const b = e.currentTarget.nextElementSibling?.getBoundingClientRect()
+        if (!a || !b) return
+        const from = across ? a.left : a.top
+        const room = across ? b.right - a.left : b.bottom - a.top
+        const least = Math.min(0.5, MIN_TILE / room)
+        followPointer(e, (ev) => onShare(total * Math.min(1 - least, Math.max(least, ((across ? ev.clientX : ev.clientY) - from) / room))))
+      }}
+    />
+  )
+}
+
+/** What the viewer's keys do to the file that has them. */
+interface TileApi {
+  zoomBy(factor: number): void
+  fit(): void
+  /** actual pixels of an image; 100% (96 dpi) for a PDF */
+  actual(): void
+  toggleSource(): void
+  stage(): HTMLElement | null
+  mdRoot(): HTMLElement | null
+}
+
+/** What a file dragged inside the viewer carries: its path, and the tile it was shown in. */
+interface Dragged {
+  path: string
+  tile?: number
+}
+
+/** What a tile asks of the viewer around it. */
+interface TileHost {
+  host: string | undefined
+  rel(path: string): string
+  place(path: string): MediaPlace
+  note(text: string): void
+  save(it: MediaItem): void
+  copyPath(it: MediaItem): void
+  drag(e: React.DragEvent, it: MediaItem, tile?: number): void
+  dragEnd(): void
+  /** an HTML page may have taken the keyboard */
+  pageFocus(): void
+}
+
+/**
+ * One file in the viewer, fitted to its tile: an image or a PDF to zoom and
+ * pan, a Markdown file to read, an HTML page running live. The tile's header
+ * names it and says where it lives; a click on the path copies it.
+ */
+function MediaTile({
+  tile,
+  v,
+  focused,
+  solo,
+  ahead,
+  api,
+  onFocus,
+  onClose,
+  onDropped
+}: {
+  tile: Tile
+  v: TileHost
+  focused: boolean
+  /** the only file shown: nothing to close it for */
+  solo: boolean
+  /** the file → would show next: fetched ahead */
+  ahead: MediaItem | undefined
+  api: React.MutableRefObject<TileApi | null>
+  onFocus: () => void
+  onClose: () => void
+  onDropped: (d: Dragged) => void
+}): React.JSX.Element {
+  const current = tile.item
+  const { host } = v
   const [file, setFile] = useState<Loaded | null>(null)
   const [pdf, setPdf] = useState<PdfDoc | null>(null)
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
-  const [stageSize, setStageSize] = useState({ w: 1200, h: 800 })
+  const [stageSize, setStageSize] = useState({ w: 800, h: 600 })
   const [zoom, setZoom] = useState(1)
-  const rel = (p: string): string => (agent && p.startsWith(agent.cwd + '/') ? p.slice(agent.cwd.length + 1) : p)
+  // Markdown as its source text instead of rendered (⌘U)
+  const [mdSource, setMdSource] = useState(false)
+  const [over, setOver] = useState(false)
   const stage = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
   const mdRoot = useRef<HTMLElement>(null)
   const anchor = useRef<{ fx: number; fy: number; x: number; y: number } | null>(null)
-  const list = useRef<HTMLElement>(null)
-  // the agent's terminal beside the file: on now unless it is a stopped background session
-  const [live, setLive] = useState(() => {
-    const a = get().agents[agentKey]
-    return !!terminalEntry(agentKey) || (!!a && (a.alive || a.kind === 'tmux'))
-  })
-  // characters typed to the agent since the viewer opened or last sent: the keys are its then
-  const [typed, setTyped] = useState(0)
-  const [note, setNote] = useState<string | null>(null)
-  const savedSide = useKuna((s) => s.settings.viewerChatWidth)
-  // Markdown as its source text instead of rendered (⌘U), kept while the viewer is open
-  const [mdSource, setMdSource] = useState(false)
-  // an HTML page has the keyboard (after a click in it): its keys are its own, until Esc
-  const [inPage, setInPage] = useState(false)
-  const pageFrame = useRef<HTMLIFrameElement>(null)
-  // a page that grabs the keyboard as it loads doesn't keep it: until a second after its load event, it goes back to the agent
-  const loadingUntil = useRef(0)
-  const checkFocus = useRef(() => {})
-  checkFocus.current = () => {
-    const frame = pageFrame.current
-    if (frame && document.activeElement === frame && Date.now() < loadingUntil.current) {
-      frame.blur()
-      terminalEntry(agentKey)?.term.focus()
-    }
-    setInPage(!!frame && document.activeElement === frame)
-  }
 
-  // a frame's keys never reach the window: notice the page taking the keyboard, and its Esc giving it back
-  useEffect(() => {
-    const check = (): void => checkFocus.current()
-    const blur = (): void => void setTimeout(check)
-    const back = window.kuna.media.onPageEscape(() => {
-      pageFrame.current?.blur()
-      terminalEntry(agentKey)?.term.focus()
-      check()
-    })
-    window.addEventListener('blur', blur)
-    window.addEventListener('focus', check)
-    return () => {
-      back()
-      window.removeEventListener('blur', blur)
-      window.removeEventListener('focus', check)
-    }
-  }, [agentKey])
-
-  /** Load pages until something new turns up (or nothing is left), and append it. */
-  const loadMore = useCallback(
-    /** returns where the first new file landed (-1: none) */
-    async (page: NonNullable<MediaPage['next']> | Record<string, never>, have: MediaItem[], stay?: string): Promise<number> => {
-      let p: MediaPage['next'] | Record<string, never> = page
-      let fresh: MediaItem[] = []
-      while (p && !fresh.length) {
-        setBusy('scan' in p ? 'Scanning the folder for plots…' : 'before' in p ? 'Looking at earlier replies…' : 'Looking at the latest reply…')
-        const res = await window.kuna.media.list(agentKey, p)
-        const seen = new Set(have.map((it) => it.path))
-        fresh = res.items.filter((it) => !seen.has(it.path))
-        p = res.next
-        // nothing in the conversation at all: go straight to the folder scan
-        if (!fresh.length && !p) break
-      }
-      setNext((p as MediaPage['next']) ?? null)
-      setBusy(null)
-      // PDFs stay ahead of all images, also as more turn up
-      const all = viewerOrder([...have, ...fresh])
-      setItems(all)
-      // the file in view stays the one shown, though new PDFs sort in ahead of it
-      if (stay) setIndex(Math.max(0, all.findIndex((it) => it.path === stay)))
-      return all.indexOf(fresh[0])
-    },
-    [agentKey]
-  )
-
-  const refresh = useCallback(async () => {
-    setItems(null)
-    setIndex(0)
-    await loadMore({}, [])
-  }, [loadMore])
-
-  useEffect(() => {
-    void refresh()
-  }, [refresh])
-
-  const current = items?.[index]
-  const prefetch = (it: MediaItem | undefined): void => {
+  const prefetch = (): void => {
     // a page loads itself, from the host, when it is shown
-    if (it && host && it.kind !== 'html' && it.size <= PREFETCH_MAX) void window.kuna.media.fetch(host, it.path, stampOf(it))
+    if (ahead && host && ahead.kind !== 'html' && ahead.size <= PREFETCH_MAX) void window.kuna.media.fetch(host, ahead.path, stampOf(ahead))
   }
 
   // the file itself, and the next one in the background
   useEffect(() => {
-    if (!current || !host) return
+    if (!host) return
     let url: string | undefined
     let cancelled = false
     setFile({ path: current.path })
-    setInPage(false)
     setPdf(null)
     setNatural(null)
     setZoom(1)
     if (current.kind === 'html') {
-      loadingUntil.current = Date.now() + 10_000 // until it says it has loaded
       void window.kuna.media.page(host, current.path).then((res) => {
         if (cancelled) return
         setFile('error' in res ? { path: current.path, error: res.error } : { path: current.path, page: res.url })
-        prefetch(items?.[index + 1])
+        prefetch()
       })
       return () => {
         cancelled = true
@@ -426,12 +465,12 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
       if (current.kind === 'md') {
         const text = new TextDecoder().decode(res.data)
         setFile({ path: current.path, html: renderMarkdown(text), text })
-        prefetch(items?.[index + 1])
+        prefetch()
         return
       }
       url = URL.createObjectURL(new Blob([res.data as BlobPart], { type: res.mime }))
       setFile({ path: current.path, url })
-      prefetch(items?.[index + 1])
+      prefetch()
     })
     stage.current?.scrollTo(0, 0)
     return () => {
@@ -451,13 +490,13 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
         const sizes = await Promise.all(
           Array.from({ length: doc.numPages }, (_, i) =>
             doc.getPage(i + 1).then((page) => {
-              const v = page.getViewport({ scale: 1 })
-              return { w: v.width, h: v.height }
+              const vp = page.getViewport({ scale: 1 })
+              return { w: vp.width, h: vp.height }
             })
           )
         )
         if (!cancelled) setPdf({ doc, sizes })
-        prefetch(items?.[index + 1])
+        prefetch()
       })
       .catch((e: unknown) => !cancelled && setFile((f) => (f ? { ...f, error: `Could not render this PDF: ${String(e)}` } : f)))
     return () => {
@@ -493,10 +532,12 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
     return () => ro.disconnect()
   }, [])
 
-  // size at zoom 1: the whole plot (first page of a PDF) fits the window
+  // size at zoom 1: the whole plot (first page of a PDF) fits the tile
   const base = pdf ? pdf.sizes[0] : natural
   const fit = base ? Math.min((stageSize.w - 2 * PAD) / base.w, (stageSize.h - 2 * PAD) / base.h, pdf ? Infinity : MAX_FIT_UPSCALE) : 1
   const scale = fit * zoom
+  const md = current.kind === 'md'
+  const page = current.kind === 'html'
 
   /** Zoom by `factor`, keeping the point under (x, y) (default: the middle) where it is. */
   const zoomAt = useCallback((factor: number, x?: number, y?: number) => {
@@ -523,24 +564,39 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
   }, [zoom])
 
   // pinch on the trackpad (and ⌘/Ctrl + wheel) zooms; plain scrolling pans
-  const zoomRef = useRef(zoomAt)
-  zoomRef.current = zoomAt
   useEffect(() => {
     const el = stage.current
     if (!el) return
     const onWheel = (e: WheelEvent): void => {
       if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
-      zoomRef.current(Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY)
+      zoomAt(Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY)
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [])
+  }, [zoomAt])
+
+  // the viewer's keys act on the file that has them
+  useEffect(() => {
+    if (!focused) return
+    const mine: TileApi = {
+      zoomBy: zoomAt,
+      fit: () => setZoom(1),
+      actual: () => (md ? setZoom(1) : fit && zoomAt((pdf ? 96 / 72 : 1) / fit / zoom)),
+      toggleSource: () => md && setMdSource((s) => !s),
+      stage: () => stage.current,
+      mdRoot: () => mdRoot.current
+    }
+    api.current = mine
+    return () => {
+      if (api.current === mine) api.current = null
+    }
+  })
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
     const st = stage.current
     // Markdown is text to select, not a picture to pan
-    if (e.button !== 0 || !st || current?.kind === 'md') return
+    if (e.button !== 0 || !st || md) return
     const start = { x: e.clientX, y: e.clientY, left: st.scrollLeft, top: st.scrollTop }
     try {
       st.setPointerCapture(e.pointerId)
@@ -561,27 +617,339 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
     st.addEventListener('pointerup', up)
   }
 
-  const older = async (): Promise<void> => {
-    if (!items) return
-    if (index < items.length - 1) return setIndex(index + 1)
-    if (!next || busy) return
-    // new files show next, even a PDF that sorts in ahead of the images
-    const at = await loadMore(next, items)
-    if (at >= 0) setIndex(at)
+  const ready = file?.path === current.path
+  const path = v.rel(current.path)
+  const name = path.split('/').pop()
+  const place = v.place(current.path)
+  // buttons leave the keyboard where it is
+  const still = (e: React.MouseEvent): void => e.preventDefault()
+
+  return (
+    <section
+      className={`media-tile ${focused ? 'focused' : ''} ${over ? 'drop-target' : ''}`}
+      data-tile={tile.id}
+      style={{ flex: `${tile.w} 1 0` }}
+      onMouseDownCapture={onFocus}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes(MEDIA_DRAG)) return
+        e.preventDefault()
+        setOver(true)
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false)
+      }}
+      onDrop={(e) => {
+        setOver(false)
+        const d = e.dataTransfer.getData(MEDIA_DRAG)
+        if (!d) return
+        e.preventDefault()
+        onDropped(JSON.parse(d) as Dragged)
+      }}
+    >
+      <div
+        className="tile-head"
+        draggable
+        title="Drag onto another file to swap them, or onto the agent for its path · ⌥-drag takes a copy out of Kuna"
+        onDragStart={(e) => v.drag(e, current, tile.id)}
+        onDragEnd={v.dragEnd}
+      >
+        <span className={`place place-${place}`} title={PLACE[place][1]}>
+          {PLACE[place][0]}
+        </span>
+        <span className="tile-name">{name}</span>
+        <button className="tile-path" title={`${current.path}\nClick to copy the path (⇧⌘C)`} onMouseDown={still} onClick={() => v.copyPath(current)}>
+          {path}
+        </button>
+        <span className="ph-spacer" />
+        <span className="media-meta">
+          {ago(current.mtime)} ago · {bytes(current.size)}
+          {page ? '' : ` · ${pdf && pdf.sizes.length > 1 ? `${pdf.sizes.length} pages · ` : ''}`}
+          {page ? '' : md ? `${Math.round(zoom * 100)}%` : zoom === 1 ? 'fit' : `${zoom < 1 ? zoom.toFixed(2) : zoom.toFixed(1)}×`}
+        </span>
+        {md && (
+          <>
+            <button className="media-save" title="Switch between the rendered page and the Markdown source (⌘U)" onMouseDown={still} onClick={() => setMdSource((s) => !s)}>
+              {mdSource ? 'Rendered' : 'Source'}
+            </button>
+            <button
+              className="media-save"
+              title="Copy the whole file as Markdown (⌘A then ⌘C copies what you see)"
+              onMouseDown={still}
+              onClick={() => {
+                if (file?.text == null) return
+                window.kuna.copyText(file.text)
+                v.note(`Copied ${name} as Markdown`)
+              }}
+            >
+              Copy
+            </button>
+          </>
+        )}
+        <button className="media-save" title="Save a copy in your Downloads folder (⌘S)" onMouseDown={still} onClick={() => v.save(current)}>
+          Save
+        </button>
+        {!solo && (
+          <button className="media-save tile-close" title="Close this file (⌘W)" onMouseDown={still} onClick={onClose}>
+            ×
+          </button>
+        )}
+      </div>
+      <div
+        className={`media-stage ${base && (base.w * scale > stageSize.w || base.h * scale > stageSize.h) ? 'can-pan' : ''}`}
+        ref={stage}
+        onPointerDown={onPointerDown}
+        // a plot is panned, not selected (Markdown is text to select)
+        onMouseDown={(e) => !md && e.preventDefault()}
+        onDoubleClick={(e) => !md && (zoom === 1 ? zoomAt(2.5, e.clientX, e.clientY) : setZoom(1))}
+      >
+        {ready && file?.error && <div className="media-msg">{file.error}</div>}
+        {ready && file?.page && (
+          <iframe
+            key={`${current.path}:${stampOf(current)}`}
+            // a page that grabs the keyboard as it loads doesn't keep it: until a second after its load event
+            ref={(el) => {
+              if (el && !el.dataset.until) el.dataset.until = String(Date.now() + 10_000)
+            }}
+            className="media-page"
+            src={file.page}
+            title={path}
+            // scripts run, on the folder's own origin; no leaving the frame (top navigation, popups, downloads), no alert() boxes passing for Kuna's
+            sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock"
+            onFocus={v.pageFocus}
+            onLoad={(e) => {
+              e.currentTarget.dataset.until = String(Date.now() + 1000)
+              v.pageFocus()
+            }}
+          />
+        )}
+        {ready && current.size > SLOW_FILE && !file?.error && !file?.url && !file?.page && !pdf && file?.html == null && (
+          <div className="media-msg">
+            Loading {name}, {bytes(current.size)}
+            {host && host !== 'local' ? `, from ${host}` : ''}…
+          </div>
+        )}
+        {ready && (file?.url || pdf || file?.html != null) && (
+          <div className="zoom-area" style={{ padding: PAD }}>
+            <div className="zoom-content" ref={content}>
+              {file?.url && (
+                <img
+                  className="media-img"
+                  src={file.url}
+                  alt={current.path}
+                  draggable={false}
+                  onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth || 800, h: e.currentTarget.naturalHeight || 600 })}
+                  style={
+                    natural
+                      ? { width: natural.w * scale, height: natural.h * scale, imageRendering: scale >= 4 ? 'pixelated' : 'auto' }
+                      : { visibility: 'hidden' }
+                  }
+                />
+              )}
+              {pdf && <PdfPages pdf={pdf} scale={scale} root={stage.current} />}
+              {file?.html != null &&
+                (mdSource ? (
+                  <article className="md media-md md-source" ref={mdRoot} style={{ zoom, maxWidth: stageSize.w - 2 * PAD }}>
+                    <pre>{file.text}</pre>
+                  </article>
+                ) : (
+                  <article className="md media-md" ref={mdRoot} style={{ zoom, maxWidth: stageSize.w - 2 * PAD }} dangerouslySetInnerHTML={{ __html: file.html }} />
+                ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+const FILE_KEYS = '← → files · Enter to the agent · ⌘Enter another beside · Space close'
+/** every key, on hover over the short line */
+const ALL_KEYS = [
+  '← →  the file before, after (→ past the last loads more)',
+  '↑ ↓, PgUp PgDn  scroll the file',
+  'Enter  write to the agent · Esc Esc back to the files',
+  '⌘Enter  another file beside this one · ⌘click in the list too',
+  '⌥ arrows  the file beside, above, below · ⌘W closes it',
+  '⌘+ ⌘− ⌘0 ⌘1  zoom in, out, fit, actual size',
+  "⇧⌘C  copy the file's path · ⌘P  its path into your message",
+  '⌘U  Markdown source · ⌘A ⌘C  select all, copy',
+  '⌘O open · ⌘S save to Downloads · ⌘R reload · ⌘. interrupt the agent',
+  'Space or Esc  close'
+].join('\n')
+const noTyped = (): void => {}
+
+/**
+ * The files an agent made or named: plots, PDFs, HTML pages and Markdown, up
+ * to six side by side, with the list of them (by kind) and the agent itself
+ * on the right. The keyboard is the files' until Enter or a click on the
+ * agent gives it to the agent; Esc Esc (or sending) gives it back.
+ */
+export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Element {
+  const agent = useKuna((s) => s.agents[agentKey])
+  const host = agent?.host
+  const [items, setItems] = useState<MediaItem[] | null>(null)
+  const [next, setNext] = useState<MediaPage['next']>(null)
+  const [busy, setBusy] = useState<string | null>('Looking at the latest reply…')
+  // an arrangement of several files comes back; a single file gives way to the latest reply's first
+  const layout = useRef(kept.get(agentKey)).current
+  const arranged = layout && layout.tiles.length > 1 ? layout : undefined
+  const [tiles, setTiles] = useState<Tile[]>(arranged?.tiles ?? [])
+  /** each row's share of the height (1 unless dragged) */
+  const [heights, setHeights] = useState<number[]>(arranged?.heights ?? [])
+  const [focusAt, setFocus] = useState(arranged?.focus ?? 0)
+  /** the groups of the list that are rolled in */
+  const [collapsed, setCollapsed] = useState<string[]>(layout?.collapsed ?? [])
+  const focus = Math.max(0, Math.min(focusAt, tiles.length - 1))
+  const current = tiles[focus]?.item
+  const rows = gridRows(tiles.length)
+  const rel = (p: string): string => (agent && p.startsWith(agent.cwd + '/') ? p.slice(agent.cwd.length + 1) : p)
+  const list = useRef<HTMLElement>(null)
+  const active = useRef<TileApi | null>(null)
+  // the agent's terminal beside the files: on now unless it is a stopped background session
+  const [live, setLive] = useState(() => {
+    const a = get().agents[agentKey]
+    return !!terminalEntry(agentKey) || (!!a && (a.alive || a.kind === 'tmux'))
+  })
+  // a stopped session is brought back by Enter, which is also what gives it the keyboard
+  const startedLive = useRef(live).current
+  const [note, setNote] = useState<string | null>(null)
+  const savedSide = useKuna((s) => s.settings.viewerChatWidth)
+  const escHint = useKuna((s) => s.escHint)
+  // the agent has the keyboard (Enter, or a click on it)
+  const [inChat, setInChat] = useState(false)
+  const wasTyping = useRef(false)
+  // an HTML page has the keyboard (after a click in it): its keys are its own, until Esc
+  const [inPage, setInPage] = useState(false)
+  // a file is being dragged: pages let the drop through to their tile
+  const [dragging, setDragging] = useState(false)
+
+  useEffect(() => {
+    kept.set(agentKey, { tiles, heights, focus, collapsed })
+  }, [agentKey, tiles, heights, focus, collapsed])
+
+  const checkFocus = useRef(() => {})
+  checkFocus.current = () => {
+    const el = document.activeElement
+    const frame = el instanceof HTMLIFrameElement && el.classList.contains('media-page') ? el : null
+    if (frame && Date.now() < Number(frame.dataset.until)) {
+      // grabbed as the page loaded: back to whoever had it
+      frame.blur()
+      if (wasTyping.current) terminalEntry(agentKey)?.term.focus()
+      return setInPage(false)
+    }
+    if (frame) {
+      const at = tiles.findIndex((t) => String(t.id) === frame.closest<HTMLElement>('[data-tile]')?.dataset.tile)
+      if (at >= 0) setFocus(at)
+    }
+    setInPage(!!frame)
   }
 
-  /** The list's button: more files now, wherever you are in the list; the file in view stays. */
+  // a frame's keys never reach the window: notice the page taking the keyboard, and its Esc giving it back
+  useEffect(() => {
+    const check = (): void => checkFocus.current()
+    const blur = (): void => void setTimeout(check)
+    const back = window.kuna.media.onPageEscape(() => {
+      ;(document.activeElement as HTMLElement | null)?.blur()
+      check()
+    })
+    window.addEventListener('blur', blur)
+    window.addEventListener('focus', check)
+    return () => {
+      back()
+      window.removeEventListener('blur', blur)
+      window.removeEventListener('focus', check)
+    }
+  }, [])
+
+  /** Load pages until something new turns up (or nothing is left), and append it. */
+  const loadMore = useCallback(
+    /** returns the first new file, if any */
+    async (page: NonNullable<MediaPage['next']> | Record<string, never>, have: MediaItem[]): Promise<MediaItem | undefined> => {
+      let p: MediaPage['next'] | Record<string, never> = page
+      let fresh: MediaItem[] = []
+      while (p && !fresh.length) {
+        setBusy('scan' in p ? 'Scanning the folder for plots…' : 'before' in p ? 'Looking at earlier replies…' : 'Looking at the latest reply…')
+        const res = await window.kuna.media.list(agentKey, p)
+        const seen = new Set(have.map((it) => it.path))
+        fresh = res.items.filter((it) => !seen.has(it.path))
+        p = res.next
+        // nothing in the conversation at all: go straight to the folder scan
+        if (!fresh.length && !p) break
+      }
+      setNext((p as MediaPage['next']) ?? null)
+      setBusy(null)
+      const all = viewerOrder([...have, ...fresh])
+      setItems(all)
+      // the files shown stay, as the list now has them (a re-made plot is read again); with none shown, the first is
+      setTiles((ts) => (ts.length ? ts.map((t) => ({ ...t, item: all.find((it) => it.path === t.item.path) ?? t.item })) : all[0] ? [newTile(all[0])] : ts))
+      return fresh[0]
+    },
+    [agentKey]
+  )
+
+  const refresh = useCallback(async () => {
+    setItems(null)
+    await loadMore({}, [])
+  }, [loadMore])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  /** Show a file where the keyboard is (or in tile `at`); `beside`: in a tile of its own, next to it. */
+  const show = (it: MediaItem, beside = false, at = focus): void => {
+    if (beside && tiles.length >= MAX_TILES) setNote(`At most ${MAX_TILES} files side by side: it took this one's place`)
+    if (beside && tiles.length && tiles.length < MAX_TILES) {
+      setTiles((ts) => [...ts.slice(0, at + 1), newTile(it), ...ts.slice(at + 1)])
+      setFocus(at + 1)
+    } else {
+      setTiles((ts) => (ts.length ? ts.map((t, i) => (i === at ? { ...t, item: it } : t)) : [newTile(it)]))
+      setFocus(at)
+    }
+  }
+
+  const closeTile = (at: number): void => {
+    if (tiles.length <= 1) return closeOverlay()
+    setTiles((ts) => ts.filter((_, i) => i !== at))
+    if (at < focus) setFocus(focus - 1)
+  }
+
+  /** A file dropped on tile `at`: one from the list opens beside it, another tile changes places with it. */
+  const dropped = (d: Dragged, at: number): void => {
+    const from = tiles.findIndex((t) => t.id === d.tile)
+    if (from >= 0) {
+      // the files change places; each place keeps its width
+      if (from !== at) setTiles((ts) => ts.map((t, i) => (i === at ? { ...ts[from], w: t.w } : i === from ? { ...ts[at], w: t.w } : t)))
+      return setFocus(at)
+    }
+    const it = items?.find((x) => x.path === d.path)
+    if (it) show(it, true, at)
+  }
+
+  // what ← → walk through: the list as it shows, rolled-in groups left out
+  const shown = (items ?? []).filter((it) => !collapsed.includes(mediaGroup(it.kind)))
+  const at = shown.findIndex((it) => it.path === current?.path)
+
+  const step = async (d: 1 | -1): Promise<void> => {
+    const to = shown[at + d]
+    if (to) return show(to)
+    if (d < 0 || !items || !next || busy) return
+    const fresh = await loadMore(next, items)
+    if (fresh) show(fresh)
+  }
+
+  /** The list's button: more files now, wherever you are in the list; the files in view stay. */
   const more = async (): Promise<void> => {
     if (!items || !next || busy) return
-    const at = await loadMore(next, items, current?.path)
+    const fresh = await loadMore(next, items)
     // once they are in the list, the first new one is in sight
-    setTimeout(() => list.current?.children[at]?.scrollIntoView({ block: 'nearest' }))
+    setTimeout(() => [...(list.current?.querySelectorAll<HTMLElement>('[data-path]') ?? [])].find((b) => b.dataset.path === fresh?.path)?.scrollIntoView({ block: 'nearest' }))
   }
 
-  // the file in view stays in sight in the list
+  // the file that has the keyboard stays in sight in the list
   useEffect(() => {
     list.current?.querySelector('.on')?.scrollIntoView({ block: 'nearest' })
-  }, [index])
+  }, [current?.path])
 
   useEffect(() => {
     if (!note) return
@@ -595,10 +963,12 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
       writeToAgent(key, '\x1b\r')
       return
     }
+    const answering = panelOnScreen(key)
     writeToAgent(key, '\r')
     const e = terminalEntry(key)
     if (e) e.typed = 0
-    setTyped(0)
+    // sent: the keyboard is the files' again, as a pane leaves typing (an answer to a question stays for the next one)
+    if (!answering) e?.term.blur()
   }
 
   /** Into the agent's input box, out of tmux's scroll mode first. */
@@ -611,89 +981,76 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
     else write()
   }
 
-  /** Drag the edge between the file and the agent; double-click for the default width. */
-  const onSplit = (e: React.PointerEvent<HTMLDivElement>): void => {
-    if (e.button !== 0) return
-    e.preventDefault()
-    const el = e.currentTarget
-    try {
-      el.setPointerCapture(e.pointerId)
-    } catch {
-      /* synthetic events have no pointer to capture */
-    }
-    document.body.classList.add('resizing')
-    let frame = 0
-    const move = (ev: PointerEvent): void => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => {
-        const w = window.innerWidth - ev.clientX
-        updateSettings({ viewerChatWidth: Math.round(Math.max(MIN_SIDE, Math.min(w, window.innerWidth * MAX_SIDE_SHARE))) })
-      })
-    }
-    const up = (): void => {
-      el.removeEventListener('pointermove', move)
-      el.removeEventListener('pointerup', up)
-      el.removeEventListener('pointercancel', up)
-      document.body.classList.remove('resizing')
-    }
-    el.addEventListener('pointermove', move)
-    el.addEventListener('pointerup', up)
-    el.addEventListener('pointercancel', up)
+  const copyPath = (it: MediaItem): void => {
+    window.kuna.copyText(it.path)
+    setNote(`Copied the path of ${it.path.split('/').pop()}`)
   }
 
-  /** the whole Markdown source on the clipboard */
-  const copySource = (): void => {
-    if (file?.text == null) return
-    window.kuna.copyText(file.text)
-    setNote(`Copied ${rel(file.path).split('/').pop()} as Markdown`)
+  const save = (it: MediaItem): void => {
+    if (!host) return
+    void window.kuna.media.save(host, it.path, stampOf(it)).then((res) => setNote('error' in res ? res.error : `Saved to Downloads as ${res.file.split('/').pop()}`))
   }
 
-  const save = async (): Promise<void> => {
-    if (!current || !host) return
-    const res = await window.kuna.media.save(host, current.path, stampOf(current))
-    setNote('error' in res ? res.error : `Saved to Downloads as ${res.file.split('/').pop()}`)
+  const v: TileHost = {
+    host,
+    rel,
+    place: (p) => mediaPlace(agent?.worktree ?? agent?.cwd ?? '', p),
+    note: setNote,
+    save,
+    copyPath,
+    drag: (e, it, tile) => {
+      if (e.altKey) {
+        // out of Kuna as a file: the system's own drag takes over
+        e.preventDefault()
+        if (host) void window.kuna.media.drag(host, it.path, stampOf(it)).then((why) => why && setNote(why))
+        return
+      }
+      e.dataTransfer.setData(MEDIA_DRAG, JSON.stringify({ path: it.path, tile } satisfies Dragged))
+      e.dataTransfer.effectAllowed = 'copyMove'
+      setDragging(true)
+    },
+    dragEnd: () => setDragging(false),
+    pageFocus: () => checkFocus.current()
   }
-
-  const escAt = useRef(0)
-  const [escHint, setEscHint] = useState(false)
 
   /**
-   * Typing goes straight to the agent, beside the file, and Enter sends it.
-   * While something is typed the arrows move between its letters; with
-   * nothing typed they browse and scroll, and Space and Esc close the viewer.
-   * With something typed Space is a space and Esc Esc takes it back out of
-   * the agent's input box. While the agent shows a question or a panel
-   * (/config, /usage) all keys are its, Esc closes it. Zoom and the rest are
-   * ⌘ keys, as in Preview.
+   * The keys are the files': ← → walk the list in the tile that has the
+   * keyboard, ↑ ↓ scroll it, ⌥ arrows go to the tile beside, Space and Esc
+   * close. Enter (or a click on the agent) gives the keyboard to the agent,
+   * as typing on a pane: Enter sends and gives it back, Esc goes to the agent
+   * and Esc Esc gives it back with what was typed taken out. Zoom and the
+   * rest are ⌘ keys, as in Preview, wherever the keyboard is.
    */
   useOverlayKeys((ev) => {
-    const n = items?.length ?? 0
     const e = terminalEntry(agentKey)
     const term = e?.ptyId ? e : undefined
-    // the agent's terminal has the keyboard (from the start, and after a click on it)
+    // the agent's terminal has the keyboard
     const typing = !!e && e.el.contains(document.activeElement)
-    const writing = (e?.typed ?? 0) > 0
+    wasTyping.current = typing
+    const tile = active.current
     if (ev.metaKey && !ev.ctrlKey) {
-      switch (ev.key) {
+      switch (ev.key.toLowerCase()) {
         case '+':
         case '=':
-          zoomAt(1.25)
+          tile?.zoomBy(1.25)
           return true
         case '-':
-          zoomAt(0.8)
+          tile?.zoomBy(0.8)
           return true
         case '0':
-          setZoom(1)
+          tile?.fit()
           return true
         case '1':
-          // actual pixels of an image; 100% (96 dpi) for a PDF
-          if (current?.kind === 'md') setZoom(1)
-          else if (fit) zoomAt((pdf ? 96 / 72 : 1) / fit / zoom)
+          tile?.actual()
           return true
         case 'c': {
+          if (ev.shiftKey) {
+            if (current) copyPath(current)
+            return true
+          }
           // what is selected in a Markdown file, by Kuna itself (as in the panes)
           const sel = getSelection()
-          if (mdRoot.current && sel && !sel.isCollapsed && mdRoot.current.contains(sel.anchorNode)) {
+          if (sel && !sel.isCollapsed && tile?.mdRoot()?.contains(sel.anchorNode)) {
             window.kuna.copyText(sel.toString())
             return true
           }
@@ -702,7 +1059,7 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
         }
         case 'a': {
           // all of a Markdown file (rendered or source), ready for ⌘C
-          const root = mdRoot.current
+          const root = tile?.mdRoot()
           if (!root) return true
           e?.term.blur()
           getSelection()?.selectAllChildren(root)
@@ -723,278 +1080,266 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
           setNote('Sent Esc to the agent')
           return true
         case 'u':
-          if (current?.kind === 'md') setMdSource((v) => !v)
+          tile?.toggleSource()
           return true
         case 'o':
           if (current && host) void window.kuna.media.openExternal(host, current.path, stampOf(current))
           return true
         case 's':
-          void save()
+          if (current) save(current)
           return true
         case 'r':
           void refresh()
           return true
+        case 'w':
+          closeTile(focus)
+          return true
+        case 'enter': {
+          // another file beside this one: the next in the list that is not shown yet
+          const open = new Set(tiles.map((t) => t.item.path))
+          const it = [...shown.slice(at + 1), ...shown.slice(0, Math.max(0, at))].find((x) => !open.has(x.path))
+          if (it) show(it, true)
+          else setNote('Every file in the list is shown already')
+          return true
+        }
       }
       // ⌘← ⌘→ start and end of the line, as on a pane
-      if (term && typeToAgent(agentKey, ev, enter)) return true
+      if (term && typing && typeToAgent(agentKey, ev, enter)) return true
       return typing ? false : true // ⌘⌫ … go to the terminal
-    }
-    // a question, permission prompt or panel (/config, /usage…) on its screen: the keys are its, Esc closes it
-    if (term && panelOnScreen(agentKey)) {
-      if (ev.key === 'Escape') {
-        sendEsc(agentKey)
-        return true
-      }
-      const bytes = keyBytes(ev, term.term.modes.applicationCursorKeysMode)
-      if (!bytes) return typing ? false : true
-      // typed here, so a choice is not counted as a message to take back
-      writeToAgent(agentKey, bytes)
-      term.term.focus()
-      return true
-    }
-    // writing to the agent: the arrows move between its letters
-    if (!writing) {
-      switch (ev.key) {
-        case 'ArrowRight':
-          void older()
-          return true
-        case 'ArrowLeft':
-          if (n) setIndex((i) => Math.max(0, i - 1))
-          return true
-        case 'ArrowDown':
-          stage.current?.scrollBy({ top: 160 })
-          return true
-        case 'ArrowUp':
-          stage.current?.scrollBy({ top: -160 })
-          return true
-      }
     }
     switch (ev.key) {
       case 'PageDown':
-        stage.current?.scrollBy({ top: (stage.current?.clientHeight ?? 400) * 0.9 })
-        return true
-      case 'PageUp':
-        stage.current?.scrollBy({ top: -(stage.current?.clientHeight ?? 400) * 0.9 })
-        return true
-      case 'Escape': {
-        if (!writing || !e) return false // closes the viewer
-        const now = Date.now()
-        if (now - escAt.current < 500) {
-          discardTyped(e)
-          setTyped(0)
-          setEscHint(false)
-          escAt.current = 0
-        } else {
-          escAt.current = now
-          setEscHint(true)
-          setTimeout(() => setEscHint(false), 520)
-        }
+      case 'PageUp': {
+        const st = tile?.stage()
+        st?.scrollBy({ top: (ev.key === 'PageUp' ? -0.9 : 0.9) * st.clientHeight })
         return true
       }
-      case ' ':
-        if (!writing) {
-          closeOverlay()
-          return true
-        }
-        break
-      case 'Enter':
-        // a stopped background session comes back here
-        if (!live && agent) {
-          setLive(true)
-          return true
-        }
-        break
     }
-    if (!term) return true // nothing to type into yet
-    // Enter, and keys that take tmux out of scroll mode first
-    if (typeToAgent(agentKey, ev, enter)) return true
-    if (typing) return false // the terminal takes it
-    // the terminal lost the keyboard (a click on the file): what is typed goes to it from here
-    const bytes = keyBytes(ev, term.term.modes.applicationCursorKeysMode)
-    if (!bytes) return true
-    writeToAgent(agentKey, bytes)
-    if (ev.key === 'Backspace') term.typed = Math.max(0, term.typed - 1)
-    else if (isPrintable(ev)) term.typed++
-    term.term.focus()
-    setTyped(term.typed)
-    return true
+    if (typing && e) {
+      if (ev.key === 'Escape') {
+        // as on a pane: a panel or question takes every Esc; else the first goes to the agent and a second right after leaves it
+        if (term && panelOnScreen(agentKey)) sendEsc(agentKey)
+        else if (!term || escPressed()) {
+          discardTyped(e)
+          e.term.blur()
+        } else escToAgent(agentKey)
+        return true
+      }
+      // Enter, and keys that take tmux out of scroll mode first; the terminal takes the rest
+      return !!term && typeToAgent(agentKey, ev, enter)
+    }
+    if (ev.altKey && ev.key.startsWith('Arrow')) {
+      const to = neighbor(rows, focus, ev.key.slice(5).toLowerCase() as Direction)
+      if (typeof to === 'number') setFocus(to)
+      return true
+    }
+    switch (ev.key) {
+      case 'ArrowRight':
+        void step(1)
+        return true
+      case 'ArrowLeft':
+        void step(-1)
+        return true
+      case 'ArrowDown':
+        tile?.stage()?.scrollBy({ top: 160 })
+        return true
+      case 'ArrowUp':
+        tile?.stage()?.scrollBy({ top: -160 })
+        return true
+      case 'Enter':
+        // to the agent; a stopped background session comes back here first
+        if (!live && agent) setLive(true)
+        else e?.term.focus()
+        return true
+      case ' ':
+        closeOverlay()
+        return true
+      case 'Escape':
+        return false // closes the viewer
+    }
+    return true // letters are nobody's until Enter gives the agent the keyboard
   })
 
-  const ready = file?.path === current?.path
   const side = Math.round(Math.min(savedSide ?? sideWidth(), window.innerWidth * MAX_SIDE_SHARE))
-  const md = current?.kind === 'md'
-  const page = current?.kind === 'html'
+  const open = new Set(tiles.map((t) => t.item.path))
+  let n = 0
 
   return (
-    <div className="media-overlay" style={{ '--side-w': `${side}px` } as React.CSSProperties}>
+    <div className={`media-overlay ${dragging ? 'dragging' : ''}`} style={{ '--side-w': `${side}px` } as React.CSSProperties}>
       <header className="media-head">
-        <span className="media-count">{items ? (items.length ? `${index + 1} / ${items.length}${next ? '+' : ''}` : '0') : '…'}</span>
-        <span className="media-name">{current ? rel(current.path).split('/').pop() : 'Plots, PDFs, pages & Markdown'}</span>
-        {current && <span className="media-path">{rel(current.path)}</span>}
+        <span className="media-count">{items ? `${items.length}${next ? '+' : ''} file${items.length === 1 ? '' : 's'}` : '…'}</span>
+        <span className="media-name">Plots, PDFs, pages & Markdown</span>
         <span className="ph-spacer" />
         {busy && items && <span className="media-meta">{busy}</span>}
-        {current && (
-          <span className="media-meta">
-            {ago(current.mtime)} ago · {bytes(current.size)}
-            {page ? '' : ` · ${pdf && pdf.sizes.length > 1 ? `${pdf.sizes.length} pages · ` : ''}`}
-            {page ? '' : md ? `${Math.round(zoom * 100)}%` : zoom === 1 ? 'fit' : `${zoom < 1 ? zoom.toFixed(2) : zoom.toFixed(1)}×`}
-          </span>
-        )}
         {note ? (
           <span className="media-note">{note}</span>
         ) : (
-          <span className="media-keys">
+          <span className="media-keys" title={ALL_KEYS}>
             {inPage
               ? 'the page has the keyboard · Esc gives it back'
-              : escHint
-                ? 'Esc again takes what you typed back out'
-                : typed
-                  ? '← → move in your message · Enter sends · ⇧Enter new line · Esc Esc takes it back'
-                  : page
-                    ? "← → files · type to the agent · click the page to use its keys · ⌘P the file's path · ⌘R reload · ⌘O open · ⌘S save · Space close"
-                    : `← → files · type to the agent · ⌘P the file's path · ${md ? '⌘U source · ' : ''}pinch or ⌘+ ⌘− zoom · ⌘0 fit · ⌘O open · ⌘S save · Space close`}
+              : inChat
+                ? escHint
+                  ? 'Esc again: back to the files'
+                  : 'writing to the agent · Enter sends · ⇧Enter new line · Esc Esc back to the files'
+                : FILE_KEYS}
           </span>
-        )}
-        {md && (
-          <>
-            <button
-              className="media-save"
-              title="Switch between the rendered page and the Markdown source (⌘U)"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setMdSource((v) => !v)}
-            >
-              {mdSource ? 'Rendered' : 'Source'}
-            </button>
-            <button
-              className="media-save"
-              title="Copy the whole file as Markdown (⌘A then ⌘C copies what you see)"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={copySource}
-            >
-              Copy
-            </button>
-          </>
-        )}
-        {current && (
-          <button
-            className="media-save"
-            title="Save a copy in your Downloads folder (⌘S)"
-            onMouseDown={(e) => e.preventDefault()} // the agent keeps the keyboard
-            onClick={() => void save()}
-          >
-            Save to Downloads
-          </button>
         )}
       </header>
       <div className="media-body">
-        <div
-          className={`media-stage ${base && (base.w * scale > stageSize.w || base.h * scale > stageSize.h) ? 'can-pan' : ''}`}
-          ref={stage}
-          onPointerDown={onPointerDown}
-          // a plot is panned, not focused: the agent keeps the keyboard (Markdown is text to select)
-          onMouseDown={(e) => !md && e.preventDefault()}
-          onDoubleClick={(e) => !md && (zoom === 1 ? zoomAt(2.5, e.clientX, e.clientY) : setZoom(1))}
-        >
-          {!items && <div className="media-msg">{busy}</div>}
-          {items && !items.length && !busy && (
+        <div className="media-tiles">
+          {!tiles.length && busy && <div className="media-msg">{busy}</div>}
+          {!tiles.length && !busy && (
             <div className="media-msg">
               No plots, PDFs, HTML pages or Markdown files yet. Kuna looks at the paths in the agent's replies and tool calls, newest first, and
               then at plots and notes written in its folder since it started.
             </div>
           )}
-          {ready && file?.error && <div className="media-msg">{file.error}</div>}
-          {current && ready && file?.page && (
-            <iframe
-              key={`${current.path}:${stampOf(current)}`}
-              ref={pageFrame}
-              className="media-page"
-              src={file.page}
-              title={rel(current.path)}
-              // scripts run, on the folder's own origin; no leaving the frame (top navigation, popups, downloads), no alert() boxes passing for Kuna's
-              sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock"
-              onFocus={() => checkFocus.current()}
-              onLoad={() => {
-                loadingUntil.current = Date.now() + 1000
-                checkFocus.current()
-              }}
-            />
-          )}
-          {ready && current && current.size > SLOW_FILE && !file?.error && !file?.url && !file?.page && !pdf && file?.html == null && (
-            <div className="media-msg">
-              Loading {rel(current.path).split('/').pop()}, {bytes(current.size)}
-              {host && host !== 'local' ? `, from ${host}` : ''}…
-            </div>
-          )}
-          {current && ready && (file?.url || pdf || file?.html != null) && (
-            <div className="zoom-area" style={{ padding: PAD }}>
-              <div className="zoom-content" ref={content}>
-                {file?.url && (
-                  <img
-                    className="media-img"
-                    src={file.url}
-                    alt={current.path}
-                    draggable={false}
-                    onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth || 800, h: e.currentTarget.naturalHeight || 600 })}
-                    style={
-                      natural
-                        ? { width: natural.w * scale, height: natural.h * scale, imageRendering: scale >= 4 ? 'pixelated' : 'auto' }
-                        : { visibility: 'hidden' }
-                    }
+          {rows.map((count, r) => {
+            const first = n
+            n += count
+            const sum = (heights[r - 1] ?? 1) + (heights[r] ?? 1)
+            return (
+              <Fragment key={r}>
+                {r > 0 && (
+                  <TileSplit
+                    across={false}
+                    total={sum}
+                    onShare={(h) => setHeights(rows.map((_, i) => (i === r - 1 ? h : i === r ? sum - h : (heights[i] ?? 1))))}
                   />
                 )}
-                {pdf && <PdfPages pdf={pdf} scale={scale} root={stage.current} />}
-                {file?.html != null &&
-                  (mdSource ? (
-                    <article className="md media-md md-source" ref={mdRoot} style={{ zoom, maxWidth: stageSize.w - 2 * PAD }}>
-                      <pre>{file.text}</pre>
-                    </article>
-                  ) : (
-                    <article
-                      className="md media-md"
-                      ref={mdRoot}
-                      style={{ zoom, maxWidth: stageSize.w - 2 * PAD }}
-                      dangerouslySetInnerHTML={{ __html: file.html }}
-                    />
-                  ))}
-              </div>
-            </div>
-          )}
+                <div className="tile-row" style={{ flex: `${heights[r] ?? 1} 1 0` }}>
+                  {tiles.slice(first, first + count).map((t, c) => {
+                    const i = first + c
+                    const both = (tiles[i - 1]?.w ?? 1) + t.w
+                    return (
+                      <Fragment key={t.id}>
+                        {c > 0 && (
+                          <TileSplit
+                            across
+                            total={both}
+                            onShare={(w) => setTiles((ts) => ts.map((x, k) => (k === i - 1 ? { ...x, w } : k === i ? { ...x, w: both - w } : x)))}
+                          />
+                        )}
+                        <MediaTile
+                          tile={t}
+                          v={v}
+                          focused={i === focus}
+                          solo={tiles.length === 1}
+                          ahead={i === focus ? shown[at + 1] : undefined}
+                          api={active}
+                          onFocus={() => {
+                            setFocus(i)
+                            // a click on a file takes the keyboard back from the agent
+                            terminalEntry(agentKey)?.term.blur()
+                          }}
+                          onClose={() => closeTile(i)}
+                          onDropped={(d) => dropped(d, i)}
+                        />
+                      </Fragment>
+                    )
+                  })}
+                </div>
+              </Fragment>
+            )
+          })}
         </div>
-        <div className="media-split" onPointerDown={onSplit} onDoubleClick={() => updateSettings({ viewerChatWidth: undefined })} title="Drag to resize · double-click to reset" />
+        <div
+          className="media-split"
+          onPointerDown={(e) =>
+            followPointer(e, (ev) =>
+              updateSettings({
+                viewerChatWidth: Math.round(Math.max(MIN_SIDE, Math.min(window.innerWidth - ev.clientX, window.innerWidth * MAX_SIDE_SHARE)))
+              })
+            )
+          }
+          onDoubleClick={() => updateSettings({ viewerChatWidth: undefined })}
+          title="Drag to resize · double-click to reset"
+        />
         <aside className="media-side">
           {items && items.length > 0 && (
             <nav className="media-files" ref={list}>
-              {items.map((it, i) => {
-                const path = rel(it.path)
-                const cut = path.lastIndexOf('/')
+              {MEDIA_GROUPS.map(([group, label]) => {
+                const files = items.filter((it) => mediaGroup(it.kind) === group)
+                if (!files.length) return null
+                const shut = collapsed.includes(group)
                 return (
-                  <button
-                    key={it.path}
-                    className={i === index ? 'on' : ''}
-                    title={it.path}
-                    onMouseDown={(e) => e.preventDefault()} // the agent keeps the keyboard
-                    onClick={() => setIndex(i)}
-                  >
-                    <span className={`kind kind-${it.kind}`}>{it.kind === 'image' ? 'img' : it.kind}</span>
-                    <span className="mf-name">{path.slice(cut + 1)}</span>
-                    <span className="mf-dir">{cut > 0 ? path.slice(0, cut) : ''}</span>
-                    <span className="mf-age">{ago(it.mtime)}</span>
-                  </button>
+                  <Fragment key={group}>
+                    <button
+                      className="mf-group"
+                      aria-expanded={!shut}
+                      onClick={(e) => {
+                        e.currentTarget.blur()
+                        setCollapsed(shut ? collapsed.filter((g) => g !== group) : [...collapsed, group])
+                      }}
+                    >
+                      <span className="mf-fold">{shut ? '▸' : '▾'}</span>
+                      {label}
+                      <span className="mf-n">{files.length}</span>
+                    </button>
+                    {!shut &&
+                      files.map((it) => {
+                        const path = rel(it.path)
+                        const cut = path.lastIndexOf('/')
+                        const place = v.place(it.path)
+                        return (
+                          <button
+                            key={it.path}
+                            data-path={it.path}
+                            className={it.path === current?.path ? 'on' : open.has(it.path) ? 'open' : ''}
+                            title={`${it.path}\nClick shows it · ⌘click beside the others · right-click copies its path\nDrag it onto a file to open it beside, onto the agent for its path · ⌥-drag takes a copy out of Kuna`}
+                            draggable
+                            onDragStart={(e) => v.drag(e, it)}
+                            onDragEnd={v.dragEnd}
+                            onClick={(e) => {
+                              // the keyboard is the files' after a click on one
+                              e.currentTarget.blur()
+                              show(it, e.metaKey)
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault()
+                              copyPath(it)
+                            }}
+                          >
+                            <span className={`place place-${place}`} title={PLACE[place][1]}>
+                              {PLACE[place][0]}
+                            </span>
+                            <span className="mf-name">{path.slice(cut + 1)}</span>
+                            <span className="mf-dir">{cut > 0 ? path.slice(0, cut) : ''}</span>
+                            <span className="mf-age">{ago(it.mtime)}</span>
+                          </button>
+                        )
+                      })}
+                  </Fragment>
                 )
               })}
               {next && (
-                <button className="mf-more" onMouseDown={(e) => e.preventDefault()} onClick={() => void more()} disabled={!!busy}>
+                <button className="mf-more" onClick={(e) => (e.currentTarget.blur(), void more())} disabled={!!busy}>
                   {busy ?? ('scan' in next ? 'Scan the folder for more →' : 'Earlier replies →')}
                 </button>
               )}
             </nav>
           )}
-          <AgentChat
-            agentKey={agentKey}
-            live={live}
-            onTyped={setTyped}
-            hint={escHint ? 'Esc again takes it back' : typed ? 'Enter sends · Esc Esc takes it back' : 'typing to the agent · Enter sends'}
-          />
+          <div
+            className={`media-chat-wrap ${dragging ? 'drop-here' : ''}`}
+            onFocus={() => setInChat(true)}
+            onBlur={() => setInChat(false)}
+            onDragOver={(e) => e.dataTransfer.types.includes(MEDIA_DRAG) && e.preventDefault()}
+            onDrop={(e) => {
+              const d = e.dataTransfer.getData(MEDIA_DRAG)
+              if (!d) return
+              e.preventDefault()
+              // its path, into what you are writing to the agent
+              toAgent(() => terminalEntry(agentKey)?.term.paste(rel((JSON.parse(d) as Dragged).path)))
+            }}
+          >
+            <AgentChat
+              agentKey={agentKey}
+              live={live}
+              onTyped={noTyped}
+              autoFocus={!startedLive}
+              hint={escHint ? 'Esc again: back to the files' : 'writing to the agent · Enter sends · Esc Esc back to the files'}
+            />
+          </div>
         </aside>
       </div>
     </div>

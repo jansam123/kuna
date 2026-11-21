@@ -84,14 +84,40 @@ export function resolveAgainst(cwd: string, p: string): string {
   return normalizePosix(`${cwd.replace(/\/+$/, '')}/${p}`)
 }
 
+/** The viewer's groups of files, in the order it lists them, and what each is called. */
+export const MEDIA_GROUPS = [
+  ['pdf', 'PDFs'],
+  ['html', 'Pages'],
+  ['image', 'Images'],
+  ['md', 'Markdown']
+] as const
+
+/** The group a kind of file is listed under (an SVG is an image). */
+export const mediaGroup = (kind: string): string => (kind === 'svg' ? 'image' : kind)
+
 /**
- * The order the viewer shows files in: PDFs and HTML pages first, then
- * images, then Markdown, each in the order given (the order a reply mentions
- * them, left to right; newest first for the folder scan).
+ * The order the viewer shows files in: PDFs first, then HTML pages, images
+ * and Markdown, each in the order given (the order a reply mentions them,
+ * left to right; newest first for the folder scan).
  */
 export function viewerOrder<T extends { kind: string }>(items: T[]): T[] {
-  const rank = (it: T): number => (it.kind === 'pdf' || it.kind === 'html' ? 0 : it.kind === 'md' ? 2 : 1)
-  return [0, 1, 2].flatMap((r) => items.filter((it) => rank(it) === r))
+  return MEDIA_GROUPS.flatMap(([g]) => items.filter((it) => mediaGroup(it.kind) === g))
+}
+
+export type MediaPlace = 'folder' | 'claude' | 'tmp' | 'outside'
+
+/**
+ * Where a file the viewer lists lives: among the files of the agent's folder
+ * `base`, in a `.claude` folder (plans, memory, skills: the folder's own or
+ * the one in the home folder), in a temporary folder, or somewhere else.
+ */
+export function mediaPlace(base: string, path: string): MediaPlace {
+  const root = base.replace(/\/+$/, '')
+  const inside = path.startsWith(root + '/')
+  // an agent working in a worktree below .claude: its files are still its folder's
+  if ((inside ? path.slice(root.length) : path).split('/').includes('.claude')) return 'claude'
+  if (inside) return 'folder'
+  return /^(\/private)?\/(tmp|var\/tmp|var\/folders)\//.test(path) ? 'tmp' : 'outside'
 }
 
 /** What a page in the viewer may load, by extension: the files a web page is made of. */

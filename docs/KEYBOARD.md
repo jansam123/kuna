@@ -74,23 +74,27 @@ A single **Esc** goes to the agent, on a pane or while typing, as in a terminal:
 
 | Keys | Does |
 | --- | --- |
-| Space | preview the plots, PDFs, HTML pages and Markdown files of the agent's latest reply, fitted to the window: PDFs and pages first, then the images, then Markdown, rendered as a page with its pictures, LaTeX math (`$…$`, `$$…$$`) and Mermaid diagrams (newest reply first, in the order the reply names them). An HTML page (an artifact, a dashboard, an interactive plot) runs live, so you can click, hover and play with it. A pane's header counts them ("1 html 2 pdf 3 img 1 md"); clicking the count opens them too. The file fills the left; on the right are the list of files and, under it, the agent itself, its own terminal as on its pane |
-| → / ← | older / newer file (with nothing typed); past the last one, → loads an earlier reply's files, and the folder scan comes last. A click in the list shows that file |
+| Space | preview the plots, PDFs, HTML pages and Markdown files of the agent's latest reply, fitted to the window: PDFs first, then pages, the images, then Markdown, rendered as a page with its pictures, LaTeX math (`$…$`, `$$…$$`) and Mermaid diagrams (newest reply first, in the order the reply names them). An HTML page (an artifact, a dashboard, an interactive plot) runs live, so you can click, hover and play with it. A pane's header counts them ("1 html 2 pdf 3 img 1 md"); clicking the count opens them too. The files fill the left, up to six side by side; on the right are the list of files by kind (PDFs, Pages, Images, Markdown; a click on a kind rolls it in or out) and, under it, the agent itself, its own terminal as on its pane. Every file says where it lives: `folder` (among the files of the agent's folder), `.claude` (plans, memory, skills), `tmp` or `outside` |
+| → / ← | the file after / before in the list, in the file that has the keys; past the last one, → loads an earlier reply's files, and the folder scan comes last (the button under the list does that at once). A click in the list shows that file |
+| ⌘Enter | another file beside this one: the next in the list that is not shown yet. ⌘click in the list, or a file dragged from the list onto the files, opens that one beside |
+| ⌥← ⌥→ ⌥↑ ⌥↓ | the file beside, above or below takes the keys (a click on it does too) |
+| ⌘W | close the file that has the keys (its **×**); the last one closes the viewer |
 | ↑ ↓, PgUp PgDn | scroll the file (PDF pages, zoomed plots); the wheel over the agent scrolls its conversation |
-| *type* | write to the agent beside the file, right away, into its own input box; while something is typed the arrows move between its letters |
-| Enter | send it (Claude Code queues it if the agent is mid-turn); ⇧Enter new line, Esc Esc takes what you typed back out. On a stopped background session Enter brings it back first |
-| ⌘P | the path of the file in view, into what you are writing |
+| Enter | give the keyboard to the agent (a click on it does too): what you type goes into its own input box. On a stopped background session Enter brings it back first |
+| Enter, *writing to the agent* | send it (Claude Code queues it if the agent is mid-turn) and the keyboard is the files' again; ⇧Enter new line |
+| Esc Esc, *writing to the agent* | back to the files, and what you typed is taken out. A single Esc goes to the agent, as on a pane; while it shows a question, a permission prompt or a panel (`/config`, `/usage`, `/model`) every Esc goes to it |
+| ⌘P | the path of the file that has the keys, into what you are writing (so does dragging a file onto the agent) |
+| ⇧⌘C | copy the file's full path (also: a click on the path in the file's header, a right-click in the list) |
 | ⌘V · ⌘. | paste into your message · interrupt the agent (sends it Esc) |
 | ⌘+ ⌘− | zoom in, out (pinch on the trackpad, or ⌘ + wheel, zooms around the pointer) |
-| ⌘0 · ⌘1 | fit to the window · actual pixels (100% for a PDF) |
+| ⌘0 · ⌘1 | fit to its place · actual pixels (100% for a PDF) |
 | ⌘O | open the file in its app: Preview for plots and PDFs, your Markdown app for `.md` (an SVG or an HTML page is shown in Finder instead, since its default app is a browser, which would run its scripts unsandboxed) |
-| ⌘U | a Markdown file: switch between the rendered page and its source (also the **Source** / **Rendered** button); the **Copy** button copies the whole file as Markdown |
+| ⌘U | a Markdown file: switch between the rendered page and its source (also the **Source** / **Rendered** button in its header); the **Copy** button copies the whole file as Markdown |
 | ⌘A, ⌘C | a Markdown file: select all of it (rendered or source), copy what is selected |
-| ⌘S | save a copy in your Downloads folder (also the **Save to Downloads** button; a taken name becomes `fit (1).pdf`) |
+| ⌘S | save a copy in your Downloads folder (also the **Save** button; a taken name becomes `fit (1).pdf`) |
 | *click the page* | an HTML page takes the keyboard (its own keys, Space included); **Esc** gives it back to Kuna |
-| ⌘R | start over from the latest reply (reloads a page) |
-| Space or Esc | close (with nothing typed); the agent's terminal goes back to its pane |
-| *a panel of the agent's* | while it shows a question, a permission prompt or a panel (`/config`, `/usage`, `/model`), the arrows, Space, Enter and Esc are the agent's: Esc closes the panel, the next Esc the viewer |
+| ⌘R | read the list and the files again (reloads a page) |
+| Space or Esc | close; the agent's terminal goes back to its pane. The files side by side come back the next time, until Kuna quits |
 | ⌘G | review the agent's changes, as a pull request would show them (below) |
 | ⌘K | browse `.claude`: skills, agents, commands, `CLAUDE.md`, settings (Tab switches host) |
 | ⌘, | colour scheme, fonts, notifications |
@@ -149,6 +153,7 @@ Click selects; a click on a project or folder rolls it out or in, its ⋯ button
 - Drag a pane's header onto another pane to swap the two (⌥ arrows do the same from the keyboard).
 - Drag the inner edge of the sidebar or the inspector to resize it; double-click the edge for the default width. Widths are remembered.
 - In the plot viewer, pinch to zoom, drag to pan, and double-click to zoom in on a spot (double-click again to fit). Drag the edge between the file and the agent to make the agent's column wider or narrower (remembered; double-click the edge for the default).
+- Files side by side in the plot viewer: drag the edge between two (or between two rows) to give one more room, double-click it to even them out; drag a file's header onto another file to swap them, or onto the agent to put its path into your message. ⌥-drag a file (its header, or its row in the list) out of Kuna, into Finder, Keynote or Mail: it takes a copy. A file on another host has to be shown once first.
 
 ## Reading the screen
 

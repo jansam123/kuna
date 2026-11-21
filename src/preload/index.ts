@@ -67,6 +67,7 @@ const api: KunaApi = {
     fetch: (host, path, stamp) => ipcRenderer.invoke(IPC.mediaFetch, host, path, stamp),
     openExternal: (host, path, stamp) => ipcRenderer.invoke(IPC.mediaOpen, host, path, stamp),
     save: (host, path, stamp) => ipcRenderer.invoke(IPC.mediaSave, host, path, stamp),
+    drag: (host, path, stamp) => ipcRenderer.invoke(IPC.mediaDrag, host, path, stamp),
     page: (host, path) => ipcRenderer.invoke(IPC.mediaPage, host, path),
     onPageEscape: (cb) => on(IPC.pageEscape, cb)
   },

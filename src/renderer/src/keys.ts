@@ -51,7 +51,7 @@ function stop(ev: KeyboardEvent): void {
  * purpose), unless a panel or question on its screen takes the Esc (/config
  * opened mid-turn); in tmux scroll mode it leaves scroll mode.
  */
-function escToAgent(key: string | undefined): void {
+export function escToAgent(key: string | undefined): void {
   const agent = key ? get().agents[key] : undefined
   if (!key || !agent) return
   if (leaveScroll(key)) return
@@ -67,7 +67,7 @@ export function panelOnScreen(key: string): boolean {
 }
 
 /** Returns true on the second Esc of a double press; the first shows a hint. */
-function escPressed(): boolean {
+export function escPressed(): boolean {
   const now = Date.now()
   if (now - lastEsc < DOUBLE_ESC_MS) {
     lastEsc = 0

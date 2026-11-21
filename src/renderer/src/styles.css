@@ -1642,13 +1642,6 @@ button.mini {
   font-weight: 600;
   font-size: calc(var(--fs) + 1px);
 }
-.media-path {
-  font: var(--fs-mono) var(--mono);
-  color: var(--faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
 .media-meta {
   color: var(--dim);
   font-size: var(--fs-small);
@@ -1678,11 +1671,146 @@ button.mini {
 .media-save:hover {
   border-color: var(--accent);
 }
-/* the file on the left, the agent's column on the right */
+/* the files on the left, the agent's column on the right */
 .media-body {
   flex: 1;
   min-height: 0;
   display: flex;
+}
+/* the files, side by side in rows as the agents' panes */
+.media-tiles {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--gap);
+}
+.tile-row {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+.media-tile {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  overflow: hidden;
+}
+/* the file the keys act on (one file alone needs no mark) */
+.tile-row:not(:only-child) .media-tile.focused,
+.media-tile.focused:not(:only-child) {
+  border-color: var(--accent);
+}
+.media-tile.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+/* a file dragged over a page reaches the page's tile, not the page */
+.media-overlay.dragging .media-page {
+  pointer-events: none;
+}
+.tile-head {
+  flex: none;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 5px 0 8px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-small);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.media-tile.focused .tile-head {
+  background: var(--raised);
+}
+.tile-name {
+  flex: 0 1 auto;
+  min-width: 5ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+/* the path gives way first, then the file's age and size */
+.tile-path {
+  flex: 0 1000 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: var(--fs-mono) var(--mono);
+  color: var(--faint);
+  cursor: copy;
+}
+.tile-path:hover {
+  color: var(--accent);
+}
+.tile-head .media-meta {
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tile-head .media-save {
+  height: 20px;
+  padding: 0 7px;
+}
+.tile-head .tile-close {
+  padding: 0 6px;
+  color: var(--dim);
+}
+/* the edge between two files, and between two rows of them: drag to resize */
+.tile-split {
+  position: relative;
+  flex: none;
+  width: var(--gap);
+  cursor: col-resize;
+}
+.tile-split.rows {
+  width: auto;
+  height: var(--gap);
+  cursor: row-resize;
+}
+.tile-split::after {
+  content: '';
+  position: absolute;
+  inset: 0 2px;
+  border-radius: 1px;
+  transition: background 0.12s;
+}
+.tile-split.rows::after {
+  inset: 2px 0;
+}
+.tile-split:hover::after {
+  background: var(--accent);
+}
+/* where a file lives: the agent's folder reads plain, the other places stand out */
+.place {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 3px;
+  font: calc(var(--fs-mono) - 1.5px) / 1.6 var(--mono);
+  color: var(--faint);
+}
+.place-claude {
+  color: var(--insert);
+  background: color-mix(in srgb, var(--insert) 18%, transparent);
+}
+.place-tmp {
+  color: var(--waiting);
+  background: color-mix(in srgb, var(--waiting) 16%, transparent);
+}
+.place-outside {
+  color: var(--unread);
+  background: color-mix(in srgb, var(--unread) 14%, transparent);
 }
 .media-stage {
   position: relative;
@@ -1690,6 +1818,7 @@ button.mini {
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  display: flex;
 }
 .media-stage.can-pan {
   cursor: grab;
@@ -1699,6 +1828,7 @@ button.mini {
 }
 /* centred while smaller than the window, scrollable once larger */
 .zoom-area {
+  flex: none;
   display: flex;
   min-width: 100%;
   min-height: 100%;
@@ -1759,10 +1889,10 @@ body.resizing .media-split::after {
   padding: var(--gap);
   border-left: 1px solid var(--line);
 }
-/* the files of the agent's replies, one per row, above the agent */
+/* the files of the agent's replies, by kind, one per row, above the agent */
 .media-files {
   flex: none;
-  max-height: 34%;
+  max-height: 40%;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -1794,9 +1924,36 @@ body.resizing .media-split::after {
   color: var(--text);
   box-shadow: inset 2px 0 0 var(--accent);
 }
-.media-files .kind {
-  flex: none;
-  width: 3.2ch;
+/* shown beside the one that has the keys */
+.media-files button.open {
+  color: var(--text);
+  box-shadow: inset 2px 0 0 var(--faint);
+}
+.media-files .place {
+  width: 8.5ch;
+  text-align: center;
+}
+/* a kind of file: click rolls its files in or out */
+.media-files button.mf-group {
+  position: sticky;
+  top: -3px;
+  z-index: 1;
+  gap: 6px;
+  background: var(--panel);
+  color: var(--dim);
+  font-size: var(--fs-tiny);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.mf-fold {
+  width: 1.2ch;
+  color: var(--faint);
+}
+.mf-n {
+  font: var(--fs-mono) var(--mono);
+  font-weight: 400;
+  color: var(--faint);
 }
 .mf-name {
   flex: 0 1 auto;
@@ -1824,7 +1981,17 @@ body.resizing .media-split::after {
   color: var(--dim);
   cursor: default;
 }
-/* the agent's own terminal, as on its pane */
+/* the agent's own terminal, as on its pane; a file dragged here leaves its path */
+.media-chat-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.media-chat-wrap.drop-here .pane {
+  border-style: dashed;
+  border-color: var(--accent);
+}
 .pane.media-chat {
   min-height: 0;
 }

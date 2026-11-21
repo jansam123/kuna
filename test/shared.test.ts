@@ -5,7 +5,7 @@ import { compactBlocker, hasInputBox, screenState } from '@shared/input'
 import { parseJsonc } from '@shared/jsonc'
 import { cleanTypedPath, pastePath } from '@shared/paths'
 import { gridRows, neighbor } from '@shared/layout'
-import { extractMediaPaths, mediaKind, normalizePosix, pageFile, resolveAgainst, viewerOrder } from '@shared/media'
+import { extractMediaPaths, mediaKind, mediaPlace, normalizePosix, pageFile, resolveAgainst, viewerOrder } from '@shared/media'
 import { parseSshConfig } from '@shared/sshConfig'
 import { applyPatch, diffShared, mergePatch } from '@shared/sync'
 import { hasMath, splitMath, texToText } from '@shared/tex'
@@ -91,10 +91,20 @@ describe('media paths', () => {
     ])
     expect(mediaKind('a/B.HTML')).toBe('html')
     expect(viewerOrder([{ kind: 'image', path: 'a.png' }, { kind: 'html', path: 'p.html' }, { kind: 'pdf', path: 'f.pdf' }]).map((it) => it.path)).toEqual([
-      'p.html',
       'f.pdf',
+      'p.html',
       'a.png'
     ])
+  })
+  it('tells where a file lives', () => {
+    expect(mediaPlace('/w/ana/', '/w/ana/plots/a.png')).toBe('folder')
+    expect(mediaPlace('/w/ana', '/w/ana/.claude/plans/p.md')).toBe('claude')
+    expect(mediaPlace('/w/ana', '/home/u/.claude/projects/x/memory/m.md')).toBe('claude')
+    // a worktree below .claude is the agent's folder
+    expect(mediaPlace('/w/ana/.claude/worktrees/t', '/w/ana/.claude/worktrees/t/fit.pdf')).toBe('folder')
+    expect(mediaPlace('/w/ana', '/private/tmp/claude-501/s/a.png')).toBe('tmp')
+    expect(mediaPlace('/w/ana', '/tmp/a.png')).toBe('tmp')
+    expect(mediaPlace('/w/ana', '/w/analysis/a.png')).toBe('outside')
   })
   it('lets a page load only the web files below its folder', () => {
     expect(pageFile('/w/out', '/fit.html')).toEqual({ path: '/w/out/fit.html', mime: 'text/html; charset=utf-8' })
