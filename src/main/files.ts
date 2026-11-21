@@ -108,7 +108,7 @@ export class MediaService {
       const res = await host.exec(['stat', b64(paths.join('\n'))], { timeoutMs: 20_000 })
       if (res.code !== 0) continue
       const found = new Map(parseStat(res.stdout.toString('utf8')).map((it) => [it.path, it]))
-      // PDFs first, then pages, images, Markdown; each newest reply first, in the order the reply names them
+      // PDFs first, then images, Markdown, pages; each newest reply first, in the order the reply names them
       const items = viewerOrder(dedupe(paths.flatMap((p) => found.get(p) ?? [])))
       if (items.length) return { items, next: i < turns.length ? { before: batch[batch.length - 1] } : { scan: true } }
     }
