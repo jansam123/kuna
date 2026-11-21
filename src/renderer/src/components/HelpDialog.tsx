@@ -49,6 +49,7 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
       ['→ / ←', 'the file after / before (→ keeps going into earlier replies)'],
       ['⌘Enter · ⌘W', 'in the preview: another file beside this one · close it'],
       ['⌥ arrows', 'in the preview: the file beside, above, below'],
+      ['Tab', 'in the preview: ↑ ↓ walk the list of files, or scroll the file'],
       ['⌘+ ⌘− ⌘0', 'zoom in, out, fit (or pinch; drag to pan)'],
       ['Enter', 'in the preview: write to the agent · Enter sends, Esc Esc back to the files'],
       ['⇧⌘C', 'in the preview: copy the file’s path'],

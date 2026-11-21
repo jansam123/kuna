@@ -11,6 +11,8 @@ import { b64 } from './hosts/exec'
 const MB = 1024 * 1024
 /** the largest plot or PDF the viewer reads: it is held in memory, here and in the window */
 const MAX_MEDIA_BYTES = 1024 * MB
+/** the largest piece of a PDF read at once */
+const MAX_RANGE_BYTES = 16 * MB
 /** a Markdown file past this is not a note to read in the viewer */
 const MAX_MD_BYTES = 4 * MB
 /** an HTML page, or a file it loads, past this is not served (an artifact is at most 16 MB) */
@@ -137,6 +139,20 @@ export class MediaService {
       this.cache.delete(oldest)
     }
     return { data: res.stdout, mime: mimeFor(path) }
+  }
+
+  /**
+   * A piece of a PDF: the viewer reads a large one's page count and maker
+   * from the few pieces that hold them, not the whole file. From the file
+   * itself when it is here already.
+   */
+  async range(hostId: HostId, path: string, stamp: string, begin: number, end: number): Promise<Uint8Array | null> {
+    if (typeof path !== 'string' || mediaKind(path) !== 'pdf') return null
+    if (!Number.isSafeInteger(begin) || !Number.isSafeInteger(end) || begin < 0 || end <= begin || end - begin > MAX_RANGE_BYTES) return null
+    const hit = this.cache.get(`${hostId}\0${path}\0${stamp}`)
+    if (hit) return hit.data.subarray(begin, end)
+    const res = await this.agents.host(hostId).exec(['read', b64(path), String(begin), String(end - begin)], { timeoutMs: 60_000, maxBytes: end - begin })
+    return res.code === 0 ? res.stdout : null
   }
 
   /**

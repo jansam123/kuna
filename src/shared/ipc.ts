@@ -107,6 +107,8 @@ export interface KunaApi {
     openExternal(host: HostId, path: string, stamp?: string): Promise<void>
     /** a copy in ~/Downloads (renamed "x (1).pdf" if taken): its path, or why not */
     save(host: HostId, path: string, stamp?: string): Promise<{ file: string } | { error: string }>
+    /** bytes `begin` to `end` of a PDF, or null when they can't be read */
+    range(host: HostId, path: string, stamp: string, begin: number, end: number): Promise<Uint8Array | null>
     /** ⌥-drag: hand a copy of the file to the system's drag, for Finder or another app; why not, if it can't yet */
     drag(host: HostId, path: string, stamp?: string): Promise<string | undefined>
     /** where an HTML page is shown (a `kuna-page:` address, its folder's own origin), or why not */
@@ -190,6 +192,7 @@ export const IPC = {
   mediaFetch: 'media:fetch',
   mediaOpen: 'media:open',
   mediaSave: 'media:save',
+  mediaRange: 'media:range',
   mediaDrag: 'media:drag',
   mediaPage: 'media:page',
   pageEscape: 'media:page-escape',

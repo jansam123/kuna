@@ -49,6 +49,8 @@ export interface Settings {
   inspectorWidth?: number
   /** the agent's column beside a file in the plot viewer */
   viewerChatWidth?: number
+  /** the plot viewer's list of files: its share of the column's height, once its edge is dragged */
+  viewerListShare?: number
   /** the review view (⌘G): the file list's width, the agent's column's, and inline diffs instead of side by side */
   reviewListWidth?: number
   reviewChatWidth?: number

@@ -5,7 +5,7 @@ import { compactBlocker, hasInputBox, screenState } from '@shared/input'
 import { parseJsonc } from '@shared/jsonc'
 import { cleanTypedPath, pastePath } from '@shared/paths'
 import { gridRows, neighbor } from '@shared/layout'
-import { extractMediaPaths, mediaKind, mediaPlace, normalizePosix, pageFile, resolveAgainst, viewerOrder } from '@shared/media'
+import { extractMediaPaths, mediaGroup, mediaKind, mediaPlace, normalizePosix, pageFile, pdfClass, resolveAgainst, viewerOrder } from '@shared/media'
 import { parseSshConfig } from '@shared/sshConfig'
 import { applyPatch, diffShared, mergePatch } from '@shared/sync'
 import { hasMath, splitMath, texToText } from '@shared/tex'
@@ -95,6 +95,21 @@ describe('media paths', () => {
       'p.html',
       'a.png'
     ])
+  })
+  it('tells slides, plots and diagrams apart', () => {
+    expect(pdfClass(24, 'LaTeX with Beamer class pdfTeX-1.40.25')).toBe('slides')
+    expect(pdfClass(1, 'Matplotlib v3.9.0, https://matplotlib.org Matplotlib pdf backend v3.9.0')).toBe('plot')
+    expect(pdfClass(1, 'ROOT Version 6.30/02')).toBe('plot')
+    // set by LaTeX, but a plot
+    expect(pdfClass(1, 'Matplotlib v3.9.0 Matplotlib pgf backend v3.9.0 LuaTeX-1.17')).toBe('plot')
+    expect(pdfClass(1, 'TeX pdfTeX-1.40.25')).toBe('diagram')
+    expect(pdfClass(1, 'graphviz version 9.0.0 cairo 1.18.0')).toBe('diagram')
+    expect(pdfClass(1, '')).toBe('plot')
+    expect(mediaGroup('pdf')).toBe('pdf')
+    expect(mediaGroup('pdf', 'slides')).toBe('slides')
+    expect(mediaGroup('svg')).toBe('image')
+    const files = [{ kind: 'pdf', path: 'fit.pdf' }, { kind: 'image', path: 'a.png' }, { kind: 'pdf', path: 'deck.pdf' }]
+    expect(viewerOrder(files, (it) => mediaGroup(it.kind, it.path === 'deck.pdf' ? 'slides' : 'plot')).map((it) => it.path)).toEqual(['deck.pdf', 'fit.pdf', 'a.png'])
   })
   it('tells where a file lives', () => {
     expect(mediaPlace('/w/ana/', '/w/ana/plots/a.png')).toBe('folder')

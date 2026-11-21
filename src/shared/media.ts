@@ -84,24 +84,45 @@ export function resolveAgainst(cwd: string, p: string): string {
   return normalizePosix(`${cwd.replace(/\/+$/, '')}/${p}`)
 }
 
-/** The viewer's groups of files, in the order it lists them, and what each is called. */
+/**
+ * The viewer's groups of files, in the order it lists them, and what each is
+ * called. A PDF is in `pdf` until the viewer has read what it is (`pdfClass`).
+ */
 export const MEDIA_GROUPS = [
+  ['slides', 'Slides'],
+  ['plot', 'Plots'],
+  ['diagram', 'Diagrams'],
   ['pdf', 'PDFs'],
   ['html', 'Pages'],
   ['image', 'Images'],
   ['md', 'Markdown']
 ] as const
 
-/** The group a kind of file is listed under (an SVG is an image). */
-export const mediaGroup = (kind: string): string => (kind === 'svg' ? 'image' : kind)
+export type PdfClass = 'slides' | 'plot' | 'diagram'
+
+/** The group a file is listed under (an SVG is an image; a PDF by what it is, once known). */
+export const mediaGroup = (kind: string, pdf?: PdfClass | null): string => (kind === 'svg' ? 'image' : kind === 'pdf' ? (pdf ?? 'pdf') : kind)
+
+/**
+ * What a PDF is: slides when it has more than one page; a single page is a
+ * plot or a diagram by the program that made it (`maker`: its Creator and
+ * Producer). Plotting programs win over the engine under them (a Matplotlib
+ * figure set by LaTeX is a plot); a page nothing is known about is a plot.
+ */
+export function pdfClass(pages: number, maker: string): PdfClass {
+  if (pages > 1) return 'slides'
+  if (/matplotlib|\bROOT\b|gnuplot|plotly|ggplot|\bR \d|R Graphics|seaborn/i.test(maker)) return 'plot'
+  return /tex\b|tikz|graphviz|draw\.io|diagrams\.net|inkscape|mermaid|plantuml|omnigraffle|typst|chrom|skia|cairo|visio|excalidraw/i.test(maker) ? 'diagram' : 'plot'
+}
 
 /**
  * The order the viewer shows files in: PDFs first, then HTML pages, images
- * and Markdown, each in the order given (the order a reply mentions them,
- * left to right; newest first for the folder scan).
+ * and Markdown (`group` says which group a file is in), each in the order
+ * given (the order a reply mentions them, left to right; newest first for
+ * the folder scan).
  */
-export function viewerOrder<T extends { kind: string }>(items: T[]): T[] {
-  return MEDIA_GROUPS.flatMap(([g]) => items.filter((it) => mediaGroup(it.kind) === g))
+export function viewerOrder<T extends { kind: string }>(items: T[], group: (it: T) => string = (it) => mediaGroup(it.kind)): T[] {
+  return MEDIA_GROUPS.flatMap(([g]) => items.filter((it) => group(it) === g))
 }
 
 export type MediaPlace = 'folder' | 'claude' | 'tmp' | 'outside'

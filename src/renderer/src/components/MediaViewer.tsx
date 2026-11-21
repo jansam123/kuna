@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { gridRows, neighbor, type Direction } from '@shared/layout'
-import { MEDIA_GROUPS, mediaGroup, mediaPlace, viewerOrder, type MediaPlace } from '@shared/media'
+import { MEDIA_GROUPS, mediaGroup, mediaPlace, pdfClass, viewerOrder, type MediaPlace, type PdfClass } from '@shared/media'
 import type { MediaItem, MediaPage } from '@shared/types'
 import { discardTyped, leaveScroll, sendEsc } from '../actions'
 import { agentTitle, ago, bytes, doingText } from '../format'
@@ -309,6 +309,81 @@ export function AgentChat({
   )
 }
 
+/** a PDF up to this size is read whole to see what it is (and is then there to show); a larger one in pieces of this size */
+const PDF_PIECE = 256 * 1024
+/** what each PDF is (slides, a plot, a diagram; null: not read, or unreadable), by host, path and stamp, until Kuna quits */
+const pdfKinds = new Map<string, PdfClass | null>()
+const pdfKey = (host: string, it: MediaItem): string => `${host}\0${it.path}\0${stampOf(it)}`
+
+/**
+ * What a PDF is, from its page count and the program that made it. Only the
+ * pieces of the file that hold those are read (pdf.js asks for them), so a
+ * long deck on another host costs a few small reads, not a download.
+ */
+async function readPdfClass(host: string, it: MediaItem): Promise<PdfClass | null> {
+  let task: pdfjs.PDFDocumentLoadingTask | undefined
+  try {
+    if (it.size <= 2 * PDF_PIECE) {
+      const res = await window.kuna.media.fetch(host, it.path, stampOf(it))
+      if ('error' in res) return null
+      task = pdfjs.getDocument({ data: res.data.slice() })
+    } else {
+      const range = new pdfjs.PDFDataRangeTransport(it.size, null)
+      range.requestDataRange = (begin, end) =>
+        void window.kuna.media.range(host, it.path, stampOf(it), begin, end).then((piece) => {
+          if (piece?.length === end - begin) range.onDataRange(begin, piece)
+          else void task?.destroy() // the file changed or is gone: nothing more to learn
+        })
+      task = pdfjs.getDocument({ range, rangeChunkSize: PDF_PIECE, disableAutoFetch: true, disableStream: true })
+    }
+    const doc = await task.promise
+    const info = (await doc.getMetadata().catch(() => null))?.info as { Creator?: string; Producer?: string } | undefined
+    return pdfClass(doc.numPages, `${info?.Creator ?? ''} ${info?.Producer ?? ''}`)
+  } catch {
+    return null
+  } finally {
+    void task?.destroy()
+  }
+}
+
+/** A group of the list's own mark, in its own colour (`g-<group>` in the styles). */
+const GROUP_ICON: Record<string, React.JSX.Element> = {
+  // a screen on its stand
+  slides: (
+    <>
+      <rect x="2" y="2.5" width="12" height="8" rx="1" />
+      <path d="M8 10.5v3M5.5 13.5h5" />
+    </>
+  ),
+  // axes and a curve
+  plot: <path d="M2.5 2.5v11h11M5 10.5l2.5-3 2 1.5 3-4.5" />,
+  // two boxes and the line between them
+  diagram: (
+    <>
+      <rect x="2" y="2.5" width="5.5" height="3.5" rx=".8" />
+      <rect x="8.5" y="10" width="5.5" height="3.5" rx=".8" />
+      <path d="M4.5 6v3.7a2 2 0 0 0 2 2h2" />
+    </>
+  ),
+  pdf: <path d="M4 2h5l3 3v9H4zM9 2v3h3" />,
+  html: <path d="M5.5 4.5 2.5 8l3 3.5M10.5 4.5l3 3.5-3 3.5" />,
+  image: (
+    <>
+      <rect x="2" y="3" width="12" height="10" rx="1.2" />
+      <circle cx="5.6" cy="6.4" r="1" />
+      <path d="m2.5 11.5 3.5-3 2.5 2 2-1.5 3 2.5" />
+    </>
+  ),
+  md: <path d="M4 2h5l3 3v9H4zM9 2v3h3M6 8.5h4M6 11h4" />
+}
+function GroupIcon({ group }: { group: string }): React.JSX.Element {
+  return (
+    <svg className={`g-icon g-${group}`} viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      {GROUP_ICON[group]}
+    </svg>
+  )
+}
+
 /** Follow the pointer from a press on a resize edge until it is let go. */
 function followPointer(e: React.PointerEvent<HTMLElement>, move: (ev: PointerEvent) => void): void {
   if (e.button !== 0) return
@@ -382,6 +457,8 @@ interface TileHost {
   host: string | undefined
   rel(path: string): string
   place(path: string): MediaPlace
+  /** the group of the list a file is in */
+  group(it: MediaItem): string
   note(text: string): void
   save(it: MediaItem): void
   copyPath(it: MediaItem): void
@@ -653,6 +730,7 @@ function MediaTile({
         onDragStart={(e) => v.drag(e, current, tile.id)}
         onDragEnd={v.dragEnd}
       >
+        <GroupIcon group={v.group(current)} />
         <span className={`place place-${place}`} title={PLACE[place][1]}>
           {PLACE[place][0]}
         </span>
@@ -762,11 +840,14 @@ function MediaTile({
   )
 }
 
-const FILE_KEYS = '← → files · Enter to the agent · ⌘Enter another beside · Space close'
+const VIEW_KEYS = '← → files · Tab the list · Enter the agent · ⌘Enter beside · Space close'
+const LIST_KEYS = '↑ ↓ files · Tab the file · Enter the agent · ⌘Enter beside · Space close'
 /** every key, on hover over the short line */
 const ALL_KEYS = [
   '← →  the file before, after (→ past the last loads more)',
-  '↑ ↓, PgUp PgDn  scroll the file',
+  'Tab, or a click  the keys are the list’s or the file’s (the blue edge)',
+  '↑ ↓  scroll the file · in the list: the file above, below',
+  'PgUp PgDn  scroll the file',
   'Enter  write to the agent · Esc Esc back to the files',
   '⌘Enter  another file beside this one · ⌘click in the list too',
   '⌥ arrows  the file beside, above, below · ⌘W closes it',
@@ -820,6 +901,11 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
   const wasTyping = useRef(false)
   // an HTML page has the keyboard (after a click in it): its keys are its own, until Esc
   const [inPage, setInPage] = useState(false)
+  // ↑ ↓ are the list's (they walk it) or the file's (they scroll it): where the last click was, or Tab
+  const [zone, setZone] = useState<'view' | 'list'>('view')
+  const listShare = useKuna((s) => s.settings.viewerListShare)
+  // PDFs read so far (`pdfKinds`): a count, so the list regroups as each is known
+  const [, setRead] = useState(0)
   // a file is being dragged: pages let the drop through to their tile
   const [dragging, setDragging] = useState(false)
 
@@ -896,6 +982,26 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
     void refresh()
   }, [refresh])
 
+  // what each PDF is: one at a time, so the file in view keeps one of the host's two command slots
+  useEffect(() => {
+    if (!host || !items) return
+    let live = true
+    void (async () => {
+      for (const it of items) {
+        const k = pdfKey(host, it)
+        if (it.kind !== 'pdf' || pdfKinds.has(k)) continue
+        pdfKinds.set(k, null) // being read: not read twice
+        pdfKinds.set(k, await readPdfClass(host, it))
+        if (!live) return
+        setRead((n) => n + 1)
+      }
+    })()
+    return () => {
+      live = false
+    }
+  }, [host, items])
+  const groupOf = (it: MediaItem): string => mediaGroup(it.kind, host ? pdfKinds.get(pdfKey(host, it)) : null)
+
   /** Show a file where the keyboard is (or in tile `at`); `beside`: in a tile of its own, next to it. */
   const show = (it: MediaItem, beside = false, at = focus): void => {
     if (beside && tiles.length >= MAX_TILES) setNote(`At most ${MAX_TILES} files side by side: it took this one's place`)
@@ -927,7 +1033,7 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
   }
 
   // what ← → walk through: the list as it shows, rolled-in groups left out
-  const shown = (items ?? []).filter((it) => !collapsed.includes(mediaGroup(it.kind)))
+  const shown = viewerOrder(items ?? [], groupOf).filter((it) => !collapsed.includes(groupOf(it)))
   const at = shown.findIndex((it) => it.path === current?.path)
 
   const step = async (d: 1 | -1): Promise<void> => {
@@ -995,6 +1101,7 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
     host,
     rel,
     place: (p) => mediaPlace(agent?.worktree ?? agent?.cwd ?? '', p),
+    group: groupOf,
     note: setNote,
     save,
     copyPath,
@@ -1015,7 +1122,8 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
 
   /**
    * The keys are the files': ← → walk the list in the tile that has the
-   * keyboard, ↑ ↓ scroll it, ⌥ arrows go to the tile beside, Space and Esc
+   * keyboard, ↑ ↓ scroll it (or walk the list too, once a click on the list or
+   * Tab made them the list's), ⌥ arrows go to the tile beside, Space and Esc
    * close. Enter (or a click on the agent) gives the keyboard to the agent,
    * as typing on a pane: Enter sends and gives it back, Esc goes to the agent
    * and Esc Esc gives it back with what was typed taken out. Zoom and the
@@ -1141,10 +1249,15 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
         void step(-1)
         return true
       case 'ArrowDown':
-        tile?.stage()?.scrollBy({ top: 160 })
+        if (zone === 'list') void step(1)
+        else tile?.stage()?.scrollBy({ top: 160 })
         return true
       case 'ArrowUp':
-        tile?.stage()?.scrollBy({ top: -160 })
+        if (zone === 'list') void step(-1)
+        else tile?.stage()?.scrollBy({ top: -160 })
+        return true
+      case 'Tab':
+        setZone(zone === 'list' ? 'view' : 'list')
         return true
       case 'Enter':
         // to the agent; a stopped background session comes back here first
@@ -1165,7 +1278,7 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
   let n = 0
 
   return (
-    <div className={`media-overlay ${dragging ? 'dragging' : ''}`} style={{ '--side-w': `${side}px` } as React.CSSProperties}>
+    <div className={`media-overlay keys-${inPage ? 'page' : inChat ? 'chat' : zone} ${dragging ? 'dragging' : ''}`} style={{ '--side-w': `${side}px` } as React.CSSProperties}>
       <header className="media-head">
         <span className="media-count">{items ? `${items.length}${next ? '+' : ''} file${items.length === 1 ? '' : 's'}` : '…'}</span>
         <span className="media-name">Plots, PDFs, pages & Markdown</span>
@@ -1181,7 +1294,9 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
                 ? escHint
                   ? 'Esc again: back to the files'
                   : 'writing to the agent · Enter sends · ⇧Enter new line · Esc Esc back to the files'
-                : FILE_KEYS}
+                : zone === 'list'
+                  ? LIST_KEYS
+                  : VIEW_KEYS}
           </span>
         )}
       </header>
@@ -1229,6 +1344,7 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
                           api={active}
                           onFocus={() => {
                             setFocus(i)
+                            setZone('view')
                             // a click on a file takes the keyboard back from the agent
                             terminalEntry(agentKey)?.term.blur()
                           }}
@@ -1257,15 +1373,20 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
         />
         <aside className="media-side">
           {items && items.length > 0 && (
-            <nav className="media-files" ref={list}>
+            <nav
+              className="media-files"
+              ref={list}
+              style={listShare ? { height: `${listShare * 100}%`, maxHeight: 'none' } : undefined}
+              onMouseDownCapture={() => setZone('list')}
+            >
               {MEDIA_GROUPS.map(([group, label]) => {
-                const files = items.filter((it) => mediaGroup(it.kind) === group)
+                const files = items.filter((it) => groupOf(it) === group)
                 if (!files.length) return null
                 const shut = collapsed.includes(group)
                 return (
                   <Fragment key={group}>
                     <button
-                      className="mf-group"
+                      className={`mf-group g-${group}`}
                       aria-expanded={!shut}
                       onClick={(e) => {
                         e.currentTarget.blur()
@@ -1273,6 +1394,7 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
                       }}
                     >
                       <span className="mf-fold">{shut ? '▸' : '▾'}</span>
+                      <GroupIcon group={group} />
                       {label}
                       <span className="mf-n">{files.length}</span>
                     </button>
@@ -1318,6 +1440,17 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
                 </button>
               )}
             </nav>
+          )}
+          {items && items.length > 0 && (
+            <div
+              className="tile-split rows side-split"
+              title="Drag to give the list or the agent more room · double-click for the list's own height"
+              onDoubleClick={() => updateSettings({ viewerListShare: undefined })}
+              onPointerDown={(e) => {
+                const side = e.currentTarget.parentElement!.getBoundingClientRect()
+                followPointer(e, (ev) => updateSettings({ viewerListShare: Math.round(Math.min(0.8, Math.max(0.1, (ev.clientY - side.top) / side.height)) * 1000) / 1000 }))
+              }}
+            />
           )}
           <div
             className={`media-chat-wrap ${dragging ? 'drop-here' : ''}`}

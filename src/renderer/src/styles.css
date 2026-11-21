@@ -1701,9 +1701,12 @@ button.mini {
   border-radius: 7px;
   overflow: hidden;
 }
-/* the file the keys act on (one file alone needs no mark) */
-.tile-row:not(:only-child) .media-tile.focused,
-.media-tile.focused:not(:only-child) {
+/* the file the keys act on; fainter while the keys are the list's, the agent's or a page's */
+.media-tile.focused {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+.keys-view .media-tile.focused,
+.keys-list .media-files {
   border-color: var(--accent);
 }
 .media-tile.drop-target {
@@ -1792,7 +1795,37 @@ button.mini {
 .tile-split:hover::after {
   background: var(--accent);
 }
-/* where a file lives: the agent's folder reads plain, the other places stand out */
+/* the list's edge towards the agent: drag to share the column between them */
+.side-split {
+  margin: calc(var(--gap) * -1) 0;
+}
+/* a group of the list has its own mark and colour */
+.g-icon {
+  flex: none;
+  color: var(--g);
+}
+.g-slides {
+  --g: #ff8a5c;
+}
+.g-plot {
+  --g: #f472b6;
+}
+.g-diagram {
+  --g: #2dd4bf;
+}
+.g-pdf {
+  --g: var(--dim);
+}
+.g-html {
+  --g: #a3e635;
+}
+.g-image {
+  --g: var(--accent);
+}
+.g-md {
+  --g: #c9d1e3;
+}
+/* where a file lives: outside the agent's folder reads plain, the other places stand out */
 .place {
   flex: none;
   padding: 0 5px;
@@ -1808,7 +1841,7 @@ button.mini {
   color: var(--waiting);
   background: color-mix(in srgb, var(--waiting) 16%, transparent);
 }
-.place-outside {
+.place-folder {
   color: var(--unread);
   background: color-mix(in srgb, var(--unread) 14%, transparent);
 }
@@ -1939,8 +1972,8 @@ body.resizing .media-split::after {
   top: -3px;
   z-index: 1;
   gap: 6px;
-  background: var(--panel);
-  color: var(--dim);
+  background: color-mix(in srgb, var(--g) 9%, var(--panel));
+  color: var(--g);
   font-size: var(--fs-tiny);
   font-weight: 600;
   letter-spacing: 0.05em;
