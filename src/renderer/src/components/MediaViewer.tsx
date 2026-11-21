@@ -358,7 +358,7 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
   /** Load pages until something new turns up (or nothing is left), and append it. */
   const loadMore = useCallback(
     /** returns where the first new file landed (-1: none) */
-    async (page: NonNullable<MediaPage['next']> | Record<string, never>, have: MediaItem[]): Promise<number> => {
+    async (page: NonNullable<MediaPage['next']> | Record<string, never>, have: MediaItem[], stay?: string): Promise<number> => {
       let p: MediaPage['next'] | Record<string, never> = page
       let fresh: MediaItem[] = []
       while (p && !fresh.length) {
@@ -375,6 +375,8 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
       // PDFs stay ahead of all images, also as more turn up
       const all = viewerOrder([...have, ...fresh])
       setItems(all)
+      // the file in view stays the one shown, though new PDFs sort in ahead of it
+      if (stay) setIndex(Math.max(0, all.findIndex((it) => it.path === stay)))
       return all.indexOf(fresh[0])
     },
     [agentKey]
@@ -568,10 +570,18 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
     if (at >= 0) setIndex(at)
   }
 
+  /** The list's button: more files now, wherever you are in the list; the file in view stays. */
+  const more = async (): Promise<void> => {
+    if (!items || !next || busy) return
+    const at = await loadMore(next, items, current?.path)
+    // once they are in the list, the first new one is in sight
+    setTimeout(() => list.current?.children[at]?.scrollIntoView({ block: 'nearest' }))
+  }
+
   // the file in view stays in sight in the list
   useEffect(() => {
     list.current?.querySelector('.on')?.scrollIntoView({ block: 'nearest' })
-  }, [index, items])
+  }, [index])
 
   useEffect(() => {
     if (!note) return
@@ -973,7 +983,7 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
                 )
               })}
               {next && (
-                <button className="mf-more" onMouseDown={(e) => e.preventDefault()} onClick={() => void older()} disabled={!!busy}>
+                <button className="mf-more" onMouseDown={(e) => e.preventDefault()} onClick={() => void more()} disabled={!!busy}>
                   {busy ?? ('scan' in next ? 'Scan the folder for more →' : 'Earlier replies →')}
                 </button>
               )}
