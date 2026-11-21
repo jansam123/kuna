@@ -193,7 +193,11 @@ export class TranscriptParser {
   private assistant(e: Json): void {
     const m = e.message
     if (!m) return
-    if (m.model && m.model !== '<synthetic>') this.d.model = m.model
+    if (m.model && m.model !== '<synthetic>') {
+      this.d.model = m.model
+      // beside the message, not in it; older Claude Code doesn't write it
+      this.d.effort = typeof e.effort === 'string' ? e.effort : undefined
+    }
     const u = m.usage
     if (u) {
       const ctx = (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0)

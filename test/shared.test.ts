@@ -465,6 +465,7 @@ describe('TranscriptParser', () => {
     { type: 'user', message: { role: 'user', content: 'make the mass plot' }, timestamp: 't1' },
     {
       type: 'assistant',
+      effort: 'xhigh',
       message: {
         id: 'm1',
         model: 'claude-opus-5-5',
@@ -503,6 +504,7 @@ describe('TranscriptParser', () => {
     const d = p.details()
     expect(d.title).toBe('Mass plot')
     expect(d.model).toBe('claude-opus-5-5')
+    expect(d.effort).toBe('xhigh')
     expect(d.permissionMode).toBe('plan')
     expect(d.contextTokens).toBe(6010)
     expect(d.outputTokens).toBe(80)

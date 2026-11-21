@@ -274,6 +274,8 @@ export interface AgentDetails {
   sessionId?: string
   title?: string
   model?: string
+  /** how hard its last reply thought: `low`, `medium`, `high`, `xhigh`, `max` */
+  effort?: string
   permissionMode?: string
   version?: string
   gitBranch?: string

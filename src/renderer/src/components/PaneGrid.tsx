@@ -140,7 +140,12 @@ function PaneHeader({ agentKey, index, unread }: { agentKey: string; index: numb
           {tokens(ctx.tokens)}
         </span>
       )}
-      {d?.model && <span className="chip dim">{shortModel(d.model)}</span>}
+      {d?.model && (
+        <span className="chip dim" title={d.effort && 'Model · thinking effort of its last reply'}>
+          {shortModel(d.model)}
+          {d.effort && ` · ${d.effort}`}
+        </span>
+      )}
       {a.status === 'exited' && <span className="ph-hint">{a.kind === 'claude' ? 'stopped · Enter reopens' : '⇧⌘R resume'}</span>}
       {/* one word here; what it is doing in full is in the tooltip and the inspector */}
       <span className={`ph-status st-${a.status}`} title={[doingText(a), a.detail].filter(Boolean).join('\n')}>

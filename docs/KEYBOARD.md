@@ -174,7 +174,7 @@ Click selects; a click on a project or folder rolls it out or in, its ⋯ button
 | small square | open in a pane: filled in this window, hollow in another window |
 | amber or red gauge | its context is getting long (half the window, or 300k tokens) or almost full (80%; Claude Code will compact it soon) |
 
-A pane's header shows the folder, the agent's name, how many PDFs and images Space would show, its context, model and status in a word ("running", "editing", "2 jobs"). What it is doing in full is in the status's tooltip and in the inspector.
+A pane's header shows the folder, the agent's name, how many PDFs and images Space would show, its context, model with its thinking effort ("opus 5.5 · xhigh") and status in a word ("running", "editing", "2 jobs"). What it is doing in full is in the status's tooltip and in the inspector.
 
 A tab whose agent finished or asked something since you last looked has a lit cyan header marked **new**. Landing on it (arrows, ⌘1–9, a click) clears it. A reply that arrives on the tab you are on stays marked until you leave it and come back.
 
