@@ -86,42 +86,51 @@ export function resolveAgainst(cwd: string, p: string): string {
 
 /**
  * The viewer's groups of files, in the order it lists them, and what each is
- * called. A PDF is in `pdf` until the viewer has read what it is (`pdfClass`).
+ * called. Slides are PDFs of more than one page; a diagram or a plot is a
+ * single-page PDF or an image (`figureClass`). A PDF is in `pdf` for the
+ * moment it takes the viewer to read what it is.
  */
 export const MEDIA_GROUPS = [
   ['slides', 'Slides'],
-  ['plot', 'Plots'],
   ['diagram', 'Diagrams'],
-  ['pdf', 'PDFs'],
+  ['plot', 'Plots'],
+  ['md', 'Markdown'],
   ['html', 'Pages'],
-  ['image', 'Images'],
-  ['md', 'Markdown']
+  ['pdf', 'PDFs']
 ] as const
 
-export type PdfClass = 'slides' | 'plot' | 'diagram'
+export type FigureClass = 'slides' | 'diagram' | 'plot'
 
-/** The group a file is listed under (an SVG is an image; a PDF by what it is, once known). */
-export const mediaGroup = (kind: string, pdf?: PdfClass | null): string => (kind === 'svg' ? 'image' : kind === 'pdf' ? (pdf ?? 'pdf') : kind)
+/** The group a file is listed under: a PDF or an image by what it is (`figure`), once that is known. */
+export const mediaGroup = (kind: string, figure?: FigureClass | null): string =>
+  kind === 'md' || kind === 'html' ? kind : (figure ?? (kind === 'pdf' ? 'pdf' : 'plot'))
+
+/** a name that says diagram: the file's own, or its folder's */
+const DIAGRAM_NAME = /diagram|flow-?chart|schem|sketch|workflow|pipeline|architecture|feynman|tikz/i
+/** programs that write plots, and programs that draw diagrams, as a PDF's Creator and Producer name them */
+const PLOT_MAKER = /matplotlib|\bROOT\b|gnuplot|plotly|ggplot|\bR \d|R Graphics|seaborn/i
+const DIAGRAM_MAKER = /tex\b|tikz|graphviz|draw\.io|diagrams\.net|inkscape|mermaid|plantuml|omnigraffle|typst|chrom|skia|cairo|visio|excalidraw/i
 
 /**
- * What a PDF is: slides when it has more than one page; a single page is a
- * plot or a diagram by the program that made it (`maker`: its Creator and
- * Producer). Plotting programs win over the engine under them (a Matplotlib
- * figure set by LaTeX is a plot); a page nothing is known about is a plot.
+ * What a PDF or an image is. A PDF of more than one page is slides. A single
+ * page or an image is a diagram when its name (or its folder's) says so, or
+ * when a drawing program made the PDF and no plotting program did (a
+ * Matplotlib figure set by LaTeX is a plot); anything else is a plot. `pdf`:
+ * the page count and the maker (Creator and Producer) of a PDF once read.
  */
-export function pdfClass(pages: number, maker: string): PdfClass {
-  if (pages > 1) return 'slides'
-  if (/matplotlib|\bROOT\b|gnuplot|plotly|ggplot|\bR \d|R Graphics|seaborn/i.test(maker)) return 'plot'
-  return /tex\b|tikz|graphviz|draw\.io|diagrams\.net|inkscape|mermaid|plantuml|omnigraffle|typst|chrom|skia|cairo|visio|excalidraw/i.test(maker) ? 'diagram' : 'plot'
+export function figureClass(path: string, pdf?: { pages: number; maker: string }): FigureClass {
+  if (pdf && pdf.pages > 1) return 'slides'
+  if (DIAGRAM_NAME.test(path.split('/').slice(-2).join('/'))) return 'diagram'
+  return pdf && !PLOT_MAKER.test(pdf.maker) && DIAGRAM_MAKER.test(pdf.maker) ? 'diagram' : 'plot'
 }
 
 /**
- * The order the viewer shows files in: PDFs first, then HTML pages, images
- * and Markdown (`group` says which group a file is in), each in the order
- * given (the order a reply mentions them, left to right; newest first for
- * the folder scan).
+ * The order the viewer shows files in: by group (`group` says which a file
+ * is in), each in the order given (the order a reply mentions them, left to
+ * right; newest first for the folder scan). Before the viewer has read what
+ * each figure is, PDFs lead, then images, Markdown and HTML pages.
  */
-export function viewerOrder<T extends { kind: string }>(items: T[], group: (it: T) => string = (it) => mediaGroup(it.kind)): T[] {
+export function viewerOrder<T extends { kind: string }>(items: T[], group: (it: T) => string = (it) => (it.kind === 'pdf' ? 'slides' : mediaGroup(it.kind))): T[] {
   return MEDIA_GROUPS.flatMap(([g]) => items.filter((it) => group(it) === g))
 }
 

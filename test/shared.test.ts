@@ -5,7 +5,7 @@ import { compactBlocker, hasInputBox, screenState } from '@shared/input'
 import { parseJsonc } from '@shared/jsonc'
 import { cleanTypedPath, pastePath } from '@shared/paths'
 import { gridRows, neighbor } from '@shared/layout'
-import { extractMediaPaths, mediaGroup, mediaKind, mediaPlace, normalizePosix, pageFile, pdfClass, resolveAgainst, viewerOrder } from '@shared/media'
+import { extractMediaPaths, figureClass, mediaGroup, mediaKind, mediaPlace, normalizePosix, pageFile, resolveAgainst, viewerOrder } from '@shared/media'
 import { parseSshConfig } from '@shared/sshConfig'
 import { applyPatch, diffShared, mergePatch } from '@shared/sync'
 import { hasMath, splitMath, texToText } from '@shared/tex'
@@ -92,22 +92,28 @@ describe('media paths', () => {
     expect(mediaKind('a/B.HTML')).toBe('html')
     expect(viewerOrder([{ kind: 'image', path: 'a.png' }, { kind: 'html', path: 'p.html' }, { kind: 'pdf', path: 'f.pdf' }]).map((it) => it.path)).toEqual([
       'f.pdf',
-      'p.html',
-      'a.png'
+      'a.png',
+      'p.html'
     ])
   })
-  it('tells slides, plots and diagrams apart', () => {
-    expect(pdfClass(24, 'LaTeX with Beamer class pdfTeX-1.40.25')).toBe('slides')
-    expect(pdfClass(1, 'Matplotlib v3.9.0, https://matplotlib.org Matplotlib pdf backend v3.9.0')).toBe('plot')
-    expect(pdfClass(1, 'ROOT Version 6.30/02')).toBe('plot')
+  it('tells slides, diagrams and plots apart', () => {
+    expect(figureClass('talk/deck.pdf', { pages: 24, maker: 'LaTeX with Beamer class pdfTeX-1.40.25' })).toBe('slides')
+    expect(figureClass('plots/fit.pdf', { pages: 1, maker: 'Matplotlib v3.9.0, https://matplotlib.org Matplotlib pdf backend v3.9.0' })).toBe('plot')
+    expect(figureClass('plots/fit.pdf', { pages: 1, maker: 'ROOT Version 6.30/02' })).toBe('plot')
     // set by LaTeX, but a plot
-    expect(pdfClass(1, 'Matplotlib v3.9.0 Matplotlib pgf backend v3.9.0 LuaTeX-1.17')).toBe('plot')
-    expect(pdfClass(1, 'TeX pdfTeX-1.40.25')).toBe('diagram')
-    expect(pdfClass(1, 'graphviz version 9.0.0 cairo 1.18.0')).toBe('diagram')
-    expect(pdfClass(1, '')).toBe('plot')
+    expect(figureClass('plots/fit.pdf', { pages: 1, maker: 'Matplotlib v3.9.0 Matplotlib pgf backend v3.9.0 LuaTeX-1.17' })).toBe('plot')
+    expect(figureClass('figs/setup.pdf', { pages: 1, maker: 'TeX pdfTeX-1.40.25' })).toBe('diagram')
+    expect(figureClass('figs/setup.pdf', { pages: 1, maker: 'graphviz version 9.0.0 cairo 1.18.0' })).toBe('diagram')
+    expect(figureClass('figs/setup.pdf', { pages: 1, maker: '' })).toBe('plot')
+    // the name says so, whoever drew it; images have only their name
+    expect(figureClass('plots/tagger_diagram.pdf', { pages: 1, maker: 'Matplotlib pdf backend' })).toBe('diagram')
+    expect(figureClass('diagrams/setup.png')).toBe('diagram')
+    expect(figureClass('/w/pipeline_study/plots/mass.png')).toBe('plot')
     expect(mediaGroup('pdf')).toBe('pdf')
     expect(mediaGroup('pdf', 'slides')).toBe('slides')
-    expect(mediaGroup('svg')).toBe('image')
+    expect(mediaGroup('svg')).toBe('plot')
+    expect(mediaGroup('image', 'diagram')).toBe('diagram')
+    expect(mediaGroup('md', 'plot')).toBe('md')
     const files = [{ kind: 'pdf', path: 'fit.pdf' }, { kind: 'image', path: 'a.png' }, { kind: 'pdf', path: 'deck.pdf' }]
     expect(viewerOrder(files, (it) => mediaGroup(it.kind, it.path === 'deck.pdf' ? 'slides' : 'plot')).map((it) => it.path)).toEqual(['deck.pdf', 'fit.pdf', 'a.png'])
   })

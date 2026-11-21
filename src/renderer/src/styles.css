@@ -1819,9 +1819,6 @@ button.mini {
 .g-html {
   --g: #a3e635;
 }
-.g-image {
-  --g: var(--accent);
-}
 .g-md {
   --g: #c9d1e3;
 }
@@ -1978,6 +1975,10 @@ body.resizing .media-split::after {
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+}
+/* the file in view is one of this group's */
+.media-files button.mf-group.has-on {
+  box-shadow: inset 2px 0 0 var(--g);
 }
 .mf-fold {
   width: 1.2ch;

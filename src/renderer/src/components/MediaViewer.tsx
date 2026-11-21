@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { gridRows, neighbor, type Direction } from '@shared/layout'
-import { MEDIA_GROUPS, mediaGroup, mediaPlace, pdfClass, viewerOrder, type MediaPlace, type PdfClass } from '@shared/media'
+import { MEDIA_GROUPS, figureClass, mediaGroup, mediaPlace, viewerOrder, type FigureClass, type MediaPlace } from '@shared/media'
 import type { MediaItem, MediaPage } from '@shared/types'
 import { discardTyped, leaveScroll, sendEsc } from '../actions'
 import { agentTitle, ago, bytes, doingText } from '../format'
@@ -60,8 +60,8 @@ interface Tile {
 }
 let tileIds = 0
 const newTile = (item: MediaItem): Tile => ({ id: ++tileIds, item, w: 1 })
-/** each agent's files side by side and rolled-in groups, until Kuna quits: Space brings them back */
-const kept = new Map<string, { tiles: Tile[]; heights: number[]; focus: number; collapsed: string[] }>()
+/** each agent's files side by side and the groups rolled out, until Kuna quits: Space brings them back */
+const kept = new Map<string, { tiles: Tile[]; heights: number[]; focus: number; opened: string[] }>()
 
 interface Loaded {
   path: string
@@ -311,8 +311,8 @@ export function AgentChat({
 
 /** a PDF up to this size is read whole to see what it is (and is then there to show); a larger one in pieces of this size */
 const PDF_PIECE = 256 * 1024
-/** what each PDF is (slides, a plot, a diagram; null: not read, or unreadable), by host, path and stamp, until Kuna quits */
-const pdfKinds = new Map<string, PdfClass | null>()
+/** what each PDF is (slides, a diagram, a plot; null: not read, or unreadable), by host, path and stamp, until Kuna quits */
+const pdfKinds = new Map<string, FigureClass | null>()
 const pdfKey = (host: string, it: MediaItem): string => `${host}\0${it.path}\0${stampOf(it)}`
 
 /**
@@ -320,7 +320,7 @@ const pdfKey = (host: string, it: MediaItem): string => `${host}\0${it.path}\0${
  * pieces of the file that hold those are read (pdf.js asks for them), so a
  * long deck on another host costs a few small reads, not a download.
  */
-async function readPdfClass(host: string, it: MediaItem): Promise<PdfClass | null> {
+async function readPdfClass(host: string, it: MediaItem): Promise<FigureClass | null> {
   let task: pdfjs.PDFDocumentLoadingTask | undefined
   try {
     if (it.size <= 2 * PDF_PIECE) {
@@ -338,7 +338,7 @@ async function readPdfClass(host: string, it: MediaItem): Promise<PdfClass | nul
     }
     const doc = await task.promise
     const info = (await doc.getMetadata().catch(() => null))?.info as { Creator?: string; Producer?: string } | undefined
-    return pdfClass(doc.numPages, `${info?.Creator ?? ''} ${info?.Producer ?? ''}`)
+    return figureClass(it.path, { pages: doc.numPages, maker: `${info?.Creator ?? ''} ${info?.Producer ?? ''}` })
   } catch {
     return null
   } finally {
@@ -367,13 +367,6 @@ const GROUP_ICON: Record<string, React.JSX.Element> = {
   ),
   pdf: <path d="M4 2h5l3 3v9H4zM9 2v3h3" />,
   html: <path d="M5.5 4.5 2.5 8l3 3.5M10.5 4.5l3 3.5-3 3.5" />,
-  image: (
-    <>
-      <rect x="2" y="3" width="12" height="10" rx="1.2" />
-      <circle cx="5.6" cy="6.4" r="1" />
-      <path d="m2.5 11.5 3.5-3 2.5 2 2-1.5 3 2.5" />
-    </>
-  ),
   md: <path d="M4 2h5l3 3v9H4zM9 2v3h3M6 8.5h4M6 11h4" />
 }
 function GroupIcon({ group }: { group: string }): React.JSX.Element {
@@ -878,8 +871,8 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
   /** each row's share of the height (1 unless dragged) */
   const [heights, setHeights] = useState<number[]>(arranged?.heights ?? [])
   const [focusAt, setFocus] = useState(arranged?.focus ?? 0)
-  /** the groups of the list that are rolled in */
-  const [collapsed, setCollapsed] = useState<string[]>(layout?.collapsed ?? [])
+  /** the groups of the list that are rolled out: none until you open one */
+  const [opened, setOpened] = useState<string[]>(layout?.opened ?? [])
   const focus = Math.max(0, Math.min(focusAt, tiles.length - 1))
   const current = tiles[focus]?.item
   const rows = gridRows(tiles.length)
@@ -910,8 +903,8 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
   const [dragging, setDragging] = useState(false)
 
   useEffect(() => {
-    kept.set(agentKey, { tiles, heights, focus, collapsed })
-  }, [agentKey, tiles, heights, focus, collapsed])
+    kept.set(agentKey, { tiles, heights, focus, opened })
+  }, [agentKey, tiles, heights, focus, opened])
 
   const checkFocus = useRef(() => {})
   checkFocus.current = () => {
@@ -1000,7 +993,16 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
       live = false
     }
   }, [host, items])
-  const groupOf = (it: MediaItem): string => mediaGroup(it.kind, host ? pdfKinds.get(pdfKey(host, it)) : null)
+  const stem = (path: string): string => path.replace(/\.[^./]+$/, '')
+  const pdfs = new Map((items ?? []).filter((it) => it.kind === 'pdf').map((it) => [stem(it.path), it]))
+  const groupOf = (it: MediaItem): string => {
+    if (!host || it.kind === 'md' || it.kind === 'html') return mediaGroup(it.kind)
+    if (it.kind === 'pdf') return mediaGroup('pdf', pdfKinds.get(pdfKey(host, it)))
+    // an image is what the PDF of the same name beside it is (a figure saved as both); else its name says
+    const twin = pdfs.get(stem(it.path))
+    const same = twin && pdfKinds.get(pdfKey(host, twin))
+    return same && same !== 'slides' ? same : figureClass(it.path)
+  }
 
   /** Show a file where the keyboard is (or in tile `at`); `beside`: in a tile of its own, next to it. */
   const show = (it: MediaItem, beside = false, at = focus): void => {
@@ -1032,8 +1034,8 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
     if (it) show(it, true, at)
   }
 
-  // what ← → walk through: the list as it shows, rolled-in groups left out
-  const shown = viewerOrder(items ?? [], groupOf).filter((it) => !collapsed.includes(groupOf(it)))
+  // what ← → walk through: every file in the list's order, also those of groups not rolled out
+  const shown = viewerOrder(items ?? [], groupOf)
   const at = shown.findIndex((it) => it.path === current?.path)
 
   const step = async (d: 1 | -1): Promise<void> => {
@@ -1382,15 +1384,16 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
               {MEDIA_GROUPS.map(([group, label]) => {
                 const files = items.filter((it) => groupOf(it) === group)
                 if (!files.length) return null
-                const shut = collapsed.includes(group)
+                const shut = !opened.includes(group)
                 return (
                   <Fragment key={group}>
                     <button
-                      className={`mf-group g-${group}`}
+                      // rolled in, it still says that the file in view is one of its
+                      className={`mf-group g-${group} ${current && groupOf(current) === group ? 'has-on' : ''}`}
                       aria-expanded={!shut}
                       onClick={(e) => {
                         e.currentTarget.blur()
-                        setCollapsed(shut ? collapsed.filter((g) => g !== group) : [...collapsed, group])
+                        setOpened((o) => (o.includes(group) ? o.filter((g) => g !== group) : [...o, group]))
                       }}
                     >
                       <span className="mf-fold">{shut ? '▸' : '▾'}</span>
