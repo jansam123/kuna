@@ -24,6 +24,7 @@ The helper's version is the hash of `kuna.sh`, for both apps. A phone and a Mac 
 
 - `npm run ios:bundle` — make the shared-logic bundle
 - `npm run ios:test` — bundle, then `swift test` in `ios/`. The tests start a throwaway `sshd` on this Mac (its own host key, a temporary `HOME`, a private tmux socket) and sign in to it, directly and as its own jump host. They touch none of your hosts. Needs Xcode selected (`xcode-select -p` shows Xcode, not the command line tools).
+- `sh scripts/ios-sim.sh` — build the app, open it in the simulator signed in to the same kind of throwaway `sshd` with two fake agents, and print the path of a screenshot. The way to look at a change without a phone.
 
 ## Building it onto your iPhone
 

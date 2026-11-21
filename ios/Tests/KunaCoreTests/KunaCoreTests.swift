@@ -56,7 +56,7 @@ final class TestServer {
 
   deinit {
     sshd.terminate()
-    _ = try? sh("tmux -L \(socket) kill-server")
+    _ = try? sh("tmux -L \(socket) kill-server; rm -f \"${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/\(socket)\"")
     try? FileManager.default.removeItem(at: dir)
   }
 
@@ -150,17 +150,27 @@ private func freePort() throws -> Int {
     defer { connection.close() }
     let shared = try Shared()
     var seen: [String] = []
+    var listed: [Agent] = []
     for try await event in watch(host: "test", on: connection, shared: shared) {
       switch event {
       case .installing: seen.append("installing")
       case .ready: seen.append("ready")
       case .agents(let agents):
+        listed = agents
+        if seen.last == "agents" { break }
         #expect(agents.isEmpty)
         seen.append("agents")
+        // sshd gives the session no LANG, as hosts do for a client that sends none: the frame must still parse
+        let b64 = { (text: String) in Data(text.utf8).base64EncodedString() }
+        let meta = #"{"cwd":"~","createdAt":1,"prompt":"Fit the signal region"}"#
+        #expect(try await kuna(["spawn", "abc123", b64("~"), b64("sleep 60"), "100", "30", b64(meta), b64("")], on: connection).text == "ok\n")
       }
-      if seen.last == "agents" { break }
+      if !listed.isEmpty { break }
     }
     #expect(seen == ["installing", "ready", "agents"])
+    #expect(listed.map(\.key) == ["test::abc123"])
+    #expect(listed.first?.title == "Fit the signal region")
+    #expect(listed.first?.alive == true)
     #expect(try await kuna(["version"], on: connection).text == shared.version + "\n")
   }
 }
@@ -176,7 +186,7 @@ private func freePort() throws -> Int {
   #expect(agents.map(\.status) == ["working", "waiting"])
   #expect(agents[0].key == "cluster1::ab12")
   #expect(agents[0].attnTs == 1_699_999_950)
-  #expect(agents[0].paneTitle == "✳ Fix tests")
+  #expect(agents.map(\.title) == ["hi", "agent q1"])
 }
 
 @Test func quotesArgumentsForTheRemoteShell() {

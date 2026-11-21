@@ -4,7 +4,7 @@
  * no DOM, no Node, strings in and JSON out.
  */
 import type { HostId } from '@shared/types'
-import { frameToAgents, onLocalClock, parseFrame } from '@shared/watch'
+import { frameToAgents, onLocalClock, parseFrame, titleOf } from '@shared/watch'
 
 declare const __KUNA_SCRIPT__: string
 declare const __KUNA_VERSION__: string
@@ -15,5 +15,5 @@ export const version = __KUNA_VERSION__
 
 /** One watch frame (its lines, the host's clock at its end) as agents on the phone's clock. */
 export function agents(host: string, lines: string[], now: number, offset: number): string {
-  return JSON.stringify(onLocalClock(frameToAgents(host as HostId, parseFrame(lines, now)), offset))
+  return JSON.stringify(onLocalClock(frameToAgents(host as HostId, parseFrame(lines, now)), offset).map((a) => ({ ...a, title: titleOf(a) })))
 }

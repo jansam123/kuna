@@ -113,17 +113,12 @@ struct AgentRow: View {
     HStack(alignment: .firstTextBaseline, spacing: 12) {
       StatusDot(status: agent.status)
       VStack(alignment: .leading, spacing: 3) {
-        Text(title).lineLimit(2)
+        Text(agent.title).lineLimit(2)
         Text(line).font(.footnote).foregroundStyle(agent.status == "waiting" ? Look.needsYou : Look.muted).lineLimit(2)
       }
     }
     .accessibilityElement(children: .combine)
-    .accessibilityLabel("\(title), \(word)")
-  }
-
-  private var title: String {
-    let named = [agent.name, agent.paneTitle?.trimmingCharacters(in: CharacterSet(charactersIn: "✳⠂⠐ ")), agent.prompt].compactMap { $0 }.first { !$0.isEmpty }
-    return named ?? agent.key
+    .accessibilityLabel("\(agent.title), \(word)")
   }
 
   private var word: String {

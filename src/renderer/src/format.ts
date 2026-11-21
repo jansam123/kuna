@@ -1,6 +1,7 @@
 import { describeActivity, shortActivity } from '@shared/activity'
 import { contextInfo, modelFlag, type ContextInfo } from '@shared/context'
 import type { AgentDetails, AgentRuntime, AgentStatus } from '@shared/types'
+import { titleOf } from '@shared/watch'
 import { get } from './store'
 
 export function tokens(n: number): string {
@@ -71,18 +72,8 @@ export function modeLabel(mode?: string): string | undefined {
   return MODE_LABEL[mode] ?? mode
 }
 
-/** Best human title: Claude's session title, then the prompt, then the pane title. */
 export function agentTitle(a: AgentRuntime, d?: AgentDetails): string {
-  const paneTitle = a.paneTitle?.replace(/^[^\p{L}\p{N}]+/u, '').trim()
-  return (
-    get().names[a.key] ||
-    (a.kind === 'claude' ? a.name : '') ||
-    d?.title ||
-    a.name ||
-    (a.prompt ? a.prompt.split('\n')[0] : '') ||
-    (paneTitle && paneTitle !== a.id && !/^(claude|bash|zsh|sh)$/i.test(paneTitle) ? paneTitle : '') ||
-    `agent ${a.id}`
-  )
+  return titleOf(a, get().names[a.key], d?.title)
 }
 
 /** What the agent is waiting on, in one line ("approve Bash: …", a question). */

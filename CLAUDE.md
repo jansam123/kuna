@@ -54,6 +54,7 @@ Read `docs/ARCHITECTURE.md` before changing how hosts, status or transcripts wor
 - `npm run build` / `npm run dist` — bundles / unsigned `.app` in `release/`
 - `sh scripts/smoke.sh` — open the built app once with a throwaway profile and report
 - `npm run ios:bundle` / `npm run ios:test` — the iPhone app's shared-logic bundle / its tests (`docs/IOS.md`)
+- `sh scripts/ios-sim.sh` — open the iPhone app in the simulator against a throwaway `sshd` with two fake agents and save a screenshot
 
 ### Rules
 

@@ -11,7 +11,7 @@ import { applyPatch, diffShared, mergePatch } from '@shared/sync'
 import { hasMath, splitMath, texToText } from '@shared/tex'
 import { TranscriptParser } from '@shared/transcript'
 import { isAgentId, isHostId, isTmuxKeys, splitAgentKey } from '@shared/validate'
-import { deriveStatus, frameToAgents, onLocalClock, parseFrame, parseRateLimits } from '@shared/watch'
+import { deriveStatus, frameToAgents, onLocalClock, parseFrame, parseRateLimits, titleOf } from '@shared/watch'
 import { cascade, placeOnScreen, stepWindow, windowOrder } from '@shared/windows'
 import type { SharedState } from '@shared/types'
 import {
@@ -201,6 +201,13 @@ describe('watch frames', () => {
     const [gone, live] = onLocalClock(frameToAgents('cluster1', parseFrame(lines, 1700000101)), 100)
     expect(live).toMatchObject({ attnTs: 1699999950, createdAt: 1699999900 })
     expect(gone.attnTs).toBe(0)
+  })
+  it('titles an agent: your name for it, the prompt\'s first line, a pane title that says something, its id', () => {
+    const a = frameToAgents('cluster1', parseFrame(lines, 1700000101)).find((x) => x.id === 'ab12')!
+    expect(titleOf(a, 'Mine')).toBe('Mine')
+    expect(titleOf({ ...a, prompt: 'Fit it\nthen plot' })).toBe('Fit it')
+    expect(titleOf({ ...a, prompt: '', paneTitle: '✳ Fix tests' })).toBe('Fix tests')
+    expect(titleOf({ ...a, prompt: '', paneTitle: 'zsh' })).toBe('agent ab12')
   })
 })
 

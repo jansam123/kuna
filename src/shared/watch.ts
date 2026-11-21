@@ -459,3 +459,17 @@ export function onLocalClock(agents: AgentRuntime[], off: number): AgentRuntime[
     lastEventTs: a.lastEventTs ? a.lastEventTs - off : undefined
   }))
 }
+
+/** Best human title: the user's own name for it, Claude's session title, then the prompt, then the pane title. */
+export function titleOf(a: AgentRuntime, custom?: string, detailsTitle?: string): string {
+  const paneTitle = a.paneTitle?.replace(/^[^\p{L}\p{N}]+/u, '').trim()
+  return (
+    custom ||
+    (a.kind === 'claude' ? a.name : '') ||
+    detailsTitle ||
+    a.name ||
+    (a.prompt ? a.prompt.split('\n')[0] : '') ||
+    (paneTitle && paneTitle !== a.id && !/^(claude|bash|zsh|sh)$/i.test(paneTitle) ? paneTitle : '') ||
+    `agent ${a.id}`
+  )
+}

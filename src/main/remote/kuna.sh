@@ -23,7 +23,9 @@ KUNA_CDIR=
 [ -f "$K/claude-dir" ] && read -r KUNA_CDIR < "$K/claude-dir"
 CDIR=${KUNA_CDIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}
 
-tm() { "$T" -L "$SOCK" -f "$CONF" "$@"; }
+# -u: without a UTF-8 locale (an ssh session that was sent no LANG) tmux prints "_" for the tabs
+# between fields and for the spinner's characters
+tm() { "$T" -u -L "$SOCK" -f "$CONF" "$@"; }
 
 # Agent ids (Kuna's hex ids, background sessions' short ids) end up in paths
 # that get removed, tmux targets and claude arguments: nothing else gets through.

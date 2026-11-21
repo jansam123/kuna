@@ -11,9 +11,8 @@ public struct Agent: Codable, Identifiable, Hashable, Sendable {
   public var alive: Bool
   public var attnTs: Double
   public var activityTs: Double
-  public var name: String?
-  public var prompt: String?
-  public var paneTitle: String?
+  /// what to call it, as the Mac does (`titleOf` in src/shared/watch.ts)
+  public var title: String
   public var detail: String?
   public var needs: String?
   public var tool: String?
