@@ -79,4 +79,4 @@ The script can use `window.kunaInternals` (`store`, `actions`, `terminals`), dis
 
 - Commit messages: imperative subject, a short body with the why.
 - Shared logic goes in `src/shared` with a test; Electron-specific code stays in `main`/`renderer`.
-- No network access at runtime besides your ssh connections: fonts are bundled, no telemetry.
+- No network access at runtime besides your ssh connections and a web page the user opens in the viewer (⌘click on an address): fonts are bundled, no telemetry.

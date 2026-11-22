@@ -29,7 +29,7 @@ The goal: the user ends up with Kuna running and knows how to start their first 
 **Remote hosts.** Any `Host` alias in `~/.ssh/config` works; Kuna uses the user's own `ssh`. A host needs `tmux`, `claude` and a POSIX `sh`. Kuna runs ssh with `BatchMode=yes`; hosts that need a password or OTP get a **Sign in** button. See `docs/REMOTE-HOSTS.md` for clusters, Kerberos and troubleshooting.
 
 **What Kuna writes.**
-- On this Mac: `~/Library/Application Support/Kuna/kuna-state.json` (projects, settings, each window's panes and place; a `.bak` next to it).
+- On this Mac: `~/Library/Application Support/Kuna/kuna-state.json` (projects, settings, each window's panes and place; a `.bak` next to it). Beside it, `Partitions/web`: the cookies of web pages opened in the viewer.
 - On every host it uses, this Mac included: `~/.kuna/` (helper script, tmux config, hook settings, one directory per agent, ssh control sockets on the Mac).
 - A private tmux server, `tmux -L kuna`, separate from the user's own tmux.
 - It never edits `~/.claude/settings.json`; its hooks are passed with `claude --settings`.
