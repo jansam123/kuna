@@ -6,6 +6,8 @@ import SwiftUI
 struct Look: Equatable {
   var ground, panel, raised, line, text, dim, faint, accent, insert: Color
   var working, waiting, idle, exited, unread, danger: Color
+  /// the scheme's terminal palette, so a colour in a conversation means what it means in the terminal
+  var green, blue, magenta, cyan, code, bright: Color
 
   init(_ t: Theme) {
     ground = Color(hex: t.ground)
@@ -23,6 +25,12 @@ struct Look: Equatable {
     exited = Color(hex: t.exited)
     unread = Color(hex: t.unread)
     danger = Color(hex: t.danger)
+    green = Color(hex: t.terminal["green"] ?? "#4ade80")
+    blue = Color(hex: t.terminal["blue"] ?? "#60a5fa")
+    magenta = Color(hex: t.terminal["magenta"] ?? "#c084fc")
+    cyan = Color(hex: t.terminal["cyan"] ?? "#22d3ee")
+    code = Color(hex: t.terminal["brightBlue"] ?? "#93c5fd")
+    bright = Color(hex: t.terminal["brightWhite"] ?? "#ffffff")
   }
 
   /// As on the Mac: blue working, amber needs you, grey idle, red failed, dark stopped.

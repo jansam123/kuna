@@ -271,6 +271,15 @@ private func freePort() throws -> Int {
     try await model.stop(agent)
     try await until("the agent to be gone") { model.links["test"]?.agents.contains { $0.key == key } == false && model.links["test"]?.synced == true }
     #expect((try? sh("tmux -L \(server.socket) has-session -t kuna_\(agent.agentId)")) == nil)
+
+    // a terminal: the shell in the folder, told apart from an agent
+    let shell = try await model.spawn(project: project, folder: project.folders[0], prompt: "", shell: true)
+    try await until("the terminal in a report from the host") { model.links["test"]?.agents.first { $0.key == shell }?.alive == true }
+    let terminal = try #require(model.agent(shell))
+    #expect(terminal.shell == true)
+    #expect(model.name(of: terminal) == "Terminal")
+    try await model.stop(terminal)
+    try await until("the terminal to be gone") { model.links["test"]?.agents.contains { $0.key == shell } == false }
   }
 
   @Test func refusesAHostWhoseKeyChangedAndDoesNotRetry() async throws {
@@ -324,6 +333,26 @@ private func freePort() throws -> Int {
   #expect(agents[0].key == "cluster1::ab12")
   #expect(agents[0].attnTs == 1_699_999_950)
   #expect(agents.map(\.title) == ["hi", "agent q1"])
+}
+
+@Test func sharedLogicReadsMarkdownAReviewAndAFolder() throws {
+  struct Block: Decodable { var kind: String; var depth: Int; var mark: String? }
+  let blocks = try Shared.main.decode([Block].self, "markdown", ["# T\n\n- [x] a\n  1. b\n\n| x |\n|---|\n| y |"])
+  #expect(blocks.map { "\($0.kind)\($0.depth)\($0.mark ?? "")" } == ["h0", "p1☑", "p21.", "table0"])
+
+  struct Option: Decodable { var value: String?; var kind: String }
+  struct Overview: Decodable { var base: String?; var head: String?; var bases: [Option]; var heads: [Option] }
+  let info = "\u{1e}info\u{1e}root\t/w\nbranch\tfeat\nhead\tabc\ndefault\torigin/main\nupstream\t\n\u{1e}refs\u{1e}refs/heads/feat\tabc\t10 +0000\tWork\nrefs/remotes/origin/main\tdef\t5 +0000\tBase\n\u{1e}worktrees\u{1e}"
+  let overview = try Shared.main.decode(Overview.self, "gitOverview", [info, ""])
+  #expect(overview.base == "origin/main")
+  #expect(overview.head == "feat")
+  #expect(overview.bases.map(\.value) == ["feat", "origin/main"])
+  #expect(overview.heads.first?.kind == "worktree" && overview.heads.first?.value == nil)
+
+  struct Listing: Decodable { var folders: [String]; var files: [MediaItem] }
+  let listing = try Shared.main.decode(Listing.self, "folder", ["directory\t64\t5\t./plots\nregular file\t120\t7\t./fit.py\nregular file\t900\t8\t./mass.png", "/w/"])
+  #expect(listing.folders == ["plots"])
+  #expect(listing.files.map { "\($0.path) \($0.kind)" } == ["/w/fit.py file", "/w/mass.png image"])
 }
 
 @Test func quotesArgumentsForTheRemoteShell() {

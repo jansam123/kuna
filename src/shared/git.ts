@@ -431,6 +431,32 @@ export function defaultBase(info: GitInfo): string | undefined {
   return order.find((n) => names.has(n))
 }
 
+/** One line of a branch picker. */
+export interface RefOption {
+  /** null: the working tree */
+  value: string | null
+  label: string
+  detail?: string
+  kind: 'worktree' | 'branch' | 'remote' | 'tag' | 'commit' | 'repo'
+  time?: number
+}
+
+/** Branches to compare: local ones first (newest first), then remote ones and tags. */
+export function refOptions(info: GitInfo, withWorktree: boolean): RefOption[] {
+  const out: RefOption[] = []
+  if (withWorktree) out.push({ value: null, label: 'Working tree', detail: 'what is on disk, uncommitted changes included', kind: 'worktree' })
+  const here = new Map(info.worktrees.filter((w) => w.branch).map((w) => [w.branch!, w.path]))
+  const order = { branch: 0, remote: 1, tag: 2 }
+  const refs = [...info.refs].sort((a, b) => order[a.kind] - order[b.kind] || b.time - a.time)
+  for (const r of refs) {
+    const wt = r.kind === 'branch' ? here.get(r.short) : undefined
+    const marks = [r.short === info.branch ? 'checked out' : wt ? `in ${wt.split('/').pop()}` : '', r.subject].filter(Boolean)
+    out.push({ value: r.short, label: r.short, detail: marks.join(' · '), kind: r.kind, time: r.time })
+  }
+  if (!info.branch && info.head) out.splice(withWorktree ? 1 : 0, 0, { value: 'HEAD', label: 'HEAD', detail: `detached at ${info.head.slice(0, 8)}`, kind: 'commit' })
+  return out
+}
+
 // ------------------------------------------------------------ the tree ----
 
 export interface TreeDir<T> {

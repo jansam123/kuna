@@ -127,7 +127,7 @@ spawn aaaa1111 "$fake" 'Fit the signal region and show me the mass plot.'
 spawn bbbb2222 'exit 3' 'Rerun the failed jobs'
 spawn cccc3333 "$fake 'Train the tagger on the new samples' working" 'Train the tagger on the new samples' tagger p-tag f-tag
 spawn dddd4444 "$fake 'Compare the ROC curves' waiting" 'Compare the ROC curves' tagger p-tag f-tag
-spawn eeee5555 "$fake 'Summarise the alignment note'" 'Summarise the alignment note' notes p-notes f-notes
+spawn eeee5555 "$fake 'Summarise the alignment note' limit" 'Summarise the alignment note' notes p-notes f-notes
 sleep 3
 xcrun simctl terminate "$sim" $app
 

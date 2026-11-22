@@ -42,6 +42,11 @@ final class Walkthrough: XCTestCase {
     wait(app.staticTexts["The fit converged."], 30, "the agent's reply")
     sleep(1)
     shot("chat")
+    // its start: the task, the thinking, each tool in the colour of its work
+    app.swipeDown()
+    app.swipeDown()
+    sleep(1)
+    shot("chat-top")
 
     // write to it
     let message = app.textFields["message"].exists ? app.textFields["message"] : app.textViews["message"]
@@ -83,13 +88,30 @@ final class Walkthrough: XCTestCase {
       app.navigationBars.buttons.element(boundBy: 0).tap()
     }
 
-    // review: the uncommitted changes, a diff, a comment on a line, the other lists, and the comment sent
+    // review: the branch against its base as a pull request shows it, the two branch lists, the
+    // uncommitted changes, a diff, a comment on a line, the other lists, the folder, and the comment sent
     app.buttons["agent-more"].tap()
     if wait(app.buttons["Review changes"], 5) {
       app.buttons["Review changes"].tap()
       let file = app.buttons["change-fit.py"]
-      if wait(file, 20, "the changed file in the review") {
+      if wait(file, 20, "the file the branch changed") {
         shot("review-changes")
+        app.buttons["ref-base"].tap()
+        if wait(app.buttons["ref-main"], 10, "the base's branch list") {
+          shot("review-base")
+          app.buttons["Cancel"].tap()
+        }
+        app.buttons["ref-head"].tap()
+        if wait(app.buttons["ref-Working tree"], 10, "the head's branch list") {
+          shot("review-head")
+          app.buttons["ref-Working tree"].tap()
+          wait(app.buttons["change-config.yaml"], 20, "the working tree's changes against the base")
+          shot("review-worktree")
+        }
+      }
+      app.buttons["Uncommitted"].tap()
+      if wait(file, 20, "the changed file among the uncommitted changes") {
+        shot("review-uncommitted")
         file.tap()
         let line = app.webViews.staticTexts.containing(NSPredicate(format: "label CONTAINS 'result.check()'")).firstMatch
         if wait(line, 20, "the diff's added line") {
@@ -113,10 +135,15 @@ final class Walkthrough: XCTestCase {
         sleep(2)
         app.buttons["diff-done"].tap()
       }
-      for tab in ["Branch", "Commits", "Files"] {
+      for tab in ["Files", "Commits"] {
         app.buttons[tab].tap()
         sleep(4)
         shot("review-\(tab.lowercased())")
+      }
+      app.buttons["review-folder"].tap()
+      if wait(app.buttons["dir-plots"], 20, "the agent's folder") {
+        shot("review-folder")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
       }
       if app.buttons["send-comments"].exists {
         app.buttons["send-comments"].tap()
@@ -128,8 +155,42 @@ final class Walkthrough: XCTestCase {
       }
     }
 
-    // back home; a new agent in the folder
+    // back home; a folder's files from there: a folder in it, a picture, a file as text, a download
     app.navigationBars.buttons.element(boundBy: 0).tap()
+    if wait(app.buttons["Files of work"], 10, "the folder's files button") {
+      app.buttons["Files of work"].tap()
+      if wait(app.buttons["file-fit.py"], 20, "the folder's files") {
+        shot("folder")
+        app.buttons["file-fit.py"].tap()
+        sleep(4)
+        shot("folder-text")
+        app.buttons["viewer-done"].tap()
+        app.buttons["dir-plots"].tap()
+        if wait(app.buttons["file-mass.png"], 20, "the plots folder") {
+          app.buttons["file-mass.png"].tap()
+          sleep(4)
+          shot("folder-picture")
+          app.buttons["viewer-download"].tap()
+          sleep(4)
+          shot("folder-download")
+          if app.buttons["Cancel"].waitForExistence(timeout: 5) { app.buttons["Cancel"].tap() }
+          sleep(1)
+          app.buttons["viewer-done"].tap()
+        }
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+      }
+      app.navigationBars.buttons.element(boundBy: 0).tap()
+    }
+
+    // an agent stopped by a usage limit: Claude Code's own words, in their own colours
+    let limited = app.buttons["agent-eeee5555"]
+    if limited.waitForExistence(timeout: 5) {
+      limited.tap()
+      wait(app.descendants(matching: .any)["chat-limit"], 30, "the usage limit in the conversation")
+      sleep(1)
+      shot("chat-limit")
+      app.navigationBars.buttons.element(boundBy: 0).tap()
+    }
     let add = app.buttons["New in work"]
     if wait(add, 10, "the folder's + button") {
       add.tap()

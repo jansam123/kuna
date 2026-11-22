@@ -59,6 +59,8 @@ final class MediaStore {
 
   /// past this a file is not shown at all
   static let most = 200.0 * 1024 * 1024
+  /// past this a file that is not a picture, a PDF or a page is not shown as text (it can still be downloaded)
+  static let textBelow = 2.0 * 1024 * 1024
   /// past this, on mobile data, the user is asked first
   static let askAbove = 25.0 * 1024 * 1024
 
@@ -269,6 +271,8 @@ struct ViewerScreen: View {
   @Environment(\.look) private var look
   @Environment(\.dismiss) private var dismiss
   @State private var shared: URL?
+  @State private var saving: URL?
+  @State private var failure: Notice?
 
   init(model: AppModel, store: MediaStore, host: String, items: [MediaItem], start: MediaItem) {
     self.model = model
@@ -290,8 +294,17 @@ struct ViewerScreen: View {
           Text(items[index].name).font(.subheadline.weight(.semibold)).foregroundStyle(look.text).lineLimit(1).truncationMode(.middle)
           Text("\(index + 1) of \(items.count) · \(sizeText(items[index].size)) · \(ago(items[index].mtime))").font(.caption2).foregroundStyle(look.dim)
         }
-        PlaceChip(place: items[index].place ?? "outside")
+        if let place = items[index].place { PlaceChip(place: place) }
         Spacer(minLength: 0)
+        Button("Download", systemImage: "arrow.down.to.line") {
+          let item = items[index]
+          Task {
+            do { saving = try phoneCopy(of: try await store.data(for: item, host: host, model: model), named: item.name) } catch {
+              failure = Notice(title: "Not downloaded", text: error.localizedDescription)
+            }
+          }
+        }
+        .labelStyle(.iconOnly).accessibilityIdentifier("viewer-download")
         if let shared { ShareLink(item: shared) { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("Share") }
       }
       .padding(.horizontal, 14)
@@ -308,6 +321,8 @@ struct ViewerScreen: View {
     .background(look.panel.ignoresSafeArea())
     .preferredColorScheme(.dark)
     .onChange(of: current) { shared = nil }
+    .fileMover(isPresented: Binding(get: { saving != nil }, set: { if !$0 { saving = nil } }), file: saving) { _ in saving = nil }
+    .alert(item: $failure) { Alert(title: Text($0.title), message: Text($0.text)) }
   }
 }
 
@@ -342,15 +357,17 @@ private struct MediaPage: View {
       } else if let problem {
         VStack(spacing: 12) {
           Text(problem).foregroundStyle(look.dim).multilineTextAlignment(.center).padding(.horizontal, 28)
-          Button("Try again") { Task { await fetch() } }.buttonStyle(.bordered)
+          if item.kind != "file" || item.size <= MediaStore.textBelow { Button("Try again") { Task { await fetch() } }.buttonStyle(.bordered) }
         }
       } else {
         ProgressView()
       }
     }
     .task(id: front) {
-      guard front, data == nil else { return }
-      if item.size > MediaStore.askAbove, Connection.expensive { asking = true } else { await fetch() }
+      guard front, data == nil, problem == nil else { return }
+      if item.kind == "file", item.size > MediaStore.textBelow {
+        problem = "\(item.name) is \(sizeText(item.size)): too large to show as text. The arrow above downloads it."
+      } else if item.size > MediaStore.askAbove, Connection.expensive { asking = true } else { await fetch() }
     }
   }
 
@@ -381,6 +398,12 @@ private struct MediaPage: View {
     case "md": WebPane(model: model, host: host, dir: dir, content: .markdown(String(decoding: data, as: UTF8.self)))
     case "svg": WebPane(model: model, host: host, dir: dir, content: .svg(data))
     case "html": WebPane(model: model, host: host, dir: dir, content: .page(item.name))
+    case "file":
+      if data.prefix(8000).contains(0) {
+        Text("This is a binary file. The arrow above downloads it.").foregroundStyle(look.dim).multilineTextAlignment(.center).padding(28)
+      } else {
+        WebPane(model: model, host: host, dir: dir, content: .code(path: item.path, text: String(decoding: data, as: UTF8.self)))
+      }
     default:
       if let image = UIImage(data: data) { ZoomPane(image: image) } else { Text("This picture could not be opened.").foregroundStyle(look.dim) }
     }

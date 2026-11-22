@@ -9,6 +9,8 @@ enum Route: Hashable {
   case review(String)
   /// a project's page, by its id
   case project(String)
+  /// a folder on a host, to look through: the host, the folder
+  case files(String, String)
 }
 
 struct Notice: Identifiable {
@@ -53,6 +55,7 @@ public struct RootView: View {
           case .plots(let key): PlotsScreen(model: model, key: key, open: open)
           case .review(let key): ReviewScreen(model: model, key: key, path: $path, open: open)
           case .project(let id): ProjectScreen(model: model, id: id, path: $path, notice: $notice)
+          case .files(let host, let dir): FolderScreen(model: model, host: host, dir: dir, path: $path)
           }
         }
     }
@@ -72,7 +75,7 @@ public struct RootView: View {
       open.keep(only: Set(now.compactMap { route in
         switch route {
         case .agent(let key), .plots(let key), .review(let key): key
-        case .project: nil
+        case .project, .files: nil
         }
       }))
     }

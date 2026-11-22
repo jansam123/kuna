@@ -4,15 +4,16 @@ An iPhone app that signs in to your hosts over ssh, as the Mac app does, and wor
 
 ## What it does
 
-- **Projects, folders and agents** as in the Mac's sidebar, with live status. An agent that needs you is also listed at the top.
-- **An agent's conversation**: what you wrote, what it answered, each tool call as one line, its thinking folded. A line under it says what it is doing right now. Write to it from the box at the bottom.
+- **Projects, folders and agents** as in the Mac's sidebar, with live status: each project in its colour with its icon (the Mac's drawings, or a letter) and how many of its agents wait, work or failed; agents set in under their folder. Math in a name (`$HH \to b\bar{b}$`) shows as text. While the layout is being chosen, **Settings ▸ Home screen** switches between four.
+- **An agent's conversation**: what you wrote, what it answered, each tool call as one line, its thinking folded. Replies are drawn as Markdown, read by the same library as on the Mac: headings, lists in lists, task lists, quotes, tables, code blocks, links, and math as text. Colours say what a row is, with the scheme's terminal palette: your messages on the accent; a tool's name green when it changes files, magenta when it runs a command, cyan when it hands work on, blue when it looks something up; a green tick when it finished, red when it failed; a usage limit in an amber box and a failed request in a red one. A line under it says what it is doing right now. Write to it from the box at the bottom.
 - **Its terminal**, one tap away, with the keys a phone keyboard lacks (Esc, Tab, the arrows, Ctrl+C). Questions and permission prompts are answered there.
-- **Starting, stopping and removing agents**, and naming them.
-- **Plots and files**: the PDFs, pictures, Markdown files and HTML pages an agent mentioned or wrote, full screen, with a swipe to the next and the share sheet. HTML pages are live, fenced in as on the Mac.
-- **Review**: the uncommitted changes, the branch against its base, single commits, any file. Tap a line to comment; the comments go to the agent together.
+- **Starting, stopping and removing agents**, and naming them. A folder's **+** also starts a **terminal** (your shell there), as ⌘T on the Mac.
+- **Plots and files**: the PDFs, pictures, Markdown files and HTML pages an agent mentioned or wrote, grouped as on the Mac (Slides, Diagrams, Plots, Markdown, Pages; each file marked `folder`, `.claude`, `tmp` or `outside`), full screen, with a swipe to the next, a download button (to Files) and the share sheet. HTML pages are live, fenced in as on the Mac. A PDF over 4 MB stays under PDFs until it is opened.
+- **A folder's files**, git or not: the button beside a folder's name on the home screen (or **Files of its folder** in an agent's menu, or the folder button in the review) lists the folder, one level at a time. Pictures, PDFs, Markdown and pages open as above, anything else as text up to 2 MB; swipe a file's row, or use the arrow in the viewer, to download it to the phone.
+- **Review**, laid out as the Mac's: **Changes** is what a branch changed since it left another (`base ← head`, as a pull request shows it). The base starts as origin's default branch (`origin/main`), else `main` or `master`; head as the agent's checked-out branch. Tap either to pick any branch, remote branch or tag, or type a commit; **Working tree** as head includes what is not committed. The base is remembered per repository. **Uncommitted** lists merge conflicts, staged changes, changes and untracked files; **Files** every file at head; **Commits** the commits in the comparison, each on its own with a tap. Tap a line of a diff to comment; the comments go to the agent together.
 - **Colour schemes** as on the Mac.
 
-Not in it yet: notifications and a home screen widget (both need Apple's push service, which needs a paid developer account), a files browser outside git, the `.claude` browser, how full the plan's usage is, sending a photo to an agent.
+Not in it yet: notifications and a home screen widget (both need Apple's push service, which needs a paid developer account), the `.claude` browser, how full the plan's usage is, sending a photo to an agent.
 
 ## Getting your projects onto the phone
 
@@ -78,7 +79,7 @@ Build the Mac app from the same commit (`npm run dist`, or `npm run dev`). The h
 | `src/shared/phone.ts` | the export's format, reading it, and merging it into what the phone has |
 | `src/main/phoneExport.ts` | the Mac's **Export for iPhone…** |
 
-The phone has no logic of its own for what the Mac already works out: the watch stream, statuses, titles, where an agent goes in the tree, the conversation's rows, the plots a reply mentions, git's output, the review comments' message and the colour schemes all come from `src/shared` through `ios/bridge.ts`. `npm run ios:bundle` bundles the bridge (with the helper script `kuna.sh`) into `ios/Sources/KunaCore/Resources/kuna-shared.js` and the web script into `ios/Sources/KunaUI/Resources/kuna-web.js`. Neither is in git: **run `npm run ios:bundle` before building, and again after changing `src/shared`, `ios/bridge.ts`, `ios/web` or `kuna.sh`.**
+The phone has no logic of its own for what the Mac already works out: the watch stream, statuses, titles, where an agent goes in the tree, the conversation's rows and a reply's Markdown as blocks, the plots a reply mentions, git's output and the branch lists, the review comments' message and the colour schemes all come from `src/shared` through `ios/bridge.ts`. `npm run ios:bundle` bundles the bridge (with the helper script `kuna.sh`) into `ios/Sources/KunaCore/Resources/kuna-shared.js` and the web script into `ios/Sources/KunaUI/Resources/kuna-web.js`. Neither is in git: **run `npm run ios:bundle` before building, and again after changing `src/shared`, `ios/bridge.ts`, `ios/web` or `kuna.sh`.**
 
 - `npm run ios:bundle` — make the two bundles
 - `npm run ios:test` — bundle, then `swift test` in `ios/`. The tests start a throwaway `sshd` on this Mac (its own host key, a temporary `HOME`, a private tmux socket) and drive the ssh code and the app's model against it: sign-in, a jump host, host keys, the helper, starting and stopping an agent, typing into it, its conversation, its terminal, an import. They touch none of your hosts and not your keychain.

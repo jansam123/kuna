@@ -15,6 +15,7 @@ import {
   parseInfo,
   parseRepos,
   parseStatus,
+  refOptions,
   repoLabel,
   reviewMessage as reviewText,
   sections,
@@ -22,6 +23,7 @@ import {
   validRef,
   type ReviewComment
 } from '@shared/git'
+import { markdownBlocks } from '@shared/mdblocks'
 import { MEDIA_GROUPS, PAGE_CSP, figureClass, fileGroups, mediaKind, mediaPlace, mimeFor, pageFile as pageFileOf, resolveAgainst, viewerOrder, type FigureClass } from '@shared/media'
 import { emptyPhoneState, hostKeyVerdict, knownHostsName, mergeImport, parseExport, type PhoneHost, type PhoneState } from '@shared/phone'
 import { texToText } from '@shared/tex'
@@ -97,6 +99,10 @@ export const shellCommand = (): string => SHELL_COMMAND
 export const repoColors = (): string => JSON.stringify(REPO_COLORS)
 
 // ------------------------------------------------------------------ chat ----
+
+/** A reply's Markdown as flat blocks the app draws with its own views (`markdownBlocks`). */
+export const markdown = (text: string): string => JSON.stringify(markdownBlocks(text))
+
 
 const chats = new Map<string, ChatLog>()
 
@@ -202,14 +208,24 @@ export function gitRepos(text: string, dir: string): string {
   return JSON.stringify(parseRepos(text).map((r) => ({ ...r, label: repoLabel(r.path, dir) })))
 }
 
+/**
+ * A repository as the review opens on it: what to compare with what (as the
+ * Mac starts: origin's default branch, and what is checked out), the branches
+ * each picker offers, and the uncommitted changes in VS Code's groups.
+ */
 export function gitOverview(info: string, status: string): string {
   const i = parseInfo(info)
   const s = parseStatus(sections(status))
   return JSON.stringify({
     info: i,
-    base: defaultBase(i) ?? null,
+    base: defaultBase(i) ?? i.branch ?? (i.head ? 'HEAD' : null),
+    head: i.branch ?? (i.head ? 'HEAD' : null),
+    bases: refOptions(i, false),
+    heads: refOptions(i, true),
+    conflicts: sortChanges(s.conflicts),
     staged: sortChanges(s.staged),
-    unstaged: sortChanges([...s.conflicts, ...s.unstaged, ...s.untracked])
+    unstaged: sortChanges(s.unstaged),
+    untracked: sortChanges(s.untracked)
   })
 }
 
@@ -219,6 +235,15 @@ export function gitCompare(text: string, base: string, head: string): string {
 }
 
 export const gitFiles = (text: string): string => JSON.stringify([...new Set(text.split('\0').filter((p) => p && !p.endsWith('/')))].slice(0, 20000))
-export const gitDir = (text: string): string => JSON.stringify(parseDirListing(text))
+/**
+ * `kuna lsdir` → a folder's folders, and its files as the viewer takes them:
+ * `kind` is what the viewer shows it as, `file` for anything it shows as text.
+ */
+export function folder(text: string, dir: string): string {
+  const l = parseDirListing(text)
+  const at = dir.replace(/\/+$/, '')
+  const files = l.entries.filter((e) => !e.dir).map((e) => ({ path: `${at}/${e.name}`, mtime: e.mtime, size: e.size, kind: mediaKind(`${at}/${e.name}`) ?? 'file' }))
+  return JSON.stringify({ more: l.more ?? null, folders: l.entries.filter((e) => e.dir).map((e) => e.name), files })
+}
 export const gitValidRef = (ref: string): boolean => validRef(ref)
 export const reviewMessage = (comments: string): string => reviewText(JSON.parse(comments) as ReviewComment[])

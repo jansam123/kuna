@@ -8,6 +8,7 @@ import { diffLines, foldUnchanged, splitLines, type DiffRow } from '@shared/line
 import { cleanTypedPath, pastePath } from '@shared/paths'
 import { emptyPhoneState, hostKeyVerdict, knownHostsName, makeExport, mergeImport, parseExport, parseJumpSpec, parseKnownHosts, parseSshG, type PhoneState } from '@shared/phone'
 import { gridRows, neighbor } from '@shared/layout'
+import { markdownBlocks } from '@shared/mdblocks'
 import { extractMediaPaths, figureClass, fileGroups, linksIn, mediaGroup, mediaKind, mediaPlace, normalizePosix, pageFile, resolveAgainst, viewerOrder } from '@shared/media'
 import { parseSshConfig } from '@shared/sshConfig'
 import { applyPatch, diffShared, mergePatch } from '@shared/sync'
@@ -1127,11 +1128,50 @@ describe('the conversation the iPhone shows', () => {
     expect(log.items(2).map((i) => i.kind)).toEqual(['user', 'note'])
   })
 
+  it('tells a usage limit and a failed request from what the agent said', () => {
+    const log = new ChatLog()
+    log.feed(
+      said('a', [{ type: 'text', text: "You've hit your 5-hour limit · resets 5:40pm" }], { isApiErrorMessage: true, error: 'rate_limit' }) +
+        said('b', [{ type: 'text', text: 'API Error: 529' }], { isApiErrorMessage: true, error: 'server_error' }) +
+        said('c', [{ type: 'text', text: 'Back.' }])
+    )
+    expect(log.items().map((i) => i.kind)).toEqual(['limit', 'error', 'assistant'])
+  })
+
   it('closes a question when its answer arrives', () => {
     const log = new ChatLog()
     log.feed(said('a', [{ type: 'tool_use', id: 't', name: 'AskUserQuestion', input: { questions: [{ question: 'Go?', options: ['Yes', 'No'] }] } }]))
     log.feed(line({ type: 'user', uuid: 'u', message: { content: [{ type: 'tool_result', tool_use_id: 't', content: 'Yes' }] } }))
     expect(log.items()[0]).toMatchObject({ kind: 'question', state: 'done' })
+  })
+})
+
+describe('markdown as blocks, for the phone', () => {
+  it('reads lists, tables, quotes, code and math as flat blocks', () => {
+    const b = markdownBlocks(
+      ['# Title', '', 'A **bold** and `code` line', 'goes on &amp; on, see [docs](https://x.org) and [no](javascript:1). $m_{\\gamma\\gamma}$ costs $5.', '', '1. one', '   - [x] done', '   - [ ] todo', '2. two', '', '   more', '', '> quoted', '', '| a | b |', '|:--|--:|', '| ~~c~~ | *d* |', '', '```py', 'x = 1', '```', '', '$$', 'a\\to b', '$$', '', '---'].join('\n')
+    )
+    expect(b.map((x) => `${x.kind}${x.depth}${x.quote}${x.mark ?? ''}`)).toEqual(['h00', 'p00', 'p101.', 'p20☑', 'p20☐', 'p102.', 'p10', 'p01', 'table00', 'code00', 'math00', 'rule00'])
+    expect(b[0]).toMatchObject({ level: 1, spans: [{ t: 'Title' }] })
+    expect(b[1].spans).toEqual([
+      { t: 'A ' },
+      { t: 'bold', b: true },
+      { t: ' and ' },
+      { t: 'code', c: true },
+      { t: ' line goes on & on, see ' },
+      { t: 'docs', href: 'https://x.org' },
+      { t: ' and no. ' },
+      { t: 'm_γγ', m: true },
+      { t: ' costs $5.' }
+    ])
+    expect(b[8]).toMatchObject({ align: ['left', 'right'], head: [[{ t: 'a' }], [{ t: 'b' }]], rows: [[[{ t: 'c', s: true }], [{ t: 'd', i: true }]]] })
+    expect(b[9]).toMatchObject({ text: 'x = 1', lang: 'py' })
+    expect(b[10].text).toBe('a → b')
+  })
+
+  it('keeps what it does not know as text', () => {
+    expect(markdownBlocks('<details>x</details>')[0].spans?.map((s) => s.t).join('')).toContain('details')
+    expect(markdownBlocks('')).toEqual([])
   })
 })
 

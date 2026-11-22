@@ -26,6 +26,8 @@ struct ProjectActions {
   var start: (Project, Folder, Bool) -> Void
   /// a project's own page (the tiles)
   var show: (Project) -> Void
+  /// a folder's files, to look through
+  var files: (Project, Folder) -> Void
 }
 
 /// A project's icon as on the Mac (ProjectIcon.tsx): one of its line drawings, a letter of your
@@ -225,6 +227,8 @@ private struct FolderRows: View {
         }
         .buttonStyle(.plain)
         if !folder.other {
+          Button("Files of \(name)", systemImage: "doc.text.magnifyingglass") { actions.files(project, folder.folder) }
+            .labelStyle(.iconOnly).font(.body).foregroundStyle(look.dim).buttonStyle(.plain).padding(.trailing, 4)
           Menu("New in \(name)", systemImage: "plus.circle.fill") {
             Button("New agent", systemImage: "sparkles") { actions.start(project, folder.folder, false) }
             Button("New terminal", systemImage: "apple.terminal") { actions.start(project, folder.folder, true) }
@@ -236,8 +240,9 @@ private struct FolderRows: View {
       .padding(.vertical, 11)
       if !folded {
         ForEach(folder.agents) { agent in
-          Divider().overlay(look.line.opacity(flat ? 0.5 : 1)).padding(.leading, 38)
-          AgentRow(model: model, agent: agent, open: { actions.open(agent.key) })
+          Divider().overlay(look.line.opacity(flat ? 0.5 : 1)).padding(.leading, 60)
+          // under its folder's name, as the Mac's sidebar sets agents in
+          AgentRow(model: model, agent: agent, open: { actions.open(agent.key) }).padding(.leading, 22)
         }
       }
     }

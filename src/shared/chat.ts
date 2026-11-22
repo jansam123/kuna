@@ -10,7 +10,8 @@ type Json = any
  */
 export interface ChatItem {
   id: string
-  kind: 'user' | 'assistant' | 'thinking' | 'tool' | 'question' | 'note'
+  /** `limit`, `error`: what Claude Code says in the agent's place (a usage limit reached; a request that failed) */
+  kind: 'user' | 'assistant' | 'thinking' | 'tool' | 'question' | 'note' | 'limit' | 'error'
   text: string
   /** tool: its name */
   tool?: string
@@ -65,7 +66,8 @@ export class ChatLog extends TranscriptParser {
     if (e.type === 'system' && e.subtype === 'compact_boundary') {
       this.put({ id, kind: 'note', text: 'The conversation was compacted here.', at })
     } else if (e.type === 'assistant' && Array.isArray(e.message?.content)) {
-      e.message.content.forEach((c: Json, i: number) => this.fromAssistant(c, `${id}:${i}`, at))
+      const said = e.isApiErrorMessage ? (e.error === 'rate_limit' ? 'limit' : 'error') : 'assistant'
+      e.message.content.forEach((c: Json, i: number) => this.fromAssistant(c, `${id}:${i}`, at, said))
     } else if (e.type === 'user' && !e.isCompactSummary) {
       const content = e.message?.content
       if (typeof content === 'string') this.fromUser(content, id, at, !!e.isMeta)
@@ -73,10 +75,10 @@ export class ChatLog extends TranscriptParser {
     }
   }
 
-  private fromAssistant(c: Json, id: string, at?: number): void {
+  private fromAssistant(c: Json, id: string, at: number | undefined, said: 'assistant' | 'limit' | 'error'): void {
     if (!c) return
     if (c.type === 'text' && typeof c.text === 'string' && c.text.trim()) {
-      this.put({ id, kind: 'assistant', text: clip(c.text.trim()), at })
+      this.put({ id, kind: said, text: clip(c.text.trim()), at })
     } else if (c.type === 'thinking' && typeof c.thinking === 'string' && c.thinking.trim()) {
       this.put({ id, kind: 'thinking', text: clip(c.thinking.trim()), at })
     } else if (c.type === 'tool_use') {

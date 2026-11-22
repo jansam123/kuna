@@ -163,7 +163,7 @@ public struct Agent: Codable, Identifiable, Hashable, Sendable {
 /// One row of a conversation (`ChatItem` in src/shared/chat.ts).
 public struct ChatItem: Codable, Identifiable, Hashable, Sendable {
   public var id: String
-  /// user, assistant, thinking, tool, question, note
+  /// user, assistant, thinking, tool, question, note; limit and error: Claude Code's own words (a usage limit, a failed request)
   public var kind: String
   public var text: String
   public var tool: String?

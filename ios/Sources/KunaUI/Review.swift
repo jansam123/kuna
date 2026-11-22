@@ -37,11 +37,29 @@ struct GitInfo: Decodable, Hashable {
   var refs: [GitRef]
 }
 
+/// One line of a branch picker (`RefOption` in src/shared/git.ts).
+struct RefOption: Decodable, Hashable, Identifiable {
+  /// none: the working tree
+  var value: String?
+  var label: String
+  var detail: String?
+  /// worktree, branch, remote, tag, commit
+  var kind: String
+  var time: Double?
+  var id: String { "\(kind):\(value ?? "")" }
+}
+
 struct GitOverview: Decodable, Hashable {
   var info: GitInfo
+  /// what the review starts on: origin's default branch, and what is checked out
   var base: String?
+  var head: String?
+  var bases: [RefOption]
+  var heads: [RefOption]
+  var conflicts: [FileChange]
   var staged: [FileChange]
   var unstaged: [FileChange]
+  var untracked: [FileChange]
 }
 
 struct GitCommit: Decodable, Identifiable, Hashable {
@@ -124,9 +142,19 @@ final class ReviewStore {
   /// the commits are the newest of the branch itself, there being none that the base lacks
   private(set) var latest = false
   private(set) var files: [String] = []
-  var base = ""
+  /// the commit the files are listed at; none: what is on disk
+  private(set) var filesRev: String?
+  @ObservationIgnored private var filesKey: String?
+  /// what the changes are compared with
+  private(set) var base = ""
+  /// whose changes: a branch or a commit; none: the working tree, uncommitted changes included
+  private(set) var head: String?
+  /// a head picked stays; what is checked out follows the repository
+  @ObservationIgnored private var headPicked = false
   private(set) var loading = false
   private(set) var problem: String?
+  /// why there is no comparison
+  private(set) var compareProblem: String?
 
   /// the most of one side of a diff the phone reads
   static let maxBlob = 2 * 1024 * 1024
@@ -143,6 +171,12 @@ final class ReviewStore {
     try await model.done(host, ["git"] + args, timeout: timeout, or: "git did not answer.")
   }
 
+  /// the base picked for a repository, kept on the phone as the Mac keeps its own
+  private var saved: [String: String] {
+    get { UserDefaults.standard.dictionary(forKey: "reviewBase") as? [String: String] ?? [:] }
+    set { UserDefaults.standard.set(newValue, forKey: "reviewBase") }
+  }
+
   func load() async {
     loading = true
     problem = nil
@@ -157,42 +191,82 @@ final class ReviewStore {
       async let status = git(["status", b64(repo.path)], timeout: 35)
       let seen = try Shared.main.decode(GitOverview.self, "gitOverview", [try await info.text, try await status.text])
       overview = seen
-      if base.isEmpty || !seen.info.refs.contains(where: { $0.short == base }) { base = seen.base ?? "" }
+      if base.isEmpty {
+        let kept = saved["\(host):\(seen.info.root)"]
+        base = kept.flatMap { name in seen.info.refs.contains { $0.short == name } ? name : nil } ?? seen.base ?? ""
+      }
+      if !headPicked { head = seen.head }
       await loadCompare()
     } catch {
       problem = error.localizedDescription
     }
   }
 
-  /// The branch against its base: its files (uncommitted ones included) and its commits.
+  /// Another repository of the agent's folder: its own base and head.
+  func open(_ repo: GitRepo) async {
+    self.repo = repo
+    base = ""
+    headPicked = false
+    overview = nil
+    await load()
+  }
+
+  func pick(base name: String) async {
+    base = name
+    if let root = overview?.info.root { saved["\(host):\(root)"] = name }
+    await loadCompare()
+  }
+
+  func pick(head name: String?) async {
+    head = name
+    headPicked = true
+    await loadCompare()
+  }
+
+  /// Head against the base, as a pull request shows it (`base...head`): its files and its commits.
   func loadCompare() async {
-    guard let repo else { return }
+    guard let repo, let overview else { return }
     compare = nil
     commits = []
     latest = false
+    compareProblem = nil
+    guard overview.info.head != nil else { return compareProblem = "No commits yet: what there is shows under Uncommitted." }
+    guard !base.isEmpty else { return }
     do {
-      if !base.isEmpty {
-        let seen = try Shared.main.decode(GitCompare.self, "gitCompare", [try await git(["compare", b64(repo.path), b64(base), ""]).text, base, ""])
-        compare = seen
-        commits = seen.commits
-      }
-      if commits.isEmpty, overview?.info.head != nil {
-        // on the base branch itself, or with no base at all: the branch's own latest commits
-        for back in [20, 5, 1] {
-          guard let out = try? await git(["compare", b64(repo.path), b64("HEAD~\(back)"), b64("HEAD")]) else { continue }
-          commits = (try? Shared.main.decode(GitCompare.self, "gitCompare", [out.text, "HEAD~\(back)", "HEAD"]).commits) ?? []
-          latest = true
-          break
-        }
-      }
+      let seen = try Shared.main.decode(GitCompare.self, "gitCompare", [try await git(["compare", b64(repo.path), b64(base), head.map(b64) ?? ""]).text, base, head ?? ""])
+      compare = seen
+      commits = seen.commits
     } catch {
-      problem = error.localizedDescription
+      compareProblem = error.localizedDescription
+      // a head that is gone (a branch deleted, a name typed wrong): back to what is checked out
+      if let gone = head, headPicked, error.localizedDescription.contains("unknown branch or commit: \(gone)") {
+        head = overview.head
+        headPicked = false
+        return await loadCompare()
+      }
     }
+    if commits.isEmpty, compare != nil {
+      // on the base branch itself: the branch's own latest commits
+      for back in [20, 5, 1] {
+        guard let out = try? await git(["compare", b64(repo.path), b64("HEAD~\(back)"), b64("HEAD")]) else { continue }
+        commits = (try? Shared.main.decode(GitCompare.self, "gitCompare", [out.text, "HEAD~\(back)", "HEAD"]).commits) ?? []
+        latest = true
+        break
+      }
+    }
+    if filesKey != nil { await loadFiles() }
   }
 
+  /// Every file: what is on disk when head is checked out here, else the files at head.
   func loadFiles() async {
-    guard let repo, files.isEmpty else { return }
-    if let out = try? await git(["files", b64(repo.path), ""]) { files = (try? Shared.main.decode([String].self, "gitFiles", [out.text])) ?? [] }
+    guard let repo else { return }
+    let rev = head == nil || head == overview?.info.branch ? nil : compare?.tip
+    let key = "\(repo.path)\n\(rev ?? "")"
+    guard filesKey != key || files.isEmpty else { return }
+    filesKey = key
+    filesRev = rev
+    files = []
+    if let out = try? await git(["files", b64(repo.path), rev.map(b64) ?? ""]) { files = (try? Shared.main.decode([String].self, "gitFiles", [out.text])) ?? [] }
   }
 
   /// What one commit changed.
@@ -246,10 +320,17 @@ struct ReviewScreen: View {
   @Environment(\.look) private var look
   @State private var store: ReviewStore?
   @State private var tab = "changes"
+  /// the branch list that is open: `base` or `head`
+  @State private var picking: Picking?
   @State private var diff: DiffList?
   @State private var commit: CommitFiles?
   @State private var sending = false
   @State private var failure: Notice?
+
+  enum Picking: String, Identifiable {
+    case base, head
+    var id: String { rawValue }
+  }
 
   struct DiffList: Identifiable {
     let id = UUID()
@@ -275,6 +356,24 @@ struct ReviewScreen: View {
     .background(look.ground)
     .navigationTitle("Review")
     .navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      if let store {
+        // the agent's folder itself, git or not (the Mac's Folder list)
+        Button("Folder", systemImage: "folder") { path.append(.files(store.host, store.dir)) }.accessibilityIdentifier("review-folder")
+      }
+    }
+    .sheet(item: $picking) { which in
+      if let store, let overview = store.overview {
+        RefSheet(
+          title: which == .base ? "Compare with (base)" : "Changes in (head)", options: which == .base ? overview.bases : overview.heads,
+          current: which == .base ? store.base : store.head
+        ) { picked in
+          tab = "changes"
+          Task { if which == .base, let picked { await store.pick(base: picked) } else if which == .head { await store.pick(head: picked) } }
+        }
+        .environment(\.look, look)
+      }
+    }
     .task {
       if store == nil, let agent = model.agent(key) {
         let made = ReviewStore(model: model, host: agent.host, dir: agent.base)
@@ -313,8 +412,7 @@ struct ReviewScreen: View {
     VStack(spacing: 0) {
       if store.repos.count > 1 {
         Picker("Repository", selection: Binding(get: { store.repo?.path ?? "" }, set: { picked in
-          store.repo = store.repos.first { $0.path == picked }
-          Task { await store.load() }
+          if let repo = store.repos.first(where: { $0.path == picked }) { Task { await store.open(repo) } }
         })) {
           ForEach(store.repos) { Text($0.label).tag($0.path) }
         }
@@ -322,11 +420,12 @@ struct ReviewScreen: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 8)
       }
+      if store.overview != nil { refs(store) }
       Picker("What to look at", selection: $tab) {
         Text("Changes").tag("changes")
-        Text("Branch").tag("branch")
-        Text("Commits").tag("commits")
+        Text("Uncommitted").tag("local")
         Text("Files").tag("files")
+        Text("Commits").tag("commits")
       }
       .pickerStyle(.segmented)
       .padding(.horizontal, 14)
@@ -335,12 +434,12 @@ struct ReviewScreen: View {
         if let problem = store.problem { Text(problem).foregroundStyle(look.danger).listRowBackground(look.panel) }
         if store.loading, store.overview == nil { HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear) }
         if !store.loading, store.repos.isEmpty, store.problem == nil {
-          Text("There is no git repository in this agent's folder, or within three folders below it.").foregroundStyle(look.dim).listRowBackground(look.panel)
+          Text("There is no git repository in this agent's folder, or within three folders below it. The folder button above shows its files.").foregroundStyle(look.dim).listRowBackground(look.panel)
         }
         if let overview = store.overview {
           switch tab {
           case "changes": changes(store, overview)
-          case "branch": branch(store, overview)
+          case "local": local(store, overview)
           case "commits": commits(store)
           default: FileTree(model: model, store: store)
           }
@@ -353,67 +452,97 @@ struct ReviewScreen: View {
     .onChange(of: tab) { if tab == "files" { Task { await store.loadFiles() } } }
   }
 
-  /// what is not committed: the index against HEAD, then the folder against the index
+  /// base ← head, as on the Mac: each opens its list of branches
+  private func refs(_ store: ReviewStore) -> some View {
+    func chip(_ name: String, _ which: Picking) -> some View {
+      Button { picking = which } label: {
+        HStack(spacing: 5) {
+          Image(systemName: which == .head && store.head == nil ? "internaldrive" : "arrow.triangle.branch").font(.caption2)
+          Text(name).font(.footnote.monospaced()).lineLimit(1).truncationMode(.middle)
+          Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(look.faint)
+        }
+        .foregroundStyle(look.text).padding(.horizontal, 10).padding(.vertical, 7)
+        .background(look.raised, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+      }
+      .buttonStyle(.plain)
+      .accessibilityIdentifier("ref-\(which.rawValue)")
+      .accessibilityLabel(which == .base ? "Compare with \(name)" : "The changes of \(name)")
+    }
+    return HStack(spacing: 8) {
+      chip(store.base.isEmpty ? "Choose…" : store.base, .base)
+      Image(systemName: "arrow.left").font(.caption.weight(.bold)).foregroundStyle(look.dim)
+      chip(store.head ?? "Working tree", .head)
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, 14)
+    .padding(.top, 8)
+  }
+
+  /// head against the base as a pull request shows it: everything since the branch left the base
   @ViewBuilder
   private func changes(_ store: ReviewStore, _ overview: GitOverview) -> some View {
-    let staged = overview.staged.map { change in
-      DiffTarget(
-        change: change, old: change.kind == "A" ? .empty : .rev("HEAD", change.oldPath ?? change.path), new: change.kind == "D" ? .empty : .index(change.path), anchor: "staged",
-        context: "the staged changes")
-    }
-    let unstaged = overview.unstaged.map { change in
-      DiffTarget(
-        change: change, old: change.kind == "?" ? .empty : .index(change.path), new: change.kind == "D" ? .empty : .worktree(change.path), anchor: "unstaged",
-        context: "the uncommitted changes")
-    }
-    if staged.isEmpty, unstaged.isEmpty {
-      Text("Nothing is changed since the last commit" + (overview.info.branch.map { " on \($0)." } ?? ".")).foregroundStyle(look.dim).listRowBackground(look.panel)
-    }
-    if !staged.isEmpty {
-      Section("Staged") {
-        ForEach(staged) { target in Button { show(staged, target.change) } label: { ChangeRow(change: target.change) }.listRowBackground(look.panel).accessibilityIdentifier("change-\(target.change.name)") }
+    if let why = store.compareProblem { Text(why).foregroundStyle(look.dim).listRowBackground(look.panel) }
+    if let compare = store.compare {
+      let branch = overview.info.branch ?? "HEAD"
+      let targets = compare.files.map { change in
+        DiffTarget(
+          change: change, old: change.kind == "A" || change.kind == "?" ? .empty : .rev(compare.mergeBase, change.oldPath ?? change.path),
+          new: change.kind == "D" ? .empty : compare.head == nil ? .worktree(change.path) : .rev(compare.tip, change.path),
+          anchor: "cmp:\(compare.base)...\(compare.head ?? "")",
+          context: compare.head.map { "`\($0)` compared with `\(compare.base)`" } ?? "the working tree of `\(branch)` (uncommitted changes included), compared with `\(compare.base)`")
       }
-    }
-    if !unstaged.isEmpty {
-      Section("Changes") {
-        ForEach(unstaged) { target in Button { show(unstaged, target.change) } label: { ChangeRow(change: target.change) }.listRowBackground(look.panel).accessibilityIdentifier("change-\(target.change.name)") }
+      Section {
+        if targets.isEmpty {
+          Text(compare.head == store.base ? "\(store.base) is compared with itself. Pick another branch above." : "No differences.").foregroundStyle(look.dim).listRowBackground(look.panel)
+        }
+        ForEach(targets) { target in
+          Button { show(targets, target.change) } label: { ChangeRow(change: target.change) }.listRowBackground(look.panel).accessibilityIdentifier("change-\(target.change.name)")
+        }
+      } header: {
+        HStack(spacing: 6) {
+          Text("\(targets.count) file\(targets.count == 1 ? "" : "s")")
+          Text("+\(compare.files.reduce(0) { $0 + ($1.added ?? 0) })").foregroundStyle(Color(hex: "#3fb950"))
+          Text("−\(compare.files.reduce(0) { $0 + ($1.removed ?? 0) })").foregroundStyle(Color(hex: "#f85149"))
+        }
+        .font(.footnote.monospacedDigit())
+      } footer: {
+        Text(compare.head == nil ? "What is on disk, uncommitted changes and new files included, since it left \(compare.base)." : "What \(compare.head ?? "") changed since it left \(compare.base).")
       }
+    } else if store.compareProblem == nil, store.problem == nil {
+      HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear)
     }
   }
 
-  /// the branch as a merge request would show it: everything since it left the base, uncommitted work included
+  /// what is not committed, in VS Code's groups: conflicts, staged (HEAD → index), changes (index → disk), untracked
   @ViewBuilder
-  private func branch(_ store: ReviewStore, _ overview: GitOverview) -> some View {
-    Section {
-      Picker("Compared with", selection: Binding(get: { store.base }, set: { picked in
-        store.base = picked
-        Task { await store.loadCompare() }
-      })) {
-        if store.base.isEmpty { Text("Choose…").tag("") }
-        ForEach(overview.info.refs.filter { $0.kind != "tag" }, id: \.short) { Text($0.short).tag($0.short) }
-      }
-      .listRowBackground(look.panel)
-    } footer: {
-      Text("\(overview.info.branch ?? "The checked-out commit") and what is not committed yet, since it left \(store.base.isEmpty ? "the branch you pick" : store.base).")
+  private func local(_ store: ReviewStore, _ overview: GitOverview) -> some View {
+    // HEAD by its commit, none before the first
+    let atHead = { (path: String) -> GitSide in overview.info.head.map { .rev($0, path) } ?? .empty }
+    let groups: [(String, [DiffTarget])] = [
+      ("Merge conflicts", overview.conflicts.map { DiffTarget(change: $0, old: atHead($0.path), new: .worktree($0.path), anchor: "l:u", context: "the files in conflict") }),
+      ("Staged changes", overview.staged.map {
+        DiffTarget(change: $0, old: $0.kind == "A" ? .empty : atHead($0.oldPath ?? $0.path), new: $0.kind == "D" ? .empty : .index($0.path), anchor: "l:s", context: "the staged changes")
+      }),
+      ("Changes", overview.unstaged.map {
+        DiffTarget(change: $0, old: .index($0.path), new: $0.kind == "D" ? .empty : .worktree($0.path), anchor: "l:w", context: "the unstaged changes (not committed yet)")
+      }),
+      ("Untracked", overview.untracked.map { DiffTarget(change: $0, old: .empty, new: .worktree($0.path), anchor: "l:n", context: "the new, untracked files") })
+    ].filter { !$0.1.isEmpty }
+    if groups.isEmpty {
+      Text("Nothing is changed since the last commit" + (overview.info.branch.map { " on \($0)." } ?? ".")).foregroundStyle(look.dim).listRowBackground(look.panel)
     }
-    if let compare = store.compare {
-      let targets = compare.files.map { change in
-        DiffTarget(
-          change: change, old: change.kind == "A" || change.kind == "?" ? .empty : .rev(compare.mergeBase, change.oldPath ?? change.path), new: change.kind == "D" ? .empty : .worktree(change.path),
-          anchor: "branch:\(compare.mergeBase)", context: "`\(overview.info.branch ?? "the working tree")` compared with `\(store.base)`")
+    ForEach(groups, id: \.0) { label, targets in
+      Section("\(label) · \(targets.count)") {
+        ForEach(targets) { target in
+          Button { show(targets, target.change) } label: { ChangeRow(change: target.change) }.listRowBackground(look.panel).accessibilityIdentifier("change-\(target.change.name)")
+        }
       }
-      Section("\(targets.count) file\(targets.count == 1 ? "" : "s")") {
-        if targets.isEmpty { Text("No differences.").foregroundStyle(look.dim).listRowBackground(look.panel) }
-        ForEach(targets) { target in Button { show(targets, target.change) } label: { ChangeRow(change: target.change) }.listRowBackground(look.panel) }
-      }
-    } else if !store.base.isEmpty, store.problem == nil {
-      HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear)
     }
   }
 
   @ViewBuilder
   private func commits(_ store: ReviewStore) -> some View {
-    Section(store.latest ? "Latest commits" : "Commits since \(store.base)") {
+    Section(store.latest ? "Latest commits" : "Commits of \(store.head ?? "the working tree") since \(store.base)") {
       if store.commits.isEmpty { Text("No commits.").foregroundStyle(look.dim).listRowBackground(look.panel) }
       ForEach(store.commits) { one in
         Button {
@@ -435,7 +564,7 @@ struct ReviewScreen: View {
     shown.compare.files.map { change in
       DiffTarget(
         change: change, old: change.kind == "A" ? .empty : .rev(shown.compare.mergeBase, change.oldPath ?? change.path), new: change.kind == "D" ? .empty : .rev(shown.commit.sha, change.path),
-        anchor: "commit:\(shown.commit.sha)", context: "commit \(shown.commit.short) (\(shown.commit.subject))")
+        anchor: "cmp:\(shown.commit.sha)^...\(shown.commit.sha)", context: "commit \(shown.commit.short) (\"\(shown.commit.subject)\")")
     }
   }
 
@@ -481,6 +610,71 @@ struct ReviewScreen: View {
     .padding(.horizontal, 16)
     .padding(.vertical, 10)
     .background(look.panel)
+  }
+}
+
+/// A list of branches to pick from, as the Mac's: local branches first (newest first), then remote
+/// ones and tags; type to narrow it, or a commit or name that is not in the list.
+private struct RefSheet: View {
+  let title: String
+  let options: [RefOption]
+  let current: String?
+  let pick: (String?) -> Void
+  @Environment(\.look) private var look
+  @Environment(\.dismiss) private var dismiss
+  @State private var query = ""
+
+  private var shown: [RefOption] {
+    let words = query.lowercased().split(separator: " ")
+    var hits = options.filter { option in words.allSatisfy { "\(option.label) \(option.detail ?? "")".lowercased().contains($0) } }
+    let name = query.trimmingCharacters(in: .whitespaces)
+    if !name.isEmpty, !options.contains(where: { $0.value == name }), (try? Shared.main.call("gitValidRef", [name])) == "true" {
+      hits.append(RefOption(value: name, label: name, detail: "a branch, tag or commit by name", kind: "commit", time: nil))
+    }
+    return hits
+  }
+
+  var body: some View {
+    NavigationStack {
+      List(shown) { option in
+        Button {
+          pick(option.value)
+          dismiss()
+        } label: {
+          HStack(spacing: 10) {
+            Image(systemName: mark(option.kind)).font(.footnote).foregroundStyle(option.kind == "branch" ? look.accent : look.dim).frame(width: 20)
+            VStack(alignment: .leading, spacing: 2) {
+              Text(option.label).font(.subheadline.monospaced()).foregroundStyle(look.text).lineLimit(1).truncationMode(.middle)
+              if let detail = option.detail, !detail.isEmpty { Text(detail).font(.caption).foregroundStyle(look.dim).lineLimit(1) }
+            }
+            Spacer(minLength: 4)
+            if let time = option.time, time > 0 { Text(ago(time)).font(.caption.monospacedDigit()).foregroundStyle(look.faint) }
+            if option.value == current { Image(systemName: "checkmark").font(.footnote.weight(.bold)).foregroundStyle(look.accent) }
+          }
+        }
+        .listRowBackground(look.panel)
+        .accessibilityIdentifier("ref-\(option.label)")
+      }
+      .overlay { if shown.isEmpty { Text("Nothing matches.").foregroundStyle(look.dim) } }
+      .scrollContentBackground(.hidden)
+      .background(look.ground)
+      .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Filter branches, or type a commit")
+      .plain()
+      .navigationTitle(title)
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+    }
+    .preferredColorScheme(.dark)
+  }
+
+  private func mark(_ kind: String) -> String {
+    switch kind {
+    case "worktree": "internaldrive"
+    case "remote": "cloud"
+    case "tag": "tag"
+    case "commit": "smallcircle.filled.circle"
+    default: "arrow.triangle.branch"
+    }
   }
 }
 
@@ -550,9 +744,11 @@ private struct FileTree: View {
     }
     .fullScreenCover(item: Binding(get: { file.map { OneFile(path: $0) } }, set: { file = $0?.path })) { one in
       let change = FileChange(path: one.path, oldPath: nil, kind: "M", added: nil, removed: nil, binary: nil)
+      // as it is on disk, or at head when head is not what is checked out here
+      let side: GitSide = store.filesRev.map { .rev($0, one.path) } ?? .worktree(one.path)
       DiffScreen(
         model: model, store: store, draft: ReviewDraft(),
-        targets: [DiffTarget(change: change, old: .worktree(one.path), new: .worktree(one.path), anchor: "file", context: "the file as it is now")], start: "file" + change.id, whole: true
+        targets: [DiffTarget(change: change, old: side, new: side, anchor: "file", context: "the file as it is now")], start: "file" + change.id, whole: true
       )
       .environment(\.look, look)
     }

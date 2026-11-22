@@ -75,6 +75,7 @@ struct AgentScreen: View {
           Menu("More", systemImage: "ellipsis.circle") {
             Button("Plots and files", systemImage: "photo.on.rectangle.angled") { path.append(.plots(key)) }
             Button("Review changes", systemImage: "plus.forwardslash.minus") { path.append(.review(key)) }
+            Button("Files of its folder", systemImage: "doc.text.magnifyingglass") { path.append(.files(agent.host, agent.base)) }
             if let place = model.place(of: key) {
               Button("New terminal here", systemImage: "apple.terminal") { Task { await startTerminal(model, place.project, place.folder, agent.base, $path, $failure) } }
             }
@@ -218,7 +219,9 @@ private struct StatusLine: View {
   }
 }
 
-/// One row of the conversation.
+/// One row of the conversation. Each colour says one thing, as in the terminal: yours on the
+/// accent, what was run or changed by what kind of work it is, green done, red failed, amber
+/// a limit or a question for you.
 private struct ChatRow: View {
   let item: ChatItem
   let terminal: () -> Void
@@ -231,39 +234,45 @@ private struct ChatRow: View {
     case "user":
       HStack {
         Spacer(minLength: 44)
-        Text(item.text).foregroundStyle(look.text).padding(.horizontal, 13).padding(.vertical, 9)
-          .background(look.raised, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+        Text(item.text).font(item.text.hasPrefix("/") ? .body.monospaced() : .body).foregroundStyle(look.bright).padding(.horizontal, 13).padding(.vertical, 9)
+          .background(look.raised.tint(look.accent, 0.3), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
           .opacity(pending ? 0.55 : 1)
           .textSelection(.enabled)
       }
+      .padding(.top, 6)
     case "assistant":
       MarkdownText(item.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
         .contextMenu { Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = item.text } }
+    case "limit": banner("hourglass", "Usage limit", look.waiting)
+    case "error": banner("exclamationmark.triangle.fill", "The request failed", look.danger)
     case "thinking":
       VStack(alignment: .leading, spacing: 6) {
         Button { unfolded.toggle() } label: {
           HStack(spacing: 6) {
             Image(systemName: "chevron.right").font(.caption2.weight(.bold)).rotationEffect(.degrees(unfolded ? 90 : 0))
             Text("Thinking").font(.footnote.weight(.medium))
-            if !unfolded { Text(item.text.prefix(80).replacingOccurrences(of: "\n", with: " ")).font(.footnote).lineLimit(1).opacity(0.7) }
+            if !unfolded { Text(item.text.prefix(80).replacingOccurrences(of: "\n", with: " ")).font(.footnote).italic().lineLimit(1).opacity(0.7) }
           }
-          .foregroundStyle(look.faint)
+          .foregroundStyle(look.dim)
         }
         .buttonStyle(.plain)
-        if unfolded { Text(item.text).font(.footnote).italic().foregroundStyle(look.dim).textSelection(.enabled).padding(.leading, 14) }
+        if unfolded {
+          Text(item.text).font(.footnote).italic().foregroundStyle(look.dim).textSelection(.enabled).padding(.leading, 12)
+            .overlay(alignment: .leading) { Rectangle().fill(look.line).frame(width: 2) }
+        }
       }
     case "tool":
       HStack(alignment: .firstTextBaseline, spacing: 7) {
         Group {
           switch item.state {
           case "error": Image(systemName: "xmark").foregroundStyle(look.danger)
-          case "done": Image(systemName: "checkmark").foregroundStyle(look.faint)
+          case "done": Image(systemName: "checkmark").foregroundStyle(look.green)
           default: Image(systemName: "circle.dotted").foregroundStyle(look.working)
           }
         }
         .font(.caption2.weight(.bold)).frame(width: 12)
-        Text(item.tool ?? "tool").font(.system(size: 12.5, weight: .semibold, design: .monospaced)).foregroundStyle(look.dim)
-        Text(item.text).font(.system(size: 12.5, design: .monospaced)).foregroundStyle(look.faint).lineLimit(1).truncationMode(.middle)
+        Text(item.tool ?? "tool").font(.system(size: 12.5, weight: .semibold, design: .monospaced)).foregroundStyle(item.state == "error" ? look.danger : work)
+        Text(item.text).font(.system(size: 12.5, design: .monospaced)).foregroundStyle(item.state == "error" ? look.danger.opacity(0.85) : look.dim).lineLimit(1).truncationMode(.middle)
       }
       .accessibilityElement(children: .combine)
     case "question":
@@ -272,7 +281,7 @@ private struct ChatRow: View {
           .font(.footnote.weight(.semibold)).foregroundStyle(item.state == "running" ? look.waiting : look.dim)
         MarkdownText(item.text)
         ForEach(Array((item.options ?? []).enumerated()), id: \.offset) { i, option in
-          Text(item.state == "running" ? "\(i + 1). \(option)" : option).font(.subheadline).foregroundStyle(look.dim)
+          Text(item.state == "running" ? "\(i + 1). \(option)" : option).font(.subheadline).foregroundStyle(item.state == "running" ? look.text : look.green)
         }
         if item.state == "running" {
           Button("Answer in its terminal", systemImage: "apple.terminal", action: terminal).font(.footnote.weight(.semibold)).buttonStyle(.bordered)
@@ -283,7 +292,39 @@ private struct ChatRow: View {
       .background(look.panel, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
       .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(item.state == "running" ? look.waiting.opacity(0.6) : look.line))
     default:
-      Text(item.text).font(.caption).foregroundStyle(look.faint).frame(maxWidth: .infinity).padding(.vertical, 2)
+      HStack(spacing: 10) {
+        Rectangle().fill(look.line).frame(height: 1)
+        Text(item.text).font(.caption).foregroundStyle(look.dim).fixedSize()
+        Rectangle().fill(look.line).frame(height: 1)
+      }
+      .padding(.vertical, 2)
+    }
+  }
+
+  /// What Claude Code says in the agent's place, in the colour of what it means for you.
+  private func banner(_ symbol: String, _ title: String, _ color: Color) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 10) {
+      Image(systemName: symbol).foregroundStyle(color)
+      VStack(alignment: .leading, spacing: 3) {
+        Text(title).font(.footnote.weight(.semibold)).foregroundStyle(color)
+        Text(item.text).font(.subheadline).foregroundStyle(look.text).textSelection(.enabled)
+      }
+      Spacer(minLength: 0)
+    }
+    .padding(12)
+    .background(look.panel.tint(color, 0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(color.opacity(0.55)))
+    .accessibilityIdentifier("chat-\(item.kind)")
+  }
+
+  /// a tool's name in the colour of its kind of work: green changes files, magenta runs a command, cyan hands work on, blue looks something up
+  private var work: Color {
+    switch item.tool ?? "" {
+    case "Edit", "Write", "MultiEdit", "NotebookEdit": look.green
+    case "Bash", "BashOutput", "KillShell": look.magenta
+    case "Task", "Agent", "Workflow", "Skill": look.cyan
+    case "Read", "Grep", "Glob", "WebFetch", "WebSearch", "ToolSearch": look.blue
+    default: look.text
     }
   }
 }

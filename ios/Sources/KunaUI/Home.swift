@@ -141,7 +141,8 @@ extension Binding where Value == ProjectSheets.State {
         guard shell else { return wrappedValue.starting = StartIn(project: project, folder: folder) }
         Task { await startTerminal(model, project, folder, nil, path, notice) }
       },
-      show: { path.wrappedValue.append(.project($0.id)) })
+      show: { path.wrappedValue.append(.project($0.id)) },
+      files: { project, folder in path.wrappedValue.append(.files(project.host, folder.path)) })
   }
 }
 

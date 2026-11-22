@@ -9,6 +9,7 @@
 import DOMPurify from 'dompurify'
 import katex from 'katex'
 import { Marked, type TokenizerAndRendererExtension } from 'marked'
+import { MATH_BLOCK, MATH_INLINE } from '@shared/mdblocks'
 import { createHighlighterCoreSync, type HighlighterCore } from 'shiki/core'
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
 import bash from 'shiki/langs/shellscript.mjs'
@@ -169,28 +170,8 @@ const slot = (tex: string, displayMode: boolean): string => {
   const out = katex.renderToString(tex, { displayMode, throwOnError: false, strict: 'ignore', trust: false, output: 'mathml', maxSize: 20, maxExpand: 1000 })
   return `${math.push(out) - 1}`
 }
-const mathBlock: TokenizerAndRendererExtension = {
-  name: 'mathBlock',
-  level: 'block',
-  start: (src) => /^ {0,3}(?:\$\$|\\\[)/m.exec(src)?.index,
-  tokenizer(src) {
-    const m = /^ {0,3}(?:\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\])[ \t]*(?:\n+|$)/.exec(src)
-    if (m) return { type: 'mathBlock', raw: m[0], text: (m[1] ?? m[2]).trim() }
-    return undefined
-  },
-  renderer: (t) => `<div class="math-display">${slot(t.text as string, true)}</div>\n`
-}
-const mathInline: TokenizerAndRendererExtension = {
-  name: 'mathInline',
-  level: 'inline',
-  start: (src) => /\$|\\\(/.exec(src)?.index,
-  tokenizer(src) {
-    const m = /^\$\$([^$]+?)\$\$/.exec(src) ?? /^\$(?!\s)((?:\\.|[^\\$\n])+?)(?<!\s)\$(?!\d)/.exec(src) ?? /^\\\(([\s\S]+?)\\\)/.exec(src)
-    if (m) return { type: 'mathInline', raw: m[0], text: m[1], display: m[0].startsWith('$$') }
-    return undefined
-  },
-  renderer: (t) => slot(t.text as string, Boolean(t.display))
-}
+const mathBlock: TokenizerAndRendererExtension = { ...MATH_BLOCK, renderer: (t) => `<div class="math-display">${slot(t.text as string, true)}</div>\n` }
+const mathInline: TokenizerAndRendererExtension = { ...MATH_INLINE, renderer: (t) => slot(t.text as string, Boolean(t.display)) }
 const md = new Marked({ extensions: [mathBlock, mathInline] })
 
 /** A Markdown file an agent wrote: no scripts, styles or embeds; links open in the browser. */
