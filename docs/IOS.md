@@ -16,7 +16,7 @@ Not in it yet: notifications and a home screen widget (both need Apple's push se
 
 ## Getting your projects onto the phone
 
-1. On the Mac: **Kuna ▸ Export for iPhone…** and save the file (`Kuna projects.kuna`).
+1. On the Mac: **Settings ▸ iPhone ▸ Export…** (the gear in the sidebar), or the menu **Kuna ▸ Export for iPhone…**, and save the file (`Kuna projects.kuna`).
 2. Send it to the phone: AirDrop it, or save it to iCloud Drive / Files.
 3. On the phone, open it with Kuna (AirDrop offers it; in Files, tap the file), or in the app: **+ ▸ Import from the Mac**.
 

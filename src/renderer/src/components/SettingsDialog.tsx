@@ -14,10 +14,12 @@ type Item = { label: string; hint?: string } & (
   | { kind: 'choice'; value: string; options: { id: string; label: string }[]; set: (id: string) => void }
   | { kind: 'number'; value: number; unit: string; min: number; max: number; step?: number; set: (v: number) => void; reset?: { label: string; run: () => void } }
   | { kind: 'themes'; value: string; set: (id: string) => void }
+  | { kind: 'action'; button: string; run: () => void }
 )
 
 /** ← → on a row: the other state, the next choice, a step down or up. */
 function step(it: Item, d: 1 | -1): void {
+  if (it.kind === 'action') return
   if (it.kind === 'toggle') it.set(!it.on)
   else if (it.kind === 'number') it.set(Math.max(it.min, Math.min(it.max, it.value + d * (it.step ?? 1))))
   else {
@@ -58,6 +60,13 @@ function Control({ it }: { it: Item }): React.JSX.Element {
         {THEMES.map((t) => (
           <ThemeCard key={t.id} t={t} on={t.id === it.value} pick={() => it.set(t.id)} />
         ))}
+      </div>
+    )
+  }
+  if (it.kind === 'action') {
+    return (
+      <div className="set-control">
+        <button onClick={it.run}>{it.button}</button>
       </div>
     )
   }
@@ -206,6 +215,18 @@ export function SettingsDialog(): React.JSX.Element {
     {
       title: 'Notifications',
       items: [{ kind: 'toggle', label: 'Notify me', hint: 'When an agent finishes or needs you while Kuna is in the background.', on: settings.notify, set: (notify) => put({ notify }) }]
+    },
+    {
+      title: 'iPhone',
+      items: [
+        {
+          kind: 'action',
+          label: 'Export for iPhone',
+          hint: 'A file with your projects on ssh hosts, their folders and how to reach each host, to open in Kuna on the iPhone. No passwords, no keys.',
+          button: 'Export…',
+          run: () => window.kuna.phoneExport()
+        }
+      ]
     }
   ]
   const items = sections.flatMap((s) => s.items)
@@ -216,9 +237,11 @@ export function SettingsDialog(): React.JSX.Element {
   }, [at])
 
   useOverlayKeys((ev) => {
+    const cur = items[at]
     if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') setAt((i) => Math.max(0, Math.min(items.length - 1, i + (ev.key === 'ArrowDown' ? 1 : -1))))
     else if (ev.key === 'ArrowRight' || ev.key === 'ArrowLeft') step(items[at], ev.key === 'ArrowRight' ? 1 : -1)
     else if (ev.key === ' ' && items[at].kind === 'toggle') step(items[at], 1)
+    else if (ev.key === 'Enter' && cur.kind === 'action') cur.run()
     else if (ev.key === 'Enter') closeOverlay()
     else return false
     return true
@@ -229,7 +252,7 @@ export function SettingsDialog(): React.JSX.Element {
     <div className="scrim" onMouseDown={closeOverlay}>
       <div className="dialog wide" onMouseDown={(e) => e.stopPropagation()}>
         <h2>Settings</h2>
-        <p className="dim">↑ ↓ pick a setting, ← → change it. Everything applies at once.</p>
+        <p className="dim">↑ ↓ pick a setting, ← → change it, Enter runs a button. Everything applies at once.</p>
         {sections.map((sec) => (
           <div key={sec.title}>
             <div className="set-section">{sec.title}</div>

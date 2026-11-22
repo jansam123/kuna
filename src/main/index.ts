@@ -92,6 +92,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.sshHosts, () => listSshHosts())
   ipcMain.handle(IPC.fonts, () => detectFonts())
   ipcMain.handle(IPC.clipboardText, () => clipboard.readText())
+  ipcMain.on(IPC.phoneExport, (e) => void exportForPhone(BrowserWindow.fromWebContents(e.sender) ?? undefined, store.state))
   ipcMain.on(IPC.copyText, (_e, text: string) => clipboard.writeText(text))
   ipcMain.on(IPC.windowButtons, (e, visible: boolean) => {
     if (process.platform === 'darwin') BrowserWindow.fromWebContents(e.sender)?.setWindowButtonVisibility(visible)

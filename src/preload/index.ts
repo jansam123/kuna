@@ -27,6 +27,7 @@ const api: KunaApi = {
   },
   fonts: () => ipcRenderer.invoke(IPC.fonts),
   clipboardText: () => ipcRenderer.invoke(IPC.clipboardText),
+  phoneExport: () => ipcRenderer.send(IPC.phoneExport),
   copyText: (text) => ipcRenderer.send(IPC.copyText, text),
   windowButtons: (visible) => ipcRenderer.send(IPC.windowButtons, visible),
   ssh: {

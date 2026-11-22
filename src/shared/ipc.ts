@@ -122,6 +122,8 @@ export interface KunaApi {
   }
   /** the clipboard's text (⌘V where no text field has the caret) */
   clipboardText(): Promise<string>
+  /** Export for iPhone…: asks where to save the file for the iPhone app (docs/IOS.md) */
+  phoneExport(): void
   copyText(text: string): void
   /** show or hide the macOS close/minimize/zoom buttons (only over the sidebar) */
   windowButtons(visible: boolean): void
@@ -210,6 +212,7 @@ export const IPC = {
   fsDirs: 'fs:dirs',
   fsRealPaths: 'fs:real-paths',
   clipboardText: 'clipboard:text',
+  phoneExport: 'phone:export',
   copyText: 'clipboard:write',
   windowButtons: 'window:buttons'
 } as const
