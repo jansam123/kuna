@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { targetFolder } from '../actions'
 import { set, useKuna } from '../store'
-import { buildTree } from '../tree'
+import { buildTree } from '@shared/tree'
 import { TexText } from './TexText'
 
 /** The "new agent" composer under the sidebar. Enter launches an agent in the target folder. */

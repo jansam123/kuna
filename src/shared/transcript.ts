@@ -17,7 +17,7 @@ function str(v: unknown, max = 120): string {
   return one.length > max ? `${one.slice(0, max - 1)}…` : one
 }
 
-function toolSummary(name: string, input: Json): string {
+export function toolSummary(name: string, input: Json): string {
   if (!input || typeof input !== 'object') return ''
   switch (name) {
     case 'Bash':
@@ -45,7 +45,7 @@ function toolSummary(name: string, input: Json): string {
   }
 }
 
-function resultText(content: Json): string {
+export function resultText(content: Json): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
     return content
@@ -153,7 +153,7 @@ export class TranscriptParser {
     }
   }
 
-  private entry(e: Json): void {
+  protected entry(e: Json): void {
     if (!e || typeof e !== 'object') return
     if (e.sessionId) this.d.sessionId = e.sessionId
     if (e.version) this.d.version = e.version

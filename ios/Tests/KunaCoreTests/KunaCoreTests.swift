@@ -10,7 +10,8 @@ import Testing
 final class TestServer {
   let dir = FileManager.default.temporaryDirectory.appendingPathComponent("kuna-ios-\(UUID().uuidString.prefix(8))")
   let key = NIOSSHPrivateKey(p256Key: .init())
-  let socket = "kuna-ios-test-\(ProcessInfo.processInfo.processIdentifier)"
+  // one tmux server per test server: two suites run at once, each with its own HOME
+  let socket = "kuna-ios-test-\(UUID().uuidString.prefix(8))"
   let port: Int
   let sshd = Process()
   var hostKey = ""
@@ -148,14 +149,14 @@ private func freePort() throws -> Int {
     guard (try? sh("command -v tmux")) != nil else { return }
     let connection = try await server.connect()
     defer { connection.close() }
-    let shared = try Shared()
+    let shared = Shared.main
     var seen: [String] = []
     var listed: [Agent] = []
     for try await event in watch(host: "test", on: connection, shared: shared) {
       switch event {
       case .installing: seen.append("installing")
       case .ready: seen.append("ready")
-      case .agents(let agents):
+      case .agents(let agents, _):
         listed = agents
         if seen.last == "agents" { break }
         #expect(agents.isEmpty)
@@ -165,13 +166,149 @@ private func freePort() throws -> Int {
         let meta = #"{"cwd":"~","createdAt":1,"prompt":"Fit the signal region"}"#
         #expect(try await kuna(["spawn", "abc123", b64("~"), b64("sleep 60"), "100", "30", b64(meta), b64("")], on: connection).text == "ok\n")
       }
-      if !listed.isEmpty { break }
+      // a report made between the agent's folder and its tmux session lists it, not running yet
+      if listed.first?.alive == true { break }
     }
     #expect(seen == ["installing", "ready", "agents"])
     #expect(listed.map(\.key) == ["test::abc123"])
     #expect(listed.first?.title == "Fit the signal region")
     #expect(listed.first?.alive == true)
     #expect(try await kuna(["version"], on: connection).text == shared.version + "\n")
+  }
+}
+
+/// The app's model against the throwaway sshd: what the screens do, without the screens.
+@MainActor @Suite(.serialized) struct ModelTests {
+  let server = try! TestServer()
+
+  let saved = FileManager.default.temporaryDirectory.appendingPathComponent("kuna-ios-state-\(UUID().uuidString.prefix(8)).json")
+
+  func model() throws -> AppModel {
+    let model = AppModel(file: saved, key: server.key)
+    try FileManager.default.createDirectory(at: server.dir.appendingPathComponent("home/work"), withIntermediateDirectories: true)
+    model.update { state in
+      state.hosts = [Host(alias: "gate", hostName: "127.0.0.1", user: NSUserName(), port: server.port), Host(alias: "test", hostName: "127.0.0.1", user: NSUserName(), port: server.port, jump: "gate")]
+      state.hostKeys = [server.target.knownHostsName: [server.hostKey]]
+      var project = Project(id: "p1", name: "Analysis", host: "test", color: "#4d8dff", agentCommand: "cat")
+      project.folders = [Folder(id: "f1", path: "~/work", name: "work", color: "#ff9f1c")]
+      state.projects = [project]
+    }
+    return model
+  }
+
+  func until(_ what: String, seconds: Double = 15, _ check: () -> Bool) async throws {
+    let start = Date()
+    while !check() {
+      guard Date().timeIntervalSince(start) < seconds else { throw KunaError("waited \(seconds)s for: \(what)") }
+      try await Task.sleep(for: .milliseconds(100))
+    }
+  }
+
+  @Test func connectsThroughAJumpStartsTypesReadsAndStops() async throws {
+    guard (try? sh("command -v tmux")) != nil else { return }
+    let model = try model()
+    defer { model.disconnect() }
+    model.becomeActive()
+    try await until("the host to be ready") { model.links["test"]?.synced == true }
+    #expect(model.links["test"]?.phase == .ready)
+    #expect(model.links["gate"] == nil)  // a host only jumped through is not watched
+
+    let project = model.state.projects[0]
+    let key = try await model.spawn(project: project, folder: project.folders[0], prompt: "")
+    #expect(model.agent(key)?.status == "starting")
+    try await until("the agent in a report from the host (\(String(describing: model.links["test"]?.phase)))") { model.links["test"]?.agents.contains { $0.key == key } == true }
+    try await until("the agent in its folder: \(model.tree.map { $0.folders.map { "\($0.folder.id)=\($0.agents.map(\.key))" } })") { model.tree.first?.folders.first?.agents.contains { $0.key == key } == true }
+    // a report made between the agent's folder and its tmux session lists it, not running yet
+    try await until("the agent to be running") { model.links["test"]?.agents.first { $0.key == key }?.alive == true }
+    let agent = try #require(model.agent(key))
+    #expect(!agent.isBackground)
+    #expect(model.place(of: key)?.folder.id == "f1")
+    model.rename(key, to: " Fit ")
+    #expect(model.name(of: agent) == "Fit")
+
+    // typed into it through tmux
+    let session = AgentSession(key: key, model: model)
+    try await session.send("hello from the phone")
+    #expect(session.outbox.map(\.text) == ["hello from the phone"])
+    try await until("the typed line on its screen") { (try? sh("tmux -L \(server.socket) capture-pane -p -t kuna_\(agent.agentId)"))?.contains("hello from the phone") == true }
+
+    // its conversation, once a hook has said where the transcript is
+    let transcript = server.dir.appendingPathComponent("home/work/t.jsonl").path
+    let first = #"{"type":"user","uuid":"u1","message":{"content":"Fit the signal region"}}"# + "\n"
+    try first.write(toFile: transcript, atomically: true, encoding: .utf8)
+    let hook = #"{"hook_event_name":"Stop","transcript_path":"\#(transcript)"}"#
+    let ran = try await model.run("test", ["version"])
+    #expect(ran.code == 0)
+    let connection = try await server.connect()
+    defer { connection.close() }
+    #expect(try await connection.run("KUNA_AGENT_ID=\(agent.agentId) sh .kuna/bin/kuna hook", stdin: Data(hook.utf8)).code == 0)
+    try await until("the transcript's path in a frame") { model.agent(key)?.transcriptPath == transcript }
+    await session.pull()
+    #expect(session.items.map(\.text) == ["Fit the signal region"])
+    // a reply cut in the middle of a character is finished by the next read
+    let reply = #"{"type":"assistant","uuid":"a1","message":{"model":"claude-x","content":[{"type":"text","text":"Fertig – plots/mass.png"}]}}"# + "\n"
+    let bytes = Data(reply.utf8)
+    let cut = bytes.firstIndex(of: 0xE2)! + 1
+    let handle = try #require(FileHandle(forWritingAtPath: transcript))
+    try handle.seekToEnd()
+    try handle.write(contentsOf: bytes[..<cut])
+    await session.pull()
+    #expect(session.items.count == 1)
+    try handle.write(contentsOf: bytes[cut...])
+    try handle.close()
+    await session.pull()
+    #expect(session.items.map(\.kind) == ["user", "assistant"])
+    #expect(session.items.last?.text == "Fertig – plots/mass.png")
+    #expect(session.mentionedFiles() == [server.dir.appendingPathComponent("home/work/plots/mass.png").path].map { _ in "~/work/plots/mass.png" })
+
+    // its own screen
+    try await session.attach()
+    try await until("the terminal to draw") { String(decoding: session.drawnSoFar, as: UTF8.self).contains("hello from the phone") }
+    session.write("typed in the terminal\r")
+    try await until("the terminal's echo") { String(decoding: session.drawnSoFar, as: UTF8.self).contains("typed in the terminal") }
+    session.close()
+
+    try await model.stop(agent)
+    try await until("the agent to be gone") { model.links["test"]?.agents.contains { $0.key == key } == false && model.links["test"]?.synced == true }
+    #expect((try? sh("tmux -L \(server.socket) has-session -t kuna_\(agent.agentId)")) == nil)
+  }
+
+  @Test func refusesAHostWhoseKeyChangedAndDoesNotRetry() async throws {
+    let model = try model()
+    defer { model.disconnect() }
+    model.update { $0.hostKeys = [server.target.knownHostsName: ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOtherKeyOtherKeyOtherKeyOtherKeyOtherKeyOther"]] }
+    model.becomeActive()
+    try await until("the refusal") { if case .failed(_, final: true) = model.links["test"]?.phase { true } else { false } }
+    guard case .failed(let why, _) = model.links["test"]?.phase else { return }
+    #expect(why.contains("another host key"))
+    #expect(model.question == nil)
+  }
+
+  @Test func asksAboutAHostItNeverSawAndRemembersTheAnswer() async throws {
+    let model = try model()
+    defer { model.disconnect() }
+    model.update { $0.hostKeys = [:] }
+    model.becomeActive()
+    try await until("the question") { model.question != nil }
+    let question = try #require(model.question)
+    #expect(question.fingerprint.hasPrefix("SHA256:"))
+    model.answer(question, true)
+    try await until("the host to be ready") { model.links["test"]?.synced == true }
+    #expect(model.state.hostKeys[server.target.knownHostsName] == [server.hostKey])
+  }
+
+  @Test func importsAnExportAndKeepsWhatWasMadeHere() async throws {
+    let model = try model()
+    let file = ##"{"kuna":"iphone","version":1,"exportedAt":7,"projects":[{"id":"m1","name":"From the Mac","host":"nikhef1","color":"#2ee6c5","agentCommand":"claude","folders":[{"id":"mf","path":"~/ana","name":"ana","color":"#ffd166"}]}],"names":{"nikhef1::ab12":"Fit"},"hidden":{},"theme":"muon","hosts":[{"alias":"nikhef1","hostName":"stbc-i1.nikhef.nl","user":"sam","port":22,"jump":"login"},{"alias":"login","hostName":"login.nikhef.nl","user":"sam","port":22}],"hostKeys":{"login.nikhef.nl":["ssh-ed25519 AAAA"]}}"##
+    #expect(try model.importFile(file) == "1 project on 2 hosts")
+    #expect(model.state.projects.map(\.id) == ["m1", "p1"])
+    #expect(model.state.hosts.map(\.alias) == ["nikhef1", "login", "gate", "test"])
+    #expect(model.theme.id == "muon")
+    #expect(model.tree.map(\.project.name) == ["From the Mac", "Analysis"])
+    #expect(throws: KunaError.self) { try model.importFile("{}") }
+    // and it is all there after a restart
+    let again = AppModel(file: saved, key: server.key)
+    #expect(again.state == model.state)
   }
 }
 
@@ -182,7 +319,7 @@ private func freePort() throws -> Int {
     "M\tab12\t{\"cwd\":\"/work\",\"folderId\":\"f1\",\"createdAt\":1700000000,\"prompt\":\"hi\"}",
     "P\t2\tkuna_q1\t0\t1700000100\t1700000000\t0\tclaude\t0\t",
   ]
-  let agents = try Shared().agents(host: "cluster1", lines: lines, now: 1_700_000_101, offset: 100)
+  let agents = try Shared.main.agents(host: "cluster1", lines: lines, now: 1_700_000_101, offset: 100)
   #expect(agents.map(\.status) == ["working", "waiting"])
   #expect(agents[0].key == "cluster1::ab12")
   #expect(agents[0].attnTs == 1_699_999_950)

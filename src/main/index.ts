@@ -12,6 +12,7 @@ import { detectFonts } from './fonts'
 import { GitService } from './git'
 import { VscodeService } from './vscode'
 import { PtyService } from './pty'
+import { exportForPhone } from './phoneExport'
 import { adoptLoginShellPath } from './shellEnv'
 import { listSshHosts } from './sshHosts'
 import { Store } from './store'
@@ -152,7 +153,16 @@ function buildMenu(): void {
   const template: MenuItemConstructorOptions[] = [
     {
       label: app.name,
-      submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { type: 'separator' }, { role: 'quit' }]
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { label: 'Export for iPhone…', click: (_item, w) => void exportForPhone(w instanceof BrowserWindow ? w : undefined, store.state) },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
     },
     {
       label: 'Edit',

@@ -1,4 +1,4 @@
-import type { AgentRuntime, Folder, HostState, Project } from '@shared/types'
+import type { AgentRuntime, Folder, HostState, Project } from './types'
 
 export type TreeNode =
   | { id: string; kind: 'project'; depth: 0; project: Project }

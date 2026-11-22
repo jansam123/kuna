@@ -1,9 +1,11 @@
 #!/bin/sh
-# Opens the iPhone app in the simulator, signed in to a throwaway sshd on this Mac with two fake
-# agents, saves a screenshot and stops the server. The server has its own host key, a temporary
-# HOME and a private tmux socket: your hosts, keys and agents are not touched.
-# Usage: sh scripts/ios-sim.sh   (needs Xcode with an iOS simulator, and tmux)
+# Walks through the iPhone app in the simulator and saves a picture of every screen: the way to
+# look at a change without a phone. The app signs in to a throwaway sshd on this Mac (its own
+# host key, a temporary HOME, a private tmux socket) holding a project with fake agents, plots
+# and a git repository. Your hosts, keys and agents are not touched.
+# Usage: sh scripts/ios-sim.sh   (needs Xcode with an iOS simulator, tmux and git)
 #        KUNA_SIM="iPhone 17" sh scripts/ios-sim.sh   picks a simulator; otherwise the first iPhone Pro in the list
+#        KUNA_KEEP=1 sh scripts/ios-sim.sh   leaves the server and the app running afterwards, to try things by hand
 set -eu
 cd "$(dirname "$0")/.."
 app=io.github.jansam123.Kuna
@@ -12,6 +14,9 @@ base=${TMPDIR:-/tmp}
 tmp=$(mktemp -d "${base%/}/kuna-ios-sim.XXXXXX")
 sock=kuna-ios-sim-$$
 port=$((20000 + $$ % 20000))
+home=$tmp/home
+work=$home/work
+shots=$tmp/shots
 b64() { printf '%s' "$1" | base64 | tr -d '\n'; }
 waitfor() { # waitfor <seconds> <command…>
   n=$1; shift
@@ -24,17 +29,40 @@ waitfor() { # waitfor <seconds> <command…>
 cleanup() {
   [ -z "${sshd:-}" ] || kill "$sshd" 2> /dev/null || true
   tmux -L "$sock" kill-server 2> /dev/null || true
-  rm -rf "$tmp/home" "$tmp/hostkey" "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$sock"
+  rm -rf "$home" "$tmp/hostkey" "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$sock"
 }
-trap cleanup EXIT
 
 echo "building…"
 node scripts/ios-bundle.mjs > "$tmp/build.log" 2>&1
 xcodebuild -quiet -project ios/App/Kuna.xcodeproj -scheme Kuna -configuration Debug \
-  -destination "platform=iOS Simulator,name=$sim" -derivedDataPath ios/.build/xcode build >> "$tmp/build.log" 2>&1 ||
+  -destination "platform=iOS Simulator,name=$sim" -derivedDataPath ios/.build/xcode build-for-testing >> "$tmp/build.log" 2>&1 ||
   { echo "build FAILED, see $tmp/build.log"; exit 1; }
 
-mkdir -p "$tmp/home/work"
+# ---- what the agents work on: a folder with a fit, its plots, notes, a page, and git history
+mkdir -p "$work/plots" "$work/report" "$shots"
+cp ios/Tests/fixture/fake-agent.sh "$home/fake-agent.sh"
+cp build/icon.png "$work/plots/mass.png"
+printf '%%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 400 300]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n4 0 obj<</Length 58>>stream\nBT /F1 28 Tf 60 150 Td (Pulls: all within 2 sigma) Tj ET\nendstream endobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n' > "$work/plots/pulls.pdf"
+printf '# Fit notes\n\nThe signal region fit **converged**.\n\n- mu = 1.04 ± 0.21\n- 41 bins\n\n```python\nresult = fit(region="SR")\n```\n\n| region | events |\n|---|---|\n| SR | 412 |\n' > "$work/notes.md"
+printf '<!doctype html><meta name=viewport content="width=device-width"><title>Report</title><style>body{font:16px system-ui;background:#0b1020;color:#dfe6f5;padding:24px}</style><h1>Fit report</h1><p id=o>loading…</p><script src="data.js"></script>' > "$work/report/index.html"
+printf 'document.getElementById("o").textContent = "mu = 1.04 ± 0.21, from a script in the page folder"' > "$work/report/data.js"
+printf 'import numpy as np\n\n\ndef fit(region, bins=40):\n    """Fit the given region."""\n    data = load(region)\n    return minimise(data, bins)\n' > "$work/fit.py"
+printf 'region: SR\nbins: 40\n' > "$work/config.yaml"
+(
+  cd "$work"
+  export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_AUTHOR_NAME=Kuna GIT_AUTHOR_EMAIL=kuna@example.org GIT_COMMITTER_NAME=Kuna GIT_COMMITTER_EMAIL=kuna@example.org
+  git init -q -b main .
+  printf '.transcript-*\n' > .gitignore
+  git add .gitignore fit.py config.yaml && git commit -q -m "The fit as it was"
+  git checkout -q -b new-binning
+  sed -i '' 's/bins=40/bins=41/' fit.py && git commit -q -am "One more bin"
+  # uncommitted: a changed file, a staged change, new files
+  printf '    result = minimise(data, bins)\n    result.check()\n    return result\n' > tail.txt
+  sed -i '' '$d' fit.py && cat tail.txt >> fit.py && rm tail.txt
+  sed -i '' 's/bins: 40/bins: 41/' config.yaml && git add config.yaml
+)
+
+# ---- the host: sshd for this run only
 ssh-keygen -q -t ed25519 -N '' -f "$tmp/hostkey"
 : > "$tmp/authorized_keys"
 cat > "$tmp/sshd_config" <<EOF
@@ -49,39 +77,55 @@ PasswordAuthentication no
 KbdInteractiveAuthentication no
 PerSourcePenalties no
 LogLevel DEBUG2
-SetEnv HOME=$tmp/home SHELL=/bin/sh KUNA_TMUX_SOCKET=$sock "PATH=$PATH"
+SetEnv HOME=$home SHELL=/bin/sh KUNA_TMUX_SOCKET=$sock "PATH=$PATH" GIT_CONFIG_GLOBAL=/dev/null
 ForceCommand cd "\$HOME" && exec sh -c "\$SSH_ORIGINAL_COMMAND"
 EOF
 /usr/sbin/sshd -D -e -f "$tmp/sshd_config" 2> "$tmp/sshd.log" &
 sshd=$!
+[ -n "${KUNA_KEEP:-}" ] || trap cleanup EXIT
 waitfor 10 grep -q listening "$tmp/sshd.log" || { echo "sshd did not start, see $tmp/sshd.log"; exit 1; }
+
+# ---- what the Mac would export: the project, and the host behind a jump host (the same sshd)
+me=$(id -un)
+fake="sh $home/fake-agent.sh"
+cat > "$tmp/export.kuna" <<EOF
+{"kuna":"iphone","version":1,"exportedAt":$(date +%s),"theme":"cherenkov",
+ "projects":[{"id":"p-sim","name":"HH → bbττ","host":"cluster","color":"#4d8dff","agentCommand":"$fake","folders":[
+   {"id":"f-sim","path":"~/work","name":"work","color":"#ff9f1c"},{"id":"f-empty","path":"~/work/report","name":"report","color":"#2ee6c5"}]}],
+ "names":{"cluster::bbbb2222":"Rerun the failed jobs"},"hidden":{},
+ "hosts":[{"alias":"cluster","hostName":"127.0.0.1","user":"$me","port":$port,"jump":"gate"},{"alias":"gate","hostName":"127.0.0.1","user":"$me","port":$port}],
+ "hostKeys":{"[127.0.0.1]:$port":["$(cut -d' ' -f1,2 "$tmp/hostkey.pub")"]}}
+EOF
 
 echo "starting the simulator…"
 xcrun simctl boot "$sim" 2> /dev/null || true
 xcrun simctl bootstatus "$sim" > /dev/null
 xcrun simctl terminate "$sim" $app 2> /dev/null || true
 xcrun simctl install "$sim" ios/.build/xcode/Build/Products/Debug-iphonesimulator/Kuna.app
-host="{\"name\":\"test server\",\"hop\":{\"address\":\"127.0.0.1\",\"port\":$port,\"user\":\"$(id -un)\"},\"usesJump\":false,\"jump\":{\"address\":\"\",\"port\":22,\"user\":\"\"}}"
-xcrun simctl spawn "$sim" defaults write $app host -data "$(printf '%s' "$host" | xxd -p | tr -d '\n')"
-xcrun simctl spawn "$sim" defaults write $app hostKeys -dict "'[127.0.0.1]:$port'" "(\"$(cut -d' ' -f1,2 "$tmp/hostkey.pub")\")"
 
 # The simulator's key is its own, made on first launch: the first sign-in is refused, sshd's
-# log says which key was offered, and the second launch gets in with it.
-xcrun simctl launch "$sim" $app > /dev/null
-waitfor 20 grep -q 'public key ecdsa-sha2-nistp256 ' "$tmp/sshd.log" || { echo "the app did not try to sign in, see $tmp/sshd.log"; exit 1; }
+# log says which key was offered, and from then on that key gets in.
+xcrun simctl launch "$sim" $app -kunaReset YES -lock NO -kunaImport "$tmp/export.kuna" > /dev/null
+waitfor 30 grep -q 'public key ecdsa-sha2-nistp256 ' "$tmp/sshd.log" || { echo "the app did not try to sign in, see $tmp/sshd.log"; exit 1; }
 sed -n 's/.*public key \(ecdsa-sha2-nistp256 [A-Za-z0-9+\/=]*\).*/\1/p' "$tmp/sshd.log" | head -1 > "$tmp/authorized_keys"
 xcrun simctl terminate "$sim" $app
-xcrun simctl launch "$sim" $app > /dev/null
-waitfor 30 test -f "$tmp/home/.kuna/bin/kuna" || { echo "the app did not install the helper, see $tmp/sshd.log"; exit 1; }
+xcrun simctl launch "$sim" $app -lock NO > /dev/null
+waitfor 40 test -f "$home/.kuna/bin/kuna" || { echo "the app did not install the helper, see $tmp/sshd.log"; exit 1; }
 echo "signed in, helper installed"
 
 spawn() { # spawn <id> <command> <prompt>
-  meta="{\"id\":\"$1\",\"cwd\":\"~/work\",\"createdAt\":$(date +%s),\"prompt\":\"$3\"}"
-  HOME="$tmp/home" KUNA_TMUX_SOCKET=$sock sh "$tmp/home/.kuna/bin/kuna" spawn "$1" "$(b64 '~/work')" "$(b64 "$2")" 100 30 "$(b64 "$meta")" "$(b64 '')" > /dev/null
+  meta="{\"id\":\"$1\",\"cwd\":\"~/work\",\"projectId\":\"p-sim\",\"folderId\":\"f-sim\",\"createdAt\":$(date +%s),\"prompt\":\"$3\",\"sessionId\":\"00000000-0000-4000-8000-0000$1\",\"command\":\"claude\"}"
+  HOME="$home" KUNA_TMUX_SOCKET=$sock sh "$home/.kuna/bin/kuna" spawn "$1" "$(b64 '~/work')" "$(b64 "$2")" 100 30 "$(b64 "$meta")" "$(b64 '')" > /dev/null
 }
-spawn aaaa1111 'echo fitting; sleep 600' 'Fit the signal region'
+spawn aaaa1111 "$fake" 'Fit the signal region and show me the mass plot.'
 spawn bbbb2222 'exit 3' 'Rerun the failed jobs'
-sleep 6
-xcrun simctl io "$sim" screenshot "$tmp/screen.png" > /dev/null 2>&1 || { echo "no screenshot from $sim"; exit 1; }
+sleep 3
 xcrun simctl terminate "$sim" $app
-echo "screenshot: $tmp/screen.png"
+
+echo "walking through the app…"
+TEST_RUNNER_KUNA_SHOTS="$shots" TEST_RUNNER_KUNA_IMPORT="$tmp/export.kuna" xcodebuild -quiet -project ios/App/Kuna.xcodeproj -scheme Kuna \
+  -destination "platform=iOS Simulator,name=$sim" -derivedDataPath ios/.build/xcode test-without-building > "$tmp/test.log" 2>&1 && echo "walkthrough: ok" ||
+  { echo "walkthrough: FAILED (the pictures up to there are kept)"; grep -E "error:|did not show up" "$tmp/test.log" | sed 's/.*Walkthrough.swift/Walkthrough.swift/' | sort -u | head -20; }
+echo "pictures: $shots"
+ls "$shots" | sed 's/^/  /'
+[ -z "${KUNA_KEEP:-}" ] || echo "left running: sshd $sshd on port $port, tmux -L $sock, files in $tmp (stop with: kill $sshd; tmux -L $sock kill-server)"

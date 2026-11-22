@@ -5,7 +5,7 @@ import { focusPane, swapTabs } from '../actions'
 import { agentTitle, contextOf, doingText, modeLabel, needsOptions, needsText, tokens } from '../format'
 import { isUnread, set, useKuna } from '../store'
 import { fitTerminal, getTerminal, redrawAfterMove, leaveZenTerminal, setZenTerminal, terminalEntry, zenFontSize, zenColumns } from '../terminals'
-import { folderOfAgent } from '../tree'
+import { folderOfAgent } from '@shared/tree'
 import { StatusDot } from './StatusDot'
 import { TexText } from './TexText'
 

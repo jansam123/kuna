@@ -16,10 +16,11 @@ public enum Keychain {
   }
 
   /// `nil` or empty removes it.
-  public static func set(_ account: String, _ value: Data?) {
+  @discardableResult
+  public static func set(_ account: String, _ value: Data?) -> Bool {
     SecItemDelete(query(account) as CFDictionary)
-    guard let value, !value.isEmpty else { return }
-    SecItemAdd(query(account).merging([kSecValueData: value, kSecAttrAccessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]) { $1 } as CFDictionary, nil)
+    guard let value, !value.isEmpty else { return true }
+    return SecItemAdd(query(account).merging([kSecValueData: value, kSecAttrAccessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]) { $1 } as CFDictionary, nil) == errSecSuccess
   }
 }
 
@@ -31,12 +32,17 @@ public enum DeviceKey {
     guard SecureEnclave.isAvailable else {
       // the simulator has no enclave: an ordinary key in its keychain
       let key = try saved.map { try P256.Signing.PrivateKey(rawRepresentation: $0) } ?? P256.Signing.PrivateKey()
-      if saved == nil { Keychain.set("device-key", key.rawRepresentation) }
+      if saved == nil { try keep(key.rawRepresentation) }
       return NIOSSHPrivateKey(p256Key: key)
     }
     let key = try saved.map { try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: $0) } ?? SecureEnclave.P256.Signing.PrivateKey()
-    if saved == nil { Keychain.set("device-key", key.dataRepresentation) }
+    if saved == nil { try keep(key.dataRepresentation) }
     return NIOSSHPrivateKey(secureEnclaveP256Key: key)
+  }
+
+  /// A key that is not kept would be another one at every launch, and no host would know it.
+  private static func keep(_ data: Data) throws {
+    guard Keychain.set("device-key", data) else { throw KunaError("This phone's key could not be saved in the keychain.", final: true) }
   }
 }
 

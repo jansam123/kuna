@@ -3,14 +3,14 @@ import Foundation
 public enum HostEvent: Sendable {
   /// the helper script is being put on the host (first use, or after a Kuna update)
   case installing
-  case ready(hostname: String, claude: Bool)
-  /// every agent on the host, each time something changed
-  case agents([Agent])
+  case ready(hostname: String, home: String, claude: Bool)
+  /// every agent on the host, each time something changed; `clock`: the host's clock minus the phone's, in seconds
+  case agents([Agent], clock: Int)
 }
 
 /// Makes sure the host has Kuna's helper, then follows its watch stream (as `Host` in
 /// src/main/hosts/host.ts). Ends by throwing: when the connection is lost, or the host can't run agents.
-public func watch(host: String, on connection: SSHConnection, shared: Shared) -> AsyncThrowingStream<HostEvent, Error> {
+public func watch(host: String, on connection: SSHConnection, shared: Shared = .main) -> AsyncThrowingStream<HostEvent, Error> {
   AsyncThrowingStream { continuation in
     let last = LastFrame()
     let follow = Task {
@@ -31,7 +31,7 @@ public func watch(host: String, on connection: SSHConnection, shared: Shared) ->
             let now = Int(line.dropFirst(6)) ?? here
             let agents = try shared.agents(host: host, lines: lines, now: now, offset: now - here)
             last.set(lines: lines, now: now, offset: now - here, agents: agents)
-            continuation.yield(.agents(agents))
+            continuation.yield(.agents(agents, clock: now - here))
             lines = []
           }
           // a frame is a few KB; a stream that never ends one is not Kuna's helper talking
@@ -59,7 +59,7 @@ public func watch(host: String, on connection: SSHConnection, shared: Shared) ->
           agents.map(\.status) != frame.agents.map(\.status)
         else { continue }
         last.set(agents: agents)
-        continuation.yield(.agents(agents))
+        continuation.yield(.agents(agents, clock: frame.offset))
       }
     }
     continuation.onTermination = { _ in
@@ -73,9 +73,13 @@ public func watch(host: String, on connection: SSHConnection, shared: Shared) ->
 private let helper = ".kuna/bin/kuna"
 
 /// Every command but `watch` goes through `within`, which stops it on the host a little before we give up on it.
-func kuna(_ args: [String], on connection: SSHConnection, timeout: TimeInterval = 30) async throws -> ExecResult {
-  let command = ["sh", helper, "within", String(max(1, Int(timeout) - 2))] + args
-  return try await connection.run(command.map(shq).joined(separator: " "), timeout: timeout)
+public func kuna(_ args: [String], on connection: SSHConnection, stdin: Data? = nil, timeout: TimeInterval = 30) async throws -> ExecResult {
+  try await connection.run(kunaCommand(["within", String(max(1, Int(timeout) - 2))] + args), stdin: stdin, timeout: timeout)
+}
+
+/// The helper's command line for the host's shell.
+public func kunaCommand(_ args: [String]) -> String {
+  (["sh", helper] + args).map(shq).joined(separator: " ")
 }
 
 private func prepare(host: String, on connection: SSHConnection, shared: Shared, report: (HostEvent) -> Void) async throws {
@@ -97,8 +101,8 @@ private func prepare(host: String, on connection: SSHConnection, shared: Shared,
     let parts = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
     if parts.count == 2 { info[String(parts[0])] = String(parts[1]) }
   }
-  guard info["tmux", default: ""] != "" else { throw KunaError("tmux was not found on \(host). Install tmux there and reconnect.") }
-  report(.ready(hostname: info["hostname"] ?? host, claude: info["claude", default: ""] != ""))
+  guard info["tmux", default: ""] != "" else { throw KunaError("tmux was not found on \(host). Install tmux there and reconnect.", final: true) }
+  report(.ready(hostname: info["hostname"] ?? host, home: info["home"] ?? "", claude: info["claude", default: ""] != ""))
 }
 
 private func firstLine(_ text: String) -> String {

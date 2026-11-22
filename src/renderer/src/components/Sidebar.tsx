@@ -4,7 +4,7 @@ import { LOCAL_HOST, type HostState } from '@shared/types'
 import { activateSelection } from '../actions'
 import { agentTitle, ago, contextOf, doingText, needsText, shortPath, tokens } from '../format'
 import { arrange, get, isUnread, set, toggleCollapsed, toggleFolder, useKuna } from '../store'
-import { OTHER_FOLDER_ID, agentCounts, assignAgents, buildTree, folderOfAgent, type TreeNode } from '../tree'
+import { OTHER_FOLDER_ID, agentCounts, assignAgents, buildTree, folderOfAgent, type TreeNode } from '@shared/tree'
 import { StatusDot } from './StatusDot'
 import { TexText } from './TexText'
 

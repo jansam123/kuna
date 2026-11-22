@@ -1,4 +1,4 @@
-import type { Activity } from './types'
+import type { Activity, AgentDetails, AgentRuntime, AgentStatus } from './types'
 
 /**
  * What an agent is busy with, in a few words for the sidebar: the tool call
@@ -67,4 +67,37 @@ export function describeActivity(a: Activity, now = Date.now() / 1000): string {
     case 'jobs':
       return a.count > 1 ? `${a.count} jobs running` : 'a job running'
   }
+}
+
+export const STATUS_LABEL: Record<AgentStatus, string> = {
+  starting: 'starting',
+  working: 'working',
+  background: 'waiting on a job',
+  waiting: 'needs you',
+  idle: 'idle',
+  failed: 'failed',
+  exited: 'exited',
+  unknown: '—'
+}
+
+/**
+ * What it is doing, in a few words ("running python train.py", "next check
+ * 10:40"), else its status; `short`: a word or two for the sidebar.
+ */
+export function doingText(a: AgentRuntime, short = false): string {
+  if (a.activity) return short ? shortActivity(a.activity) : describeActivity(a.activity)
+  if (a.status === 'working' && a.tool) return a.tool
+  if (a.status === 'exited' && a.kind === 'claude') return 'stopped'
+  return STATUS_LABEL[a.status]
+}
+
+/** What the agent is waiting on, in one line ("approve Bash: …", a question). */
+export function needsText(a: AgentRuntime, d?: AgentDetails): string | undefined {
+  if (a.status !== 'waiting') return undefined
+  const q = a.questions?.[0] ?? d?.pendingQuestions?.[0]
+  if (q) return q.question
+  if (a.needs) return a.needs.replace(/^answer:\s*/, '')
+  const pending = d?.recentTools.filter((t) => !t.done).at(-1)
+  if (pending) return `approve ${pending.name}${pending.summary ? `: ${pending.summary}` : ''}`
+  return a.message || 'waiting for you'
 }

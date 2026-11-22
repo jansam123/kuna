@@ -10,3 +10,4 @@ ios/.build/
 ios/.swiftpm/
 ios/Sources/KunaCore/Resources/kuna-shared.js
 xcuserdata/
+ios/App/Local.xcconfig

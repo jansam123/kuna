@@ -1,4 +1,4 @@
-import { describeActivity, shortActivity } from '@shared/activity'
+export { STATUS_LABEL, doingText, needsText } from '@shared/activity'
 import { contextInfo, modelFlag, type ContextInfo } from '@shared/context'
 import type { AgentDetails, AgentRuntime, AgentStatus } from '@shared/types'
 import { titleOf } from '@shared/watch'
@@ -24,28 +24,6 @@ export function bytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 ** 2) return `${(n / 1024).toFixed(0)} KB`
   return `${(n / 1024 ** 2).toFixed(1)} MB`
-}
-
-export const STATUS_LABEL: Record<AgentStatus, string> = {
-  starting: 'starting',
-  working: 'working',
-  background: 'waiting on a job',
-  waiting: 'needs you',
-  idle: 'idle',
-  failed: 'failed',
-  exited: 'exited',
-  unknown: '—'
-}
-
-/**
- * What it is doing, in a few words ("running python train.py", "next check
- * 10:40"), else its status; `short`: a word or two for the sidebar.
- */
-export function doingText(a: AgentRuntime, short = false): string {
-  if (a.activity) return short ? shortActivity(a.activity) : describeActivity(a.activity)
-  if (a.status === 'working' && a.tool) return a.tool
-  if (a.status === 'exited' && a.kind === 'claude') return 'stopped'
-  return STATUS_LABEL[a.status]
 }
 
 /**
@@ -74,17 +52,6 @@ export function modeLabel(mode?: string): string | undefined {
 
 export function agentTitle(a: AgentRuntime, d?: AgentDetails): string {
   return titleOf(a, get().names[a.key], d?.title)
-}
-
-/** What the agent is waiting on, in one line ("approve Bash: …", a question). */
-export function needsText(a: AgentRuntime, d?: AgentDetails): string | undefined {
-  if (a.status !== 'waiting') return undefined
-  const q = a.questions?.[0] ?? d?.pendingQuestions?.[0]
-  if (q) return q.question
-  if (a.needs) return a.needs.replace(/^answer:\s*/, '')
-  const pending = d?.recentTools.filter((t) => !t.done).at(-1)
-  if (pending) return `approve ${pending.name}${pending.summary ? `: ${pending.summary}` : ''}`
-  return a.message || 'waiting for you'
 }
 
 /** The open question's choices, if the agent asked one. */

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { AgentRuntime, Project } from '@shared/types'
 import { dropPlan, moveFolderTo, moveProjectTo, placeAgent, pruneArranged, type RowRef } from '@shared/arrange'
-import { assignAgents, OTHER_FOLDER_ID } from '../src/renderer/src/tree'
+import { assignAgents, OTHER_FOLDER_ID } from '@shared/tree'
 
 const agent = (id: string, cwd: string): AgentRuntime => ({
   key: `cluster1::${id}`,

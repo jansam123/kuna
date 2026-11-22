@@ -9,13 +9,16 @@ public struct SSHTarget: Codable, Hashable, Sendable {
   public var host: String
   public var port: Int
   public var user: String
-  public init(host: String, port: Int = 22, user: String) {
+  /// HostKeyAlias: the name its key is kept under when that is not the address
+  public var keyName: String?
+  public init(host: String, port: Int = 22, user: String, keyName: String? = nil) {
     self.host = host
     self.port = port
     self.user = user
+    self.keyName = keyName
   }
   /// the name its host key is remembered under, as in known_hosts
-  public var knownHostsName: String { port == 22 ? host : "[\(host)]:\(port)" }
+  public var knownHostsName: String { keyName ?? (port == 22 ? host : "[\(host)]:\(port)") }
 }
 
 public enum SSHAuth: @unchecked Sendable {
@@ -82,7 +85,7 @@ public final class SSHConnection: @unchecked Sendable {
       try await signedIn.futureResult.get()
     } catch {
       channel.close(promise: nil)
-      throw error is KunaError ? error : KunaError("\(target.host): \(describe(error))")
+      throw KunaError("\(target.host): \(describe(error))", final: (error as? KunaError)?.final ?? false)
     }
     return SSHConnection(channel: channel, jump: jump)
   }
@@ -127,6 +130,15 @@ public final class SSHConnection: @unchecked Sendable {
     }
   }
 
+  /// A command in a terminal on the host, as `ssh -tt host command`: an agent's own screen.
+  public func terminal(_ command: String, cols: Int, rows: Int) async throws -> TerminalSession {
+    var feed: AsyncStream<Data>.Continuation!
+    let output = AsyncStream<Data>(bufferingPolicy: .unbounded) { feed = $0 }
+    let pty = Pty(command: command, cols: cols, rows: rows, output: feed)
+    let session = try await open(.session) { try $0.pipeline.syncOperations.addHandler(pty) }
+    return TerminalSession(channel: session, output: output)
+  }
+
   private func open(_ type: SSHChannelType, _ setUp: @escaping @Sendable (Channel) throws -> Void) async throws -> Channel {
     let opened = channel.eventLoop.makePromise(of: Channel.self)
     channel.eventLoop.execute { [channel] in
@@ -142,6 +154,39 @@ public final class SSHConnection: @unchecked Sendable {
   }
 }
 
+/// A terminal open on the host: what it draws, and what is typed into it. Closing it leaves the
+/// command's own session (tmux, Claude Code's daemon) running.
+public final class TerminalSession: @unchecked Sendable {
+  private let channel: Channel
+  /// what the terminal draws, until it closes
+  public let output: AsyncStream<Data>
+
+  fileprivate init(channel: Channel, output: AsyncStream<Data>) {
+    self.channel = channel
+    self.output = output
+  }
+
+  public func write(_ data: Data) {
+    guard !data.isEmpty else { return }
+    channel.eventLoop.execute { [channel] in
+      channel.writeAndFlush(SSHChannelData(type: .channel, data: .byteBuffer(channel.allocator.buffer(bytes: data))), promise: nil)
+    }
+  }
+
+  public func write(_ text: String) { write(Data(text.utf8)) }
+
+  public func resize(cols: Int, rows: Int) {
+    guard cols > 1, rows > 1 else { return }
+    channel.eventLoop.execute { [channel] in
+      channel.triggerUserOutboundEvent(
+        SSHChannelRequestEvent.WindowChangeRequest(terminalCharacterWidth: cols, terminalRowHeight: rows, terminalPixelWidth: 0, terminalPixelHeight: 0), promise: nil)
+    }
+  }
+
+  public func close() { channel.close(promise: nil) }
+  public var isOpen: Bool { channel.isActive }
+}
+
 /// A new key for this device, as text for `authorized_keys`.
 public func openSSHPublicKey(_ key: NIOSSHPrivateKey, comment: String) -> String {
   "\(String(openSSHPublicKey: key.publicKey)) \(comment)"
@@ -154,7 +199,20 @@ public func shq(_ arg: String) -> String {
 
 private func describe(_ error: Error) -> String {
   if let error = error as? KunaError { return error.message }
-  if let error = error as? NIOConnectionError { return error.connectionErrors.first.map { "\($0.error)" } ?? "the address could not be found" }
+  if let error = error as? NIOConnectionError {
+    guard let first = error.connectionErrors.first?.error else { return "the address could not be found" }
+    return describe(first)
+  }
+  if let error = error as? IOError {
+    switch error.errnoCode {
+    case ECONNREFUSED: return "nothing answers on that port"
+    case ETIMEDOUT: return "no answer (timed out)"
+    case EHOSTUNREACH, ENETUNREACH, ENETDOWN: return "no way to the host from this network"
+    case ECONNRESET, EPIPE: return "the connection was cut"
+    default: return String(cString: strerror(error.errnoCode))
+    }
+  }
+  if error is ChannelError { return "the connection closed" }
   return "\(error)"
 }
 
@@ -184,7 +242,8 @@ private final class Offers: NIOSSHClientUserAuthenticationDelegate {
     var wants: [String] = []
     if availableMethods.contains(.publicKey) { wants.append("a key") }
     if availableMethods.contains(.password) { wants.append("a password") }
-    nextChallengePromise.fail(KunaError("sign-in refused for \(user)" + (wants.isEmpty ? "; the host takes neither a key nor a plain password" : "; the host takes \(wants.joined(separator: " or "))")))
+    nextChallengePromise.fail(
+      KunaError("sign-in refused for \(user)" + (wants.isEmpty ? "; the host takes neither a key nor a plain password" : "; the host takes \(wants.joined(separator: " or "))"), final: true))
   }
 }
 
@@ -199,7 +258,7 @@ private final class HostKey: NIOSSHClientServerAuthenticationDelegate {
   func validateHostKey(hostKey: NIOSSHPublicKey, validationCompletePromise: EventLoopPromise<Void>) {
     let key = String(openSSHPublicKey: hostKey)
     validationCompletePromise.completeWithTask { [name, check] in
-      guard await check(name, key) else { throw KunaError("its host key is not trusted") }
+      guard await check(name, key) else { throw KunaError("its host key is not trusted", final: true) }
     }
   }
 }
@@ -317,5 +376,49 @@ private final class Exec: ChannelDuplexHandler, @unchecked Sendable {
   private func fail(_ error: Error) {
     if !ended { done.fail(error) }
     ended = true
+  }
+}
+
+/// A command with a terminal around it: its screen as it is drawn, until the channel closes.
+private final class Pty: ChannelDuplexHandler, @unchecked Sendable {
+  typealias InboundIn = SSHChannelData
+  typealias OutboundIn = SSHChannelData
+  typealias OutboundOut = SSHChannelData
+
+  let command: String
+  let cols: Int
+  let rows: Int
+  let output: AsyncStream<Data>.Continuation
+
+  init(command: String, cols: Int, rows: Int, output: AsyncStream<Data>.Continuation) {
+    self.command = command
+    self.cols = cols
+    self.rows = rows
+    self.output = output
+  }
+
+  func channelActive(context: ChannelHandlerContext) {
+    // as the Mac's ssh sends its LANG: Claude Code draws in UTF-8. A host that takes no LANG ignores it.
+    context.triggerUserOutboundEvent(SSHChannelRequestEvent.EnvironmentRequest(wantReply: false, name: "LANG", value: "en_US.UTF-8"), promise: nil)
+    let pty = SSHChannelRequestEvent.PseudoTerminalRequest(
+      wantReply: true, term: "xterm-256color", terminalCharacterWidth: max(2, cols), terminalRowHeight: max(2, rows), terminalPixelWidth: 0, terminalPixelHeight: 0,
+      terminalModes: SSHTerminalModes([:]))
+    context.triggerUserOutboundEvent(pty).flatMap {
+      context.triggerUserOutboundEvent(SSHChannelRequestEvent.ExecRequest(command: self.command, wantReply: true))
+    }.whenFailure { _ in context.close(promise: nil) }
+    context.fireChannelActive()
+  }
+
+  func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+    if case .byteBuffer(let bytes) = unwrapInboundIn(data).data { output.yield(Data(bytes.readableBytesView)) }
+  }
+
+  func errorCaught(context: ChannelHandlerContext, error: Error) {
+    context.close(promise: nil)
+  }
+
+  func channelInactive(context: ChannelHandlerContext) {
+    output.finish()
+    context.fireChannelInactive()
   }
 }

@@ -1,0 +1,7 @@
+// Who signs the app. Your own team goes in Local.xcconfig next to this file (not in git):
+//
+//   DEVELOPMENT_TEAM = ABCDE12345
+//
+// Xcode shows the ten characters under Signing & Capabilities ▸ Team once you have signed in
+// (Settings ▸ Accounts); picking the team there instead writes it into the project file.
+#include? "Local.xcconfig"

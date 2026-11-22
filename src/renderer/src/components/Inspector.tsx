@@ -4,7 +4,7 @@ import { compactBlocker } from '@shared/input'
 import { activeAgentKey, compactAgent } from '../actions'
 import { agentTitle, ago, contextOf, doingText, modeLabel, needsOptions, needsText, shortPath, STATUS_LABEL, tokens } from '../format'
 import { useKuna } from '../store'
-import { folderOfAgent } from '../tree'
+import { folderOfAgent } from '@shared/tree'
 import { StatusDot } from './StatusDot'
 import { TexText } from './TexText'
 
