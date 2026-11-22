@@ -9,5 +9,6 @@ release/
 ios/.build/
 ios/.swiftpm/
 ios/Sources/KunaCore/Resources/kuna-shared.js
+ios/Sources/KunaUI/Resources/kuna-web.js
 xcuserdata/
 ios/App/Local.xcconfig

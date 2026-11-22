@@ -21,7 +21,12 @@ let package = Package(
       // made by `npm run ios:bundle`
       resources: [.copy("Resources/kuna-shared.js")]
     ),
-    .target(name: "KunaUI", dependencies: ["KunaCore", .product(name: "SwiftTerm", package: "SwiftTerm")]),
+    .target(
+      name: "KunaUI",
+      dependencies: ["KunaCore", .product(name: "SwiftTerm", package: "SwiftTerm")],
+      // made by `npm run ios:bundle`
+      resources: [.copy("Resources/kuna-web.js")]
+    ),
     .testTarget(name: "KunaCoreTests", dependencies: ["KunaCore"]),
   ]
 )

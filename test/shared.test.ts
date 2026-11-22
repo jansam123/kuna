@@ -4,6 +4,7 @@ import { baseModelId, contextInfo, contextLevel, contextWindowSize, modelFlag, s
 import { ChatLog } from '@shared/chat'
 import { compactBlocker, hasInputBox, screenState } from '@shared/input'
 import { parseJsonc } from '@shared/jsonc'
+import { diffLines, foldUnchanged, splitLines, type DiffRow } from '@shared/linediff'
 import { cleanTypedPath, pastePath } from '@shared/paths'
 import { emptyPhoneState, hostKeyVerdict, knownHostsName, makeExport, mergeImport, parseExport, parseJumpSpec, parseKnownHosts, parseSshG, type PhoneState } from '@shared/phone'
 import { gridRows, neighbor } from '@shared/layout'
@@ -1069,5 +1070,45 @@ describe('the conversation the iPhone shows', () => {
     log.feed(said('a', [{ type: 'tool_use', id: 't', name: 'AskUserQuestion', input: { questions: [{ question: 'Go?', options: ['Yes', 'No'] }] } }]))
     log.feed(line({ type: 'user', uuid: 'u', message: { content: [{ type: 'tool_result', tool_use_id: 't', content: 'Yes' }] } }))
     expect(log.items()[0]).toMatchObject({ kind: 'question', state: 'done' })
+  })
+})
+
+describe('line diff', () => {
+  const show = (rows: DiffRow[]): string => rows.map((r) => `${r.kind === 'same' ? ' ' : r.kind === 'add' ? '+' : '-'}${r.old ?? ''}:${r.new ?? ''} ${r.text}`).join('\n')
+  const apply = (rows: DiffRow[]): [string[], string[]] => [rows.filter((r) => r.kind !== 'add').map((r) => r.text), rows.filter((r) => r.kind !== 'del').map((r) => r.text)]
+
+  it('numbers what stayed, went and came', () => {
+    expect(show(diffLines(['a', 'b', 'c', 'd'], ['a', 'x', 'c', 'd', 'e']))).toBe(' 1:1 a\n-2: b\n+:2 x\n 3:3 c\n 4:4 d\n+:5 e')
+    expect(show(diffLines([], ['a']))).toBe('+:1 a')
+    expect(show(diffLines(['a'], []))).toBe('-1: a')
+    expect(diffLines(['a'], ['a']).every((r) => r.kind === 'same')).toBe(true)
+  })
+
+  it('gives back both texts, whatever they are', () => {
+    let seed = 7
+    const rnd = (n: number): number => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) % n
+    for (let round = 0; round < 200; round++) {
+      const a = Array.from({ length: rnd(30) }, () => 'l' + rnd(6))
+      const b = Array.from({ length: rnd(30) }, () => 'l' + rnd(6))
+      const rows = diffLines(a, b)
+      expect(apply(rows)).toEqual([a, b])
+      expect(rows.filter((r) => r.kind !== 'add').map((r) => r.old)).toEqual(a.map((_, i) => i + 1))
+      expect(rows.filter((r) => r.kind !== 'del').map((r) => r.new)).toEqual(b.map((_, i) => i + 1))
+    }
+  })
+
+  it('does not hang on two long unrelated files', () => {
+    const a = Array.from({ length: 5000 }, (_, i) => `a${i}`)
+    const b = Array.from({ length: 5000 }, (_, i) => `b${i}`)
+    expect(apply(diffLines(a, b))).toEqual([a, b])
+  })
+
+  it('folds what did not change, away from the changes', () => {
+    const a = Array.from({ length: 30 }, (_, i) => `l${i}`)
+    const b = a.map((l, i) => (i === 15 ? 'changed' : l))
+    const parts = foldUnchanged(diffLines(a, b), 2)
+    expect(parts.map((p) => ('rows' in p ? `rows ${p.rows.length}` : `folded ${p.folded.length}`))).toEqual(['folded 13', 'rows 6', 'folded 12'])
+    expect(splitLines('a\r\nb\n')).toEqual(['a', 'b'])
+    expect(splitLines('')).toEqual([])
   })
 })

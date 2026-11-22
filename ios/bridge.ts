@@ -22,7 +22,7 @@ import {
   validRef,
   type ReviewComment
 } from '@shared/git'
-import { mediaKind, pageFile as pageFileOf, resolveAgainst, viewerOrder } from '@shared/media'
+import { PAGE_CSP, mediaKind, mimeFor, pageFile as pageFileOf, resolveAgainst, viewerOrder } from '@shared/media'
 import { emptyPhoneState, hostKeyVerdict, knownHostsName, mergeImport, parseExport, type PhoneHost, type PhoneState } from '@shared/phone'
 import { REPO_COLORS, THEMES } from '@shared/themes'
 import { OTHER_FOLDER_ID, assignAgents } from '@shared/tree'
@@ -157,6 +157,9 @@ export function mediaItems(stat: string, order: string): string {
 
 /** The file a page asks for below its folder and its type, or `null` (see `pageFile` in src/shared/media.ts). */
 export const pageFile = (dir: string, urlPath: string): string => JSON.stringify(pageFileOf(dir, urlPath))
+/** what a page in the viewer may run and load, as on the Mac */
+export const pageCsp = PAGE_CSP
+export const mime = (path: string): string => mimeFor(path)
 
 // ------------------------------------------------------------------- git ----
 

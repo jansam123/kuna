@@ -196,3 +196,28 @@ export function pageFile(dir: string, urlPath: string): { path: string; mime: st
   const mime = PAGE_TYPES[(/\.([a-z0-9]+)$/i.exec(segs[segs.length - 1])?.[1] ?? '').toLowerCase()]
   return mime ? { path: `${dir}/${segs.join('/')}`, mime } : null
 }
+
+/**
+ * What a page in the viewer may run and load: its own folder (inline code
+ * included) and the CDNs artifacts and plotting libraries load from; no other
+ * request to the web. (WebRTC and DNS lookups are beyond a CSP's reach; the
+ * window turns WebRTC's UDP off, but this is no guarantee that nothing a page
+ * reads gets out, so what it can read is kept to web files inside its folder.)
+ */
+const CDNS = [
+  'https://cdnjs.cloudflare.com',
+  'https://cdn.jsdelivr.net',
+  'https://unpkg.com',
+  'https://cdn.tailwindcss.com',
+  'https://code.jquery.com',
+  'https://cdn.plot.ly',
+  'https://cdn.bokeh.org'
+].join(' ')
+export const PAGE_CSP = [
+  `default-src 'self' data: blob: ${CDNS}`,
+  `script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' data: blob: ${CDNS}`,
+  `style-src 'self' 'unsafe-inline' ${CDNS} https://fonts.googleapis.com`,
+  `font-src 'self' data: ${CDNS} https://fonts.gstatic.com`,
+  "form-action 'none'",
+  "base-uri 'self'"
+].join('; ')

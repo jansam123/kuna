@@ -73,6 +73,11 @@ final class Walkthrough: XCTestCase {
         first.tap()
         sleep(4)
         shot("viewer")
+        for i in 2...4 {
+          app.swipeLeft()
+          sleep(4)
+          shot("viewer-\(i)")
+        }
         if app.buttons["viewer-done"].exists { app.buttons["viewer-done"].tap() }
       }
       app.navigationBars.buttons.element(boundBy: 0).tap()

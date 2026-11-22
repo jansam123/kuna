@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, extname, join } from 'node:path'
 import { app, shell, type WebContents } from 'electron'
-import { mediaKind, mimeFor, pageFile, resolveAgainst, viewerOrder } from '@shared/media'
+import { mediaKind, mimeFor, pageFile, resolveAgainst, viewerOrder, PAGE_CSP } from '@shared/media'
 import { LOCAL_HOST, type ClaudeFileEntry, type HostId, type MediaItem, type MediaPage } from '@shared/types'
 import type { AgentService } from './agents'
 import { b64 } from './hosts/exec'
@@ -17,30 +17,6 @@ const MAX_RANGE_BYTES = 16 * MB
 const MAX_MD_BYTES = 4 * MB
 /** an HTML page, or a file it loads, past this is not served (an artifact is at most 16 MB) */
 const MAX_PAGE_BYTES = 64 * MB
-/**
- * What a page in the viewer may run and load: its own folder (inline code
- * included) and the CDNs artifacts and plotting libraries load from; no other
- * request to the web. (WebRTC and DNS lookups are beyond a CSP's reach; the
- * window turns WebRTC's UDP off, but this is no guarantee that nothing a page
- * reads gets out, so what it can read is kept to web files inside its folder.)
- */
-const CDNS = [
-  'https://cdnjs.cloudflare.com',
-  'https://cdn.jsdelivr.net',
-  'https://unpkg.com',
-  'https://cdn.tailwindcss.com',
-  'https://code.jquery.com',
-  'https://cdn.plot.ly',
-  'https://cdn.bokeh.org'
-].join(' ')
-const PAGE_CSP = [
-  `default-src 'self' data: blob: ${CDNS}`,
-  `script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' data: blob: ${CDNS}`,
-  `style-src 'self' 'unsafe-inline' ${CDNS} https://fonts.googleapis.com`,
-  `font-src 'self' data: ${CDNS} https://fonts.gstatic.com`,
-  "form-action 'none'",
-  "base-uri 'self'"
-].join('; ')
 /** page addresses can't be guessed (and so not navigated to) by another page; new each run */
 const PAGE_SECRET = randomBytes(16)
 /** a .claude file past this is not shown */

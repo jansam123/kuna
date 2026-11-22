@@ -1,5 +1,6 @@
-// Bundles ios/bridge.ts (Kuna's shared logic plus the host helper) into the
-// one script the iPhone app runs in JavaScriptCore.
+// Bundles what the iPhone app runs of Kuna's TypeScript: ios/bridge.ts (the shared logic plus the
+// host helper) into the script it runs in JavaScriptCore, and ios/web/page.ts (Markdown, code and
+// diffs) into the script of its web views.
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -24,5 +25,18 @@ await build({
     outDir: resolve(root, 'ios/Sources/KunaCore/Resources'),
     emptyOutDir: false,
     minify: false
+  }
+})
+
+await build({
+  root,
+  configFile: false,
+  logLevel: 'warn',
+  resolve: { alias: { '@shared': resolve(root, 'src/shared') } },
+  build: {
+    lib: { entry: resolve(root, 'ios/web/page.ts'), formats: ['iife'], name: 'KunaWeb', fileName: () => 'kuna-web.js' },
+    outDir: resolve(root, 'ios/Sources/KunaUI/Resources'),
+    emptyOutDir: false,
+    minify: true
   }
 })
