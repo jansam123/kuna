@@ -309,28 +309,21 @@ body.resizing .main {
    header and its rows, the header's colour fading to the right, the rows on a faint tint of the same colour. */
 .row-project {
   height: 30px;
-  margin-top: 10px;
   padding-left: 10px;
   gap: 9px;
   border-left: 3px solid var(--proj);
   background: linear-gradient(90deg, color-mix(in srgb, var(--proj) 24%, var(--panel)), color-mix(in srgb, var(--proj) 6%, var(--panel)));
-  /* stays in view while its rows scroll under it; the shadow covers them in the space above it */
+  /* stays in view while its rows scroll under it */
   position: sticky;
   top: 0;
   z-index: 2;
-  box-shadow: 0 -10px 0 var(--panel);
-}
-.row-project:first-child {
-  margin-top: 0;
 }
 .row-project:hover,
 .row-project.sel {
   background: linear-gradient(90deg, color-mix(in srgb, var(--proj) 32%, var(--raised)), color-mix(in srgb, var(--proj) 10%, var(--raised)));
 }
 .row-project.sel {
-  box-shadow:
-    0 -10px 0 var(--panel),
-    inset 0 0 0 1px color-mix(in srgb, var(--proj) 55%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--proj) 55%, transparent);
 }
 .row-folder,
 .row-agent,
