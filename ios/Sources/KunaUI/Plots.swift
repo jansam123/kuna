@@ -16,10 +16,40 @@ enum Connection {
   static func start() { _ = monitor }
 }
 
+/// One group of the viewer's list, as on the Mac: Slides, Diagrams, Plots, Markdown, Pages; PDFs not read yet.
+struct MediaGroup: Decodable, Identifiable {
+  let id: String
+  let label: String
+  /// its own colour; none takes the scheme's dim
+  let color: String?
+  let items: [MediaItem]
+
+  /// its mark: a screen on its stand, boxes and a line, axes and a curve, a page, a tag
+  var symbol: String {
+    switch id {
+    case "slides": "tv"
+    case "diagram": "rectangle.connected.to.line.below"
+    case "plot": "chart.xyaxis.line"
+    case "md": "doc.text"
+    case "html": "chevron.left.forwardslash.chevron.right"
+    case "url": "globe"
+    default: "doc"
+    }
+  }
+}
+
 /// The files of one agent: which there are, and their contents once fetched.
 @MainActor @Observable
 final class MediaStore {
-  private(set) var items: [MediaItem] = []
+  private(set) var items: [MediaItem] = [] { didSet { regroup() } }
+  /// the files by group, in the Mac's order: what the list shows and the order the viewer swipes through
+  private(set) var groups: [MediaGroup] = []
+  /// what the PDFs read so far are (slides, diagram, plot), by path
+  private var classes: [String: String] = [:] { didSet { regroup() } }
+  @ObservationIgnored private var read: Set<String> = []
+  @ObservationIgnored private var base = ""
+  /// a PDF up to this size is read by itself to learn what it is; a larger one stays under PDFs until opened
+  static let classifyBelow = 4.0 * 1024 * 1024
   private(set) var loading = false
   private(set) var problem: String?
   /// the folder has been looked through, not only what the conversation mentioned
@@ -38,7 +68,11 @@ final class MediaStore {
   func load(model: AppModel, session: AgentSession, agent: Agent) async {
     loading = true
     problem = nil
-    defer { loading = false }
+    base = agent.base
+    defer {
+      loading = false
+      Task { await classify(model: model, host: agent.host) }
+    }
     await session.pull()
     let paths = session.mentionedFiles()
     if !paths.isEmpty {
@@ -63,10 +97,34 @@ final class MediaStore {
       let found = try await model.done(agent.host, args, timeout: 40, or: "Could not look through the folder.")
       let scan = (try? Shared.main.decode([MediaItem].self, "mediaItems", [found.text, "[]"])) ?? []
       let have = Set(items.map(\.path))
+      base = agent.base
       items += scan.filter { !have.contains($0.path) }
       scanned = true
+      Task { await classify(model: model, host: agent.host) }
     } catch {
       problem = error.localizedDescription
+    }
+  }
+
+  private func regroup() {
+    groups = (try? Shared.main.decode([MediaGroup].self, "mediaGroups", [json(items), json(classes), base])) ?? []
+  }
+
+  func group(of item: MediaItem) -> MediaGroup? { groups.first { $0.items.contains { $0.path == item.path } } }
+
+  /// A PDF's pages and who made it say what it is, as on the Mac (`figureClass`).
+  private func learn(_ item: MediaItem, _ data: Data) {
+    guard item.kind == "pdf", self.read.insert("\(item.path)\n\(item.stamp)").inserted, let doc = PDFDocument(data: data) else { return }
+    let made = doc.documentAttributes
+    let maker = "\(made?[PDFDocumentAttribute.creatorAttribute] as? String ?? "") \(made?[PDFDocumentAttribute.producerAttribute] as? String ?? "")"
+    if let figure = try? Shared.main.call("figure", [item.path, doc.pageCount, maker]) { classes[item.path] = figure }
+  }
+
+  /// Reads the small PDFs, one at a time, so each stands under what it is: slides, a diagram or a plot.
+  private func classify(model: AppModel, host: String) async {
+    let limit = Connection.expensive ? Self.classifyBelow / 4 : Self.classifyBelow
+    for item in items where item.kind == "pdf" && item.size <= limit && !read.contains("\(item.path)\n\(item.stamp)") {
+      _ = try? await data(for: item, host: host, model: model)
     }
   }
 
@@ -77,6 +135,7 @@ final class MediaStore {
     let read = try await model.run(host, ["cat", b64(item.path)], timeout: 120 + item.size / 1024 / 1024 * 4)
     guard read.code == 0 else { throw KunaError(read.stderr.isEmpty ? "Could not read \(item.name)." : read.stderr) }
     cache[key] = read.stdout
+    learn(item, read.stdout)
     order.append(key)
     // a few files stay for going back and forth
     while order.count > 10 || cache.values.reduce(0, { $0 + $1.count }) > 150 * 1024 * 1024, order.count > 1 { cache[order.removeFirst()] = nil }
@@ -92,18 +151,38 @@ struct PlotsScreen: View {
   @Environment(\.look) private var look
   @State private var store = MediaStore()
   @State private var showing: MediaItem?
+  /// the groups rolled in
+  @State private var shut: Set<String> = []
 
   var body: some View {
     let agent = model.agent(key)
     List {
       if let problem = store.problem { Text(problem).foregroundStyle(look.danger).listRowBackground(look.panel) }
-      ForEach(groups, id: \.0) { title, items in
-        Section(title) {
-          ForEach(items) { item in
-            Button { showing = item } label: { MediaRow(item: item, base: agent?.base ?? "") }
-              .listRowBackground(look.panel)
-              .accessibilityIdentifier("media-\(item.name)")
+      ForEach(store.groups) { group in
+        let open = !shut.contains(group.id)
+        Section {
+          if open {
+            ForEach(group.items) { item in
+              Button { showing = item } label: { MediaRow(item: item, base: agent?.base ?? "") }
+                .listRowBackground(look.panel)
+                .accessibilityIdentifier("media-\(item.name)")
+            }
           }
+        } header: {
+          Button { shut.formSymmetricDifference([group.id]) } label: {
+            HStack(spacing: 8) {
+              Image(systemName: group.symbol).foregroundStyle(group.color.map { Color(hex: $0) } ?? look.dim).frame(width: 22)
+              Text(group.label).foregroundStyle(look.text)
+              Text("\(group.items.count)").monospacedDigit().foregroundStyle(look.dim)
+              Spacer()
+              Image(systemName: "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(look.faint).rotationEffect(.degrees(open ? 90 : 0))
+            }
+            .font(.subheadline.weight(.semibold))
+            .textCase(nil)
+            .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .accessibilityIdentifier("group-\(group.id)")
         }
       }
       if !store.loading, store.items.isEmpty, store.problem == nil {
@@ -122,7 +201,7 @@ struct PlotsScreen: View {
     .refreshable { await reload() }
     .task { await reload() }
     .fullScreenCover(item: $showing) { item in
-      if let agent { ViewerScreen(model: model, store: store, host: agent.host, items: store.items, start: item).environment(\.look, look) }
+      if let agent { ViewerScreen(model: model, store: store, host: agent.host, items: store.groups.flatMap(\.items), start: item).environment(\.look, look) }
     }
   }
 
@@ -130,16 +209,6 @@ struct PlotsScreen: View {
     guard let agent = model.agent(key) else { return }
     Connection.start()
     await store.load(model: model, session: open.get(key, model).session, agent: agent)
-  }
-
-  private var groups: [(String, [MediaItem])] {
-    let names = ["pdf": "PDFs", "image": "Pictures", "svg": "Pictures", "md": "Markdown", "html": "Pages"]
-    var out: [(String, [MediaItem])] = []
-    for item in store.items {
-      let title = names[item.kind] ?? "Files"
-      if let i = out.firstIndex(where: { $0.0 == title }) { out[i].1.append(item) } else { out.append((title, [item])) }
-    }
-    return out
   }
 }
 
@@ -149,11 +218,11 @@ private struct MediaRow: View {
   @Environment(\.look) private var look
 
   var body: some View {
-    HStack(spacing: 12) {
-      Image(systemName: icon).font(.title3).foregroundStyle(look.accent).frame(width: 30)
+    HStack(spacing: 10) {
+      PlaceChip(place: item.place ?? "outside")
       VStack(alignment: .leading, spacing: 2) {
         Text(item.name).foregroundStyle(look.text).lineLimit(1).truncationMode(.middle)
-        Text(place).font(.caption).foregroundStyle(look.dim).lineLimit(1).truncationMode(.head)
+        if !folder.isEmpty { Text(folder).font(.caption).foregroundStyle(look.dim).lineLimit(1).truncationMode(.head) }
       }
       Spacer(minLength: 4)
       VStack(alignment: .trailing, spacing: 2) {
@@ -163,26 +232,34 @@ private struct MediaRow: View {
     }
   }
 
-  private var icon: String {
-    switch item.kind {
-    case "pdf": "doc.richtext"
-    case "md": "text.alignleft"
-    case "html": "globe"
-    default: "photo"
-    }
-  }
-
   /// its folder, from the agent's own folder when it is inside it
-  private var place: String {
+  private var folder: String {
     let dir = String(item.path.dropLast(item.name.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     let root = base.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-    if dir == root { return "in its folder" }
+    if dir == root { return "" }
     if dir.hasPrefix(root + "/") { return String(dir.dropFirst(root.count + 1)) }
     return "/" + dir
   }
 }
 
-/// One file full screen; swipe sideways for the next.
+/// Where a file lives, in a word, as the Mac's list marks it: outside the agent's folder reads plain, the other places stand out.
+struct PlaceChip: View {
+  let place: String
+  @Environment(\.look) private var look
+
+  var body: some View {
+    let color: Color? = switch place {
+    case "claude": look.insert
+    case "tmp": look.waiting
+    case "folder": look.unread
+    default: nil
+    }
+    Text(place == "claude" ? ".claude" : place).font(.caption2.monospaced()).foregroundStyle(color ?? look.faint).padding(.horizontal, 5).padding(.vertical, 2)
+      .background((color ?? .clear).opacity(0.16), in: RoundedRectangle(cornerRadius: 4))
+      .frame(minWidth: 52, alignment: .leading)
+  }
+}
+
 struct ViewerScreen: View {
   let model: AppModel
   let store: MediaStore
@@ -206,10 +283,14 @@ struct ViewerScreen: View {
     VStack(spacing: 0) {
       HStack(spacing: 12) {
         Button("Done") { dismiss() }.fontWeight(.semibold).accessibilityIdentifier("viewer-done")
+        if let group = store.group(of: items[index]) {
+          Image(systemName: group.symbol).foregroundStyle(group.color.map { Color(hex: $0) } ?? look.dim).accessibilityLabel(group.label)
+        }
         VStack(alignment: .leading, spacing: 1) {
           Text(items[index].name).font(.subheadline.weight(.semibold)).foregroundStyle(look.text).lineLimit(1).truncationMode(.middle)
           Text("\(index + 1) of \(items.count) · \(sizeText(items[index].size)) · \(ago(items[index].mtime))").font(.caption2).foregroundStyle(look.dim)
         }
+        PlaceChip(place: items[index].place ?? "outside")
         Spacer(minLength: 0)
         if let shared { ShareLink(item: shared) { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("Share") }
       }

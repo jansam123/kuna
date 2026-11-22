@@ -22,16 +22,18 @@ import {
   validRef,
   type ReviewComment
 } from '@shared/git'
-import { PAGE_CSP, mediaKind, mimeFor, pageFile as pageFileOf, resolveAgainst, viewerOrder } from '@shared/media'
+import { MEDIA_GROUPS, PAGE_CSP, figureClass, fileGroups, mediaKind, mediaPlace, mimeFor, pageFile as pageFileOf, resolveAgainst, viewerOrder, type FigureClass } from '@shared/media'
 import { emptyPhoneState, hostKeyVerdict, knownHostsName, mergeImport, parseExport, type PhoneHost, type PhoneState } from '@shared/phone'
+import { texToText } from '@shared/tex'
 import { REPO_COLORS, THEMES } from '@shared/themes'
 import { OTHER_FOLDER_ID, assignAgents } from '@shared/tree'
-import type { AgentRuntime, HostId, HostState, MediaItem, Project } from '@shared/types'
+import { SHELL_COMMAND, isShell, type AgentRuntime, type HostId, type HostState, type MediaItem, type Project } from '@shared/types'
 import { isHostId } from '@shared/validate'
 import { frameToAgents, onLocalClock, parseFrame, titleOf } from '@shared/watch'
 
 declare const __KUNA_SCRIPT__: string
 declare const __KUNA_VERSION__: string
+declare const __KUNA_ICONS__: string
 
 /** the helper installed on hosts, and the version it reports (as src/main/hosts/script.ts) */
 export const script = __KUNA_SCRIPT__
@@ -45,6 +47,7 @@ export function agents(host: string, lines: string[], now: number, offset: numbe
     onLocalClock(frameToAgents(host as HostId, parseFrame(lines, now)), offset).map((a) => ({
       ...a,
       title: titleOf(a),
+      shell: isShell(a),
       doing: doingText(a),
       needs: needsText(a),
       context: a.contextTokens ? contextInfo(a.contextTokens, a.model, a.contextPeak ?? 0, a.modelFlag ?? modelFlag(a.command)) : undefined,
@@ -85,6 +88,12 @@ export const knownName = (host: string): string => knownHostsName(JSON.parse(hos
 export const keyVerdict = (known: string, offered: string): string => hostKeyVerdict(JSON.parse(known) as string[], offered)
 export const validHost = (id: string): boolean => isHostId(id) && id !== 'local'
 export const themes = (): string => JSON.stringify(THEMES)
+/** the Mac's project icons as drawing steps (see scripts/ios-bundle.mjs), by name, in the picker's order */
+export const icons = (): string => __KUNA_ICONS__
+/** a project's or folder's name with its `$…$` math in Unicode: the phone has no KaTeX outside its web views */
+export const texText = (name: string): string => texToText(name)
+/** what a terminal runs in place of an agent */
+export const shellCommand = (): string => SHELL_COMMAND
 export const repoColors = (): string => JSON.stringify(REPO_COLORS)
 
 // ------------------------------------------------------------------ chat ----
@@ -154,6 +163,32 @@ export function mediaItems(stat: string, order: string): string {
   const items = wanted.length ? wanted.flatMap((p) => found.get(p) ?? []) : [...found.values()].sort((a, b) => b.mtime - a.mtime)
   return JSON.stringify(viewerOrder(items))
 }
+
+/** the groups' colours, as `.g-<group>` in the Mac's styles.css (`pdf` takes the scheme's dim) */
+const GROUP_COLORS: Record<string, string> = { slides: '#ff8a5c', diagram: '#2dd4bf', plot: '#f472b6', md: '#c9d1e3', html: '#a3e635', url: '#60a5fa' }
+
+/**
+ * The viewer's list as the Mac shows it: the files by group (Slides, Diagrams,
+ * Plots, Markdown, Pages; PDFs not read yet), in that order, each file with
+ * where it lives (`folder`, `claude`, `tmp`, `outside`). `classes`: what the
+ * PDFs read so far are (`figure`), by path.
+ */
+export function mediaGroups(items: string, classes: string, base: string): string {
+  const list = JSON.parse(items) as MediaItem[]
+  const known = JSON.parse(classes) as Record<string, FigureClass>
+  const groupOf = fileGroups(list, (it) => known[it.path])
+  return JSON.stringify(
+    MEDIA_GROUPS.map(([id, label]) => ({
+      id,
+      label,
+      color: GROUP_COLORS[id] ?? null,
+      items: list.filter((it) => groupOf(it) === id).map((it) => ({ ...it, place: mediaPlace(base, it.path) }))
+    })).filter((g) => g.items.length)
+  )
+}
+
+/** What a PDF is once read: `slides`, `diagram` or `plot` (its pages; its Creator and Producer as `maker`). */
+export const figure = (path: string, pages: number, maker: string): string => figureClass(path, { pages, maker })
 
 /** The file a page asks for below its folder and its type, or `null` (see `pageFile` in src/shared/media.ts). */
 export const pageFile = (dir: string, urlPath: string): string => JSON.stringify(pageFileOf(dir, urlPath))

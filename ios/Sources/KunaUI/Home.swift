@@ -3,46 +3,44 @@ import KunaCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// What the app opens with: every project, its folders and their agents, as the Mac's sidebar.
+/// What the app opens with: the projects, their folders and their agents, as the Mac's sidebar.
 struct HomeView: View {
   let model: AppModel
   @Binding var path: [Route]
   @Binding var notice: Notice?
   @Environment(\.look) private var look
+  @AppStorage("homeLook") private var homeLook = HomeLook.blocks.rawValue
+  @AppStorage("stripProject") private var stripProject = ""
   @State private var settings = false
-  @State private var editing: ProjectDraft?
-  @State private var starting: StartIn?
   @State private var importing = false
+  @State private var sheets = ProjectSheets.State()
 
   var body: some View {
+    let style = HomeLook(rawValue: homeLook) ?? .blocks
+    let actions = $sheets.actions(model: model, path: $path, notice: $notice)
     ScrollView {
       LazyVStack(alignment: .leading, spacing: 18) {
-        ForEach(troubled) { link in HostBanner(model: model, link: link, edit: { settings = true }) }
-        if model.state.projects.isEmpty {
-          Welcome(importing: $importing, new: { editing = ProjectDraft(model: model) })
-        } else {
-          let waiting = model.tree.flatMap(\.agents).filter { $0.status == "waiting" }
-          if !waiting.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-              Text("Needs you").font(.footnote.weight(.semibold)).foregroundStyle(look.waiting).padding(.horizontal, 6)
-              VStack(spacing: 0) {
-                ForEach(waiting) { agent in
-                  AgentRow(model: model, agent: agent, open: { path.append(.agent(agent.key)) })
-                  if agent.key != waiting.last?.key { Divider().overlay(look.line).padding(.leading, 38) }
-                }
-              }
-              .card(look, padding: 0)
-            }
+        if !troubled.isEmpty || model.state.projects.isEmpty {
+          VStack(spacing: 18) {
+            ForEach(troubled) { link in HostBanner(model: model, link: link, edit: { settings = true }) }
+            if model.state.projects.isEmpty { Welcome(importing: $importing, new: { sheets.editing = ProjectDraft(model: model) }) }
           }
-          ForEach(model.tree) { project in
-            ProjectSection(
-              model: model, tree: project, open: { path.append(.agent($0)) }, edit: { editing = ProjectDraft(model: model, project: project.project) },
-              start: { starting = StartIn(project: project.project, folder: $0) })
-          }
+          .padding(.horizontal, 16)
+        }
+        switch style {
+        case .blocks: BlocksHome(model: model, actions: actions)
+        case .cards: CardsHome(model: model, actions: actions)
+        case .tiles: TilesHome(model: model, actions: actions)
+        case .strip:
+          if let tree = model.tree.first(where: { $0.id == stripProject }) ?? model.tree.first { ProjectPage(model: model, tree: tree, actions: actions) }
         }
       }
-      .padding(.horizontal, 16)
       .padding(.vertical, 8)
+    }
+    .safeAreaInset(edge: .top, spacing: 0) {
+      if style == .strip, model.tree.count > 1 {
+        ProjectStrip(model: model, selected: Binding(get: { model.tree.contains { $0.id == stripProject } ? stripProject : model.tree.first?.id ?? "" }, set: { stripProject = $0 }))
+      }
     }
     .background(look.ground)
     .refreshable {
@@ -50,22 +48,20 @@ struct HomeView: View {
       try? await Task.sleep(for: .milliseconds(600))
     }
     .navigationTitle("Kuna")
+    .navigationBarTitleDisplayMode(style == .strip ? .inline : .automatic)
     .toolbar {
       ToolbarItem(placement: .topBarLeading) {
         Button("Settings", systemImage: "gearshape") { settings = true }
       }
       ToolbarItem(placement: .primaryAction) {
         Menu("Add", systemImage: "plus") {
-          Button("New project", systemImage: "folder.badge.plus") { editing = ProjectDraft(model: model) }
+          Button("New project", systemImage: "folder.badge.plus") { sheets.editing = ProjectDraft(model: model) }
           Button("Import from the Mac", systemImage: "square.and.arrow.down") { importing = true }
         }
       }
     }
     .sheet(isPresented: $settings) { SettingsView(model: model, importing: $importing).environment(\.look, look) }
-    .sheet(item: $editing) { draft in ProjectForm(model: model, draft: draft).environment(\.look, look) }
-    .sheet(item: $starting) { place in
-      NewAgentSheet(model: model, place: place) { key in path.append(.agent(key)) }.environment(\.look, look)
-    }
+    .modifier(ProjectSheets(model: model, state: $sheets, path: $path))
     .fileImporter(isPresented: $importing, allowedContentTypes: [.json, .data, .item]) { result in
       guard case .success(let url) = result else { return }
       let scoped = url.startAccessingSecurityScopedResource()
@@ -81,6 +77,81 @@ struct HomeView: View {
   /// hosts that are not simply connected: said at the top, with what to do
   private var troubled: [HostLink] {
     model.links.values.filter { $0.phase != .ready }.sorted { $0.alias < $1.alias }
+  }
+}
+
+/// One project's page, opened from its tile.
+struct ProjectScreen: View {
+  let model: AppModel
+  let id: String
+  @Binding var path: [Route]
+  @Binding var notice: Notice?
+  @Environment(\.look) private var look
+  @State private var sheets = ProjectSheets.State()
+
+  var body: some View {
+    let actions = $sheets.actions(model: model, path: $path, notice: $notice)
+    ScrollView {
+      if let tree = model.tree.first(where: { $0.id == id }) {
+        ProjectPage(model: model, tree: tree, actions: actions, heading: false).padding(.vertical, 8)
+      } else {
+        ContentUnavailableView("This project is gone", systemImage: "folder")
+      }
+    }
+    .background(look.ground)
+    .navigationTitle(model.tree.first { $0.id == id }.map { model.plain($0.project.name) } ?? "")
+    .toolbar {
+      if let tree = model.tree.first(where: { $0.id == id }) {
+        ToolbarItem(placement: .primaryAction) { Button("Edit", systemImage: "ellipsis.circle") { actions.edit(tree.project) } }
+      }
+    }
+    .modifier(ProjectSheets(model: model, state: $sheets, path: $path))
+  }
+}
+
+/// The sheets a screen with projects on it needs: a project's form, a new agent's task.
+struct ProjectSheets: ViewModifier {
+  struct State {
+    var editing: ProjectDraft?
+    var starting: StartIn?
+  }
+
+  let model: AppModel
+  @Binding var state: State
+  @Binding var path: [Route]
+  @Environment(\.look) private var look
+
+  func body(content: Content) -> some View {
+    content
+      .sheet(item: $state.editing) { draft in ProjectForm(model: model, draft: draft).environment(\.look, look) }
+      .sheet(item: $state.starting) { place in
+        NewAgentSheet(model: model, place: place) { key in path.append(.agent(key)) }.environment(\.look, look)
+      }
+  }
+}
+
+extension Binding where Value == ProjectSheets.State {
+  /// What taps in the projects do on this screen.
+  @MainActor
+  func actions(model: AppModel, path: Binding<[Route]>, notice: Binding<Notice?>) -> ProjectActions {
+    ProjectActions(
+      open: { path.wrappedValue.append(.agent($0)) },
+      edit: { wrappedValue.editing = ProjectDraft(model: model, project: $0) },
+      start: { project, folder, shell in
+        guard shell else { return wrappedValue.starting = StartIn(project: project, folder: folder) }
+        Task { await startTerminal(model, project, folder, nil, path, notice) }
+      },
+      show: { path.wrappedValue.append(.project($0.id)) })
+  }
+}
+
+/// A terminal (your shell) in a folder of a project, or where an agent works; opens it.
+@MainActor
+func startTerminal(_ model: AppModel, _ project: Project, _ folder: Folder, _ cwd: String?, _ path: Binding<[Route]>, _ notice: Binding<Notice?>) async {
+  do {
+    path.wrappedValue.append(.agent(try await model.spawn(project: project, folder: folder, prompt: "", shell: true, cwd: cwd)))
+  } catch {
+    notice.wrappedValue = Notice(title: "The terminal did not start", text: error.localizedDescription)
   }
 }
 
@@ -148,120 +219,6 @@ private struct HostBanner: View {
     case .ready: "Connected."
     case .failed(let why, _):
       why.contains("sign-in refused") ? why + ". Add this phone's key to the host (Settings shows it), or save the host's password under Hosts." : why
-    }
-  }
-}
-
-private struct ProjectSection: View {
-  let model: AppModel
-  let tree: ProjectTree
-  let open: (String) -> Void
-  let edit: () -> Void
-  let start: (Folder) -> Void
-  @Environment(\.look) private var look
-
-  var body: some View {
-    let project = tree.project
-    let folded = project.collapsed == true
-    VStack(alignment: .leading, spacing: 8) {
-      HStack(spacing: 10) {
-        Button {
-          model.update { state in
-            if let i = state.projects.firstIndex(where: { $0.id == project.id }) { state.projects[i].collapsed = folded ? nil : true }
-          }
-        } label: {
-          HStack(spacing: 10) {
-            Text(project.glyph).font(.system(size: 15, weight: .bold, design: .rounded)).foregroundStyle(.black.opacity(0.8)).frame(width: 30, height: 30)
-              .background(Color(hex: project.color), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            VStack(alignment: .leading, spacing: 1) {
-              Text(project.name).font(.title3.weight(.semibold)).foregroundStyle(look.text).lineLimit(1)
-              HStack(spacing: 5) {
-                StatusDot(status: hostStatus, size: 6)
-                Text(hostWords).font(.caption).foregroundStyle(look.dim).lineLimit(1)
-              }
-            }
-            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(look.faint).rotationEffect(.degrees(folded ? 0 : 90))
-          }
-        }
-        .buttonStyle(.plain)
-        Spacer(minLength: 0)
-        Button("Edit \(project.name)", systemImage: "ellipsis.circle", action: edit).labelStyle(.iconOnly).foregroundStyle(look.dim)
-      }
-      .padding(.horizontal, 6)
-      if !folded {
-        if tree.folders.isEmpty {
-          Button("Add a folder to start agents in", systemImage: "plus", action: edit).font(.subheadline).padding(.horizontal, 6)
-        }
-        ForEach(tree.folders) { folder in
-          FolderCard(model: model, project: project, folder: folder, open: open, start: { start(folder.folder) })
-        }
-      }
-    }
-  }
-
-  private var link: HostLink? { model.links[project.host] }
-  private var project: Project { tree.project }
-  private var hostStatus: String {
-    switch link?.phase {
-    case .ready: "idle"
-    case .failed: "failed"
-    case .connecting, .installing: "starting"
-    default: "exited"
-    }
-  }
-  private var hostWords: String {
-    let count = tree.agents.filter(\.alive).count
-    return count > 0 ? "\(project.host) · \(count) running" : project.host
-  }
-}
-
-private struct FolderCard: View {
-  let model: AppModel
-  let project: Project
-  let folder: FolderTree
-  let open: (String) -> Void
-  let start: () -> Void
-  @Environment(\.look) private var look
-
-  var body: some View {
-    let folded = folder.folder.collapsed == true
-    VStack(spacing: 0) {
-      HStack(spacing: 10) {
-        Button(action: toggle) {
-          HStack(spacing: 8) {
-            Image(systemName: folder.other ? "tray" : "folder.fill").font(.footnote).foregroundStyle(Color(hex: folder.folder.color))
-            Text(folder.folder.name).font(.subheadline.weight(.semibold)).foregroundStyle(look.text).lineLimit(1)
-            if folded, !folder.agents.isEmpty { Text("\(folder.agents.count)").font(.caption.monospacedDigit()).foregroundStyle(look.dim) }
-            Spacer(minLength: 0)
-          }
-          .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        if !folder.other {
-          Button("New agent in \(folder.folder.name)", systemImage: "plus.circle.fill", action: start)
-            .labelStyle(.iconOnly).font(.title3).foregroundStyle(look.accent)
-        }
-      }
-      .padding(.horizontal, 14)
-      .padding(.vertical, 11)
-      if !folded {
-        ForEach(folder.agents) { agent in
-          Divider().overlay(look.line).padding(.leading, 38)
-          AgentRow(model: model, agent: agent, open: { open(agent.key) })
-        }
-      }
-    }
-    .background(look.panel, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-  }
-
-  private func toggle() {
-    model.update { state in
-      guard let p = state.projects.firstIndex(where: { $0.id == project.id }) else { return }
-      if folder.other {
-        state.projects[p].otherCollapsed = folder.folder.collapsed == true ? nil : true
-      } else if let f = state.projects[p].folders.firstIndex(where: { $0.id == folder.folder.id }) {
-        state.projects[p].folders[f].collapsed = folder.folder.collapsed == true ? nil : true
-      }
     }
   }
 }

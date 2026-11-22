@@ -147,6 +147,24 @@ export function figureClass(path: string, pdf?: { pages: number; maker: string }
 }
 
 /**
+ * Which group each file of the viewer's list is in. A PDF is what reading it
+ * said (`pdfClass`: its `figureClass` with pages and maker; nothing while it
+ * is unread). An image is what the PDF of the same name beside it is (a
+ * figure saved as both), else what its name says.
+ */
+export function fileGroups<T extends { path: string; kind: string }>(items: T[], pdfClass: (it: T) => FigureClass | null | undefined): (it: T) => string {
+  const stem = (path: string): string => path.replace(/\.[^./]+$/, '')
+  const pdfs = new Map(items.filter((it) => it.kind === 'pdf').map((it) => [stem(it.path), it]))
+  return (it) => {
+    if (it.kind === 'md' || it.kind === 'html' || it.kind === 'url') return mediaGroup(it.kind)
+    if (it.kind === 'pdf') return mediaGroup('pdf', pdfClass(it))
+    const twin = pdfs.get(stem(it.path))
+    const same = twin && pdfClass(twin)
+    return same && same !== 'slides' ? same : figureClass(it.path)
+  }
+}
+
+/**
  * The order the viewer shows files in: by group (`group` says which a file
  * is in), each in the order given (the order a reply mentions them, left to
  * right; newest first for the folder scan). Before the viewer has read what

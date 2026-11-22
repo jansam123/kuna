@@ -29,7 +29,7 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
   /// a host's alias
   public var host: String
   public var color: String
-  /// a short text for its block (μ, H, an emoji), or the name of one of the Mac's drawn icons
+  /// the name of one of the Mac's drawn icons, or a short text shown as it is (μ, H, an emoji)
   public var icon: String?
   /// what starts a new agent, e.g. `claude` or `claude --model opus`
   public var agentCommand: String
@@ -46,13 +46,6 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
     self.color = color
     self.agentCommand = agentCommand
     self.folders = folders
-  }
-
-  /// What its block shows: its icon when that is a letter or two (the Mac's drawn icons are
-  /// not on the phone), else the name's first letter.
-  public var glyph: String {
-    if let icon, !icon.isEmpty, icon.count <= 2 { return icon }
-    return name.trimmingCharacters(in: .whitespaces).first.map { String($0).uppercased() } ?? "?"
   }
 
   /// whether new agents are Claude Code (they get a session id, hooks and a transcript)
@@ -146,6 +139,8 @@ public struct Agent: Codable, Identifiable, Hashable, Sendable {
   public var permissionMode: String?
   /// what to call it, as the Mac does (`titleOf`), before a name given by hand
   public var title: String
+  /// a terminal (the user's shell) instead of an agent
+  public var shell: Bool?
   /// what it is doing, in words; what it waits for when it needs you
   public var doing: String
   public var needs: String?
@@ -160,7 +155,7 @@ public struct Agent: Codable, Identifiable, Hashable, Sendable {
 
   enum CodingKeys: String, CodingKey {
     case key, kind, host, cwd, worktree, status, alive, createdAt, attnTs, activityTs, projectId, folderId, sessionId, command, prompt
-    case transcriptPath, transcriptSize, lastReply, questions, permissionMode, title, doing, needs, context, modelName
+    case transcriptPath, transcriptSize, lastReply, questions, permissionMode, title, shell, doing, needs, context, modelName
     case agentId = "id"
   }
 }
@@ -212,10 +207,24 @@ public struct MediaItem: Codable, Identifiable, Hashable, Sendable {
   public var size: Double
   /// image, pdf, svg, md, html
   public var kind: String
+  /// where it lives, once the list is grouped: folder, claude, tmp, outside (`mediaPlace`)
+  public var place: String?
   public var id: String { path }
   public var name: String { path.split(separator: "/").last.map(String.init) ?? path }
   /// changes when the file is made again, so a new plot is never shown from the cache
   public var stamp: String { "\(Int(mtime)):\(Int(size))" }
+}
+
+/// One shape of a project icon on the Mac's 24 grid, as scripts/ios-bundle.mjs flattens ProjectIcon.tsx.
+public struct IconShape: Decodable, Hashable, Sendable {
+  /// `[0,x,y]` move, `[1,x,y]` line, `[2,x1,y1,x2,y2,x,y]` curve, `[3]` close
+  public var ops: [[Double]]
+  /// stroke width when not the icons' 1.8
+  public var w: Double?
+  public var dash: [Double]?
+  public var fill: Bool?
+  /// false: filled only
+  public var stroke: Bool?
 }
 
 /// A colour scheme (`Theme` in src/shared/themes.ts), without the terminal's ANSI table.

@@ -75,6 +75,9 @@ struct AgentScreen: View {
           Menu("More", systemImage: "ellipsis.circle") {
             Button("Plots and files", systemImage: "photo.on.rectangle.angled") { path.append(.plots(key)) }
             Button("Review changes", systemImage: "plus.forwardslash.minus") { path.append(.review(key)) }
+            if let place = model.place(of: key) {
+              Button("New terminal here", systemImage: "apple.terminal") { Task { await startTerminal(model, place.project, place.folder, agent.base, $path, $failure) } }
+            }
             Divider()
             Button("Rename", systemImage: "pencil") {
               name = model.name(of: agent)
@@ -111,7 +114,7 @@ struct AgentScreen: View {
   }
 
   private func place(_ agent: Agent) -> String {
-    let folder = model.place(of: key)?.folder.name ?? agent.cwd.split(separator: "/").last.map(String.init) ?? agent.cwd
+    let folder = (model.place(of: key)?.folder.name).map(model.plain) ?? agent.cwd.split(separator: "/").last.map(String.init) ?? agent.cwd
     return "\(folder) · \(agent.host)"
   }
 

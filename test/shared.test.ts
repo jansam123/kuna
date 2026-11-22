@@ -8,7 +8,7 @@ import { diffLines, foldUnchanged, splitLines, type DiffRow } from '@shared/line
 import { cleanTypedPath, pastePath } from '@shared/paths'
 import { emptyPhoneState, hostKeyVerdict, knownHostsName, makeExport, mergeImport, parseExport, parseJumpSpec, parseKnownHosts, parseSshG, type PhoneState } from '@shared/phone'
 import { gridRows, neighbor } from '@shared/layout'
-import { extractMediaPaths, figureClass, linksIn, mediaGroup, mediaKind, mediaPlace, normalizePosix, pageFile, resolveAgainst, viewerOrder } from '@shared/media'
+import { extractMediaPaths, figureClass, fileGroups, linksIn, mediaGroup, mediaKind, mediaPlace, normalizePosix, pageFile, resolveAgainst, viewerOrder } from '@shared/media'
 import { parseSshConfig } from '@shared/sshConfig'
 import { applyPatch, diffShared, mergePatch } from '@shared/sync'
 import { hasMath, splitMath, texToText } from '@shared/tex'
@@ -126,6 +126,18 @@ describe('media paths', () => {
     expect(mediaGroup('pdf', 'slides')).toBe('slides')
     expect(mediaGroup('svg')).toBe('plot')
     expect(mediaGroup('image', 'diagram')).toBe('diagram')
+    // the list's groups: a PDF by what reading it said, an image by the PDF of the same name beside it
+    const listed = [
+      { path: '/w/talk.pdf', kind: 'pdf' },
+      { path: '/w/figs/setup.pdf', kind: 'pdf' },
+      { path: '/w/figs/setup.png', kind: 'image' },
+      { path: '/w/talk.png', kind: 'image' },
+      { path: '/w/unread.pdf', kind: 'pdf' },
+      { path: '/w/notes.md', kind: 'md' }
+    ]
+    const read: Record<string, 'slides' | 'diagram'> = { '/w/talk.pdf': 'slides', '/w/figs/setup.pdf': 'diagram' }
+    const groupOf = fileGroups(listed, (it) => read[it.path])
+    expect(listed.map(groupOf)).toEqual(['slides', 'diagram', 'diagram', 'plot', 'pdf', 'md'])
     expect(mediaGroup('md', 'plot')).toBe('md')
     const files = [{ kind: 'pdf', path: 'fit.pdf' }, { kind: 'image', path: 'a.png' }, { kind: 'pdf', path: 'deck.pdf' }]
     expect(viewerOrder(files, (it) => mediaGroup(it.kind, it.path === 'deck.pdf' ? 'slides' : 'plot')).map((it) => it.path)).toEqual(['deck.pdf', 'fit.pdf', 'a.png'])

@@ -4,7 +4,7 @@ import SwiftUI
 
 /// The colour scheme in use, as SwiftUI colours (`Theme` in src/shared/themes.ts).
 struct Look: Equatable {
-  var ground, panel, raised, line, text, dim, faint, accent: Color
+  var ground, panel, raised, line, text, dim, faint, accent, insert: Color
   var working, waiting, idle, exited, unread, danger: Color
 
   init(_ t: Theme) {
@@ -16,6 +16,7 @@ struct Look: Equatable {
     dim = Color(hex: t.dim)
     faint = Color(hex: t.faint)
     accent = Color(hex: t.accent)
+    insert = Color(hex: t.insert)
     working = Color(hex: t.working)
     waiting = Color(hex: t.waiting)
     idle = Color(hex: t.idle)

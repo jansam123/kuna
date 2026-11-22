@@ -130,9 +130,11 @@ final class Walkthrough: XCTestCase {
 
     // back home; a new agent in the folder
     app.navigationBars.buttons.element(boundBy: 0).tap()
-    let add = app.buttons["New agent in work"]
+    let add = app.buttons["New in work"]
     if wait(add, 10, "the folder's + button") {
       add.tap()
+      shot("new-menu")
+      app.buttons["New agent"].tap()
       let prompt = app.textFields["new-agent-prompt"].exists ? app.textFields["new-agent-prompt"] : app.textViews["new-agent-prompt"]
       if wait(prompt, 10, "the new agent's prompt") {
         prompt.tap()
@@ -147,8 +149,30 @@ final class Walkthrough: XCTestCase {
         app.navigationBars.buttons.element(boundBy: 0).tap()
       }
     }
+    // a terminal in the same folder: the shell, on its own screen
+    if wait(add, 10, "the folder's + button, back home") {
+      add.tap()
+      app.buttons["New terminal"].tap()
+      if wait(app.buttons["terminal-done"], 15, "the new terminal") {
+        sleep(2)
+        shot("new-terminal")
+        app.buttons["terminal-done"].tap()
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+      }
+    }
     sleep(2)
     shot("home-after")
+
+    // a project's form, with the Mac's icons to pick from
+    let edit = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Edit '")).firstMatch
+    if wait(edit, 5, "a project's edit button") {
+      edit.tap()
+      sleep(1)
+      app.swipeUp()
+      app.swipeUp()
+      shot("project-icons")
+      if app.buttons["Cancel"].exists { app.buttons["Cancel"].tap() }
+    }
 
     // settings and a host
     app.buttons["Settings"].tap()

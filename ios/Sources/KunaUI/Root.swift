@@ -7,6 +7,8 @@ enum Route: Hashable {
   case agent(String)
   case plots(String)
   case review(String)
+  /// a project's page, by its id
+  case project(String)
 }
 
 struct Notice: Identifiable {
@@ -50,6 +52,7 @@ public struct RootView: View {
           case .agent(let key): AgentScreen(model: model, key: key, path: $path, open: open)
           case .plots(let key): PlotsScreen(model: model, key: key, open: open)
           case .review(let key): ReviewScreen(model: model, key: key, path: $path, open: open)
+          case .project(let id): ProjectScreen(model: model, id: id, path: $path, notice: $notice)
           }
         }
     }
@@ -66,9 +69,10 @@ public struct RootView: View {
     .alert(item: $notice) { notice in Alert(title: Text(notice.title), message: Text(notice.text)) }
     .onOpenURL { take($0) }
     .onChange(of: path) { _, now in
-      open.keep(only: Set(now.map { route in
+      open.keep(only: Set(now.compactMap { route in
         switch route {
         case .agent(let key), .plots(let key), .review(let key): key
+        case .project: nil
         }
       }))
     }

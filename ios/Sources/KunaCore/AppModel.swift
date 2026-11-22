@@ -65,10 +65,14 @@ public final class AppModel {
   public var question: HostKeyQuestion?
   public let themes: [Theme]
   public let repoColors: [String]
+  /// the Mac's project icons by name, in its picker's order
+  public let icons: [String: [IconShape]]
+  public let iconNames: [String]
   /// this phone's ssh key, as a line for `authorized_keys`
   public let publicKey: String
 
   @ObservationIgnored private let shared = Shared.main
+  @ObservationIgnored private var plainNames: [String: String] = [:]
   @ObservationIgnored private let file: URL
   @ObservationIgnored private var connections: [String: SSHConnection] = [:]
   @ObservationIgnored private var opening: [String: Task<SSHConnection, Error>] = [:]
@@ -87,6 +91,10 @@ public final class AppModel {
     testKey = key
     themes = (try? shared.decode([Theme].self, "themes")) ?? []
     repoColors = (try? shared.decode([String].self, "repoColors")) ?? ["#4d8dff"]
+    let drawn = (try? shared.call("icons")) ?? "{}"
+    icons = (try? JSONDecoder().decode([String: [IconShape]].self, from: Data(drawn.utf8))) ?? [:]
+    // a dictionary forgets the order; the names stand in it as `"name":[{"ops"`
+    iconNames = drawn.matches(of: #/"([A-Za-z0-9]+)":\[\{"ops"/#).map { String($0.1) }
     publicKey = (key ?? (try? DeviceKey.load())).map { openSSHPublicKey($0, comment: "kuna-iphone") } ?? ""
     if let data = try? Data(contentsOf: self.file), let saved = try? JSONDecoder().decode(PhoneState.self, from: data) {
       state = saved
@@ -383,6 +391,15 @@ public final class AppModel {
   /// What to call an agent: the name given to it by hand, else what the Mac would call it.
   public func name(of agent: Agent) -> String { state.names[agent.key] ?? agent.title }
 
+  /// A project's or folder's name as plain text: its `$…$` math in Unicode, as the Mac's tooltips say it.
+  public func plain(_ name: String) -> String {
+    guard name.contains("$") else { return name }
+    if let known = plainNames[name] { return known }
+    let text = (try? shared.call("texText", [name])) ?? name
+    plainNames[name] = text
+    return text
+  }
+
   public func rename(_ key: String, to name: String) {
     let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
     update { $0.names[key] = name.isEmpty ? nil : name }
@@ -427,15 +444,22 @@ public final class AppModel {
   /// Start an agent in a folder, as the Mac does: a Claude Code background session, or a tmux
   /// session of Kuna's for any other command (or when the project asks for tmux).
   @discardableResult
-  public func spawn(project: Project, folder: Folder, prompt: String) async throws -> String {
+  public func spawn(project: Project, folder: Folder, prompt: String, shell: Bool = false, cwd: String? = nil) async throws -> String {
     guard let link = links[project.host], link.ready else { throw KunaError("\(project.host) is not connected.") }
+    // a terminal is an agent whose command is the user's shell, as on the Mac; it may start in an agent's directory
+    var project = project
+    var folder = folder
+    if shell {
+      project.agentCommand = try shared.call("shellCommand")
+      if let cwd { folder.path = cwd }
+    }
     let base = project.agentCommand.trimmingCharacters(in: .whitespaces).isEmpty ? "claude" : project.agentCommand.trimmingCharacters(in: .whitespaces)
-    let prompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+    let prompt = shell ? "" : prompt.trimmingCharacters(in: .whitespacesAndNewlines)
     let now = Int(Date().timeIntervalSince1970)
     var placeholder: [String: Any] = [
       "host": project.host, "cwd": folder.path, "projectId": project.id, "folderId": folder.id, "createdAt": now, "prompt": String(prompt.prefix(300)),
       "status": "starting", "alive": true, "attnTs": 0, "activityTs": now, "transcriptSize": 0, "doing": "starting",
-      "title": prompt.split(separator: "\n").first.map(String.init) ?? "New agent",
+      "title": prompt.split(separator: "\n").first.map(String.init) ?? (shell ? "Terminal" : "New agent"), "shell": shell,
     ]
     let key: String
     if project.startsClaude, (project.launch ?? "background") == "background" {

@@ -39,9 +39,12 @@ xcodebuild -quiet -project ios/App/Kuna.xcodeproj -scheme Kuna -configuration De
   { echo "build FAILED, see $tmp/build.log"; exit 1; }
 
 # ---- what the agents work on: a folder with a fit, its plots, notes, a page, and git history
-mkdir -p "$work/plots" "$work/report" "$shots"
+mkdir -p "$work/plots" "$work/report" "$work/diagrams" "$work/.claude" "$home/tagger" "$home/notes" "$home/thesis" "$shots"
 cp ios/Tests/fixture/fake-agent.sh "$home/fake-agent.sh"
 cp build/icon.png "$work/plots/mass.png"
+cp build/icon.png "$work/diagrams/flow.png"
+printf '# Plan\n\n1. Rebin\n2. Refit\n' > "$work/.claude/plan.md"
+printf '%%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R 6 0 R]/Count 2>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 480 270]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n4 0 obj<</Length 52>>stream\nBT /F1 30 Tf 60 130 Td (HH to bbtautau: status) Tj ET\nendstream endobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n6 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 480 270]/Contents 7 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n7 0 obj<</Length 44>>stream\nBT /F1 30 Tf 60 130 Td (Second slide) Tj ET\nendstream endobj\ntrailer<</Root 1 0 R>>\n' > "$work/talk.pdf"
 printf '%%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 400 300]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n4 0 obj<</Length 58>>stream\nBT /F1 28 Tf 60 150 Td (Pulls: all within 2 sigma) Tj ET\nendstream endobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n' > "$work/plots/pulls.pdf"
 printf '# Fit notes\n\nThe signal region fit **converged**.\n\n- mu = 1.04 ± 0.21\n- 41 bins\n\n```python\nresult = fit(region="SR")\n```\n\n| region | events |\n|---|---|\n| SR | 412 |\n' > "$work/notes.md"
 printf '<!doctype html><meta name=viewport content="width=device-width"><title>Report</title><style>body{font:16px system-ui;background:#0b1020;color:#dfe6f5;padding:24px}</style><h1>Fit report</h1><p id=o>loading…</p><script src="data.js"></script>' > "$work/report/index.html"
@@ -52,7 +55,7 @@ printf 'region: SR\nbins: 40\n' > "$work/config.yaml"
   cd "$work"
   export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_AUTHOR_NAME=Kuna GIT_AUTHOR_EMAIL=kuna@example.org GIT_COMMITTER_NAME=Kuna GIT_COMMITTER_EMAIL=kuna@example.org
   git init -q -b main .
-  printf '.transcript-*\n' > .gitignore
+  printf '.transcript-*\n.claude\n' > .gitignore
   git add .gitignore fit.py config.yaml && git commit -q -m "The fit as it was"
   git checkout -q -b new-binning
   sed -i '' 's/bins=40/bins=41/' fit.py && git commit -q -am "One more bin"
@@ -90,8 +93,11 @@ me=$(id -un)
 fake="sh $home/fake-agent.sh"
 cat > "$tmp/export.kuna" <<EOF
 {"kuna":"iphone","version":1,"exportedAt":$(date +%s),"theme":"cherenkov",
- "projects":[{"id":"p-sim","name":"HH → bbττ","host":"cluster","color":"#4d8dff","agentCommand":"$fake","folders":[
-   {"id":"f-sim","path":"~/work","name":"work","color":"#ff9f1c"},{"id":"f-empty","path":"~/work/report","name":"report","color":"#2ee6c5"}]}],
+ "projects":[{"id":"p-sim","name":"\$HH \\\\to b\\\\bar{b}\\\\tau\\\\tau\$","host":"cluster","color":"#4d8dff","icon":"higgs","agentCommand":"$fake","folders":[
+   {"id":"f-sim","path":"~/work","name":"work","color":"#ff9f1c"},{"id":"f-empty","path":"~/work/report","name":"report","color":"#2ee6c5"}]},
+  {"id":"p-tag","name":"Tagger training","host":"cluster","color":"#2ee6c5","icon":"network","agentCommand":"$fake","folders":[{"id":"f-tag","path":"~/tagger","name":"tagger","color":"#2ee6c5"}]},
+  {"id":"p-notes","name":"Detector notes","host":"cluster","color":"#ff9f1c","icon":"μ","agentCommand":"$fake","folders":[{"id":"f-notes","path":"~/notes","name":"notes","color":"#a78bff"}]},
+  {"id":"p-thesis","name":"Thesis","host":"cluster","color":"#a78bff","agentCommand":"$fake","folders":[{"id":"f-thesis","path":"~/thesis","name":"thesis","color":"#4d8dff"}]}],
  "names":{"cluster::bbbb2222":"Rerun the failed jobs"},"hidden":{},
  "hosts":[{"alias":"cluster","hostName":"127.0.0.1","user":"$me","port":$port,"jump":"gate"},{"alias":"gate","hostName":"127.0.0.1","user":"$me","port":$port}],
  "hostKeys":{"[127.0.0.1]:$port":["$(cut -d' ' -f1,2 "$tmp/hostkey.pub")"]}}
@@ -113,12 +119,15 @@ xcrun simctl launch "$sim" $app -lock NO > /dev/null
 waitfor 40 test -f "$home/.kuna/bin/kuna" || { echo "the app did not install the helper, see $tmp/sshd.log"; exit 1; }
 echo "signed in, helper installed"
 
-spawn() { # spawn <id> <command> <prompt>
-  meta="{\"id\":\"$1\",\"cwd\":\"~/work\",\"projectId\":\"p-sim\",\"folderId\":\"f-sim\",\"createdAt\":$(date +%s),\"prompt\":\"$3\",\"sessionId\":\"00000000-0000-4000-8000-0000$1\",\"command\":\"claude\"}"
-  HOME="$home" KUNA_TMUX_SOCKET=$sock sh "$home/.kuna/bin/kuna" spawn "$1" "$(b64 '~/work')" "$(b64 "$2")" 100 30 "$(b64 "$meta")" "$(b64 '')" > /dev/null
+spawn() { # spawn <id> <command> <prompt> [folder below ~] [project id] [folder id]
+  meta="{\"id\":\"$1\",\"cwd\":\"~/${4:-work}\",\"projectId\":\"${5:-p-sim}\",\"folderId\":\"${6:-f-sim}\",\"createdAt\":$(date +%s),\"prompt\":\"$3\",\"sessionId\":\"00000000-0000-4000-8000-0000$1\",\"command\":\"claude\"}"
+  HOME="$home" KUNA_TMUX_SOCKET=$sock sh "$home/.kuna/bin/kuna" spawn "$1" "$(b64 "~/${4:-work}")" "$(b64 "$2")" 100 30 "$(b64 "$meta")" "$(b64 '')" > /dev/null
 }
 spawn aaaa1111 "$fake" 'Fit the signal region and show me the mass plot.'
 spawn bbbb2222 'exit 3' 'Rerun the failed jobs'
+spawn cccc3333 "$fake 'Train the tagger on the new samples' working" 'Train the tagger on the new samples' tagger p-tag f-tag
+spawn dddd4444 "$fake 'Compare the ROC curves' waiting" 'Compare the ROC curves' tagger p-tag f-tag
+spawn eeee5555 "$fake 'Summarise the alignment note'" 'Summarise the alignment note' notes p-notes f-notes
 sleep 3
 xcrun simctl terminate "$sim" $app
 

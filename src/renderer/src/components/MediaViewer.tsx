@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { gridRows, neighbor, type Direction } from '@shared/layout'
-import { MEDIA_GROUPS, WEB_PARTITION, figureClass, mediaGroup, mediaPlace, viewerOrder, type FigureClass, type MediaPlace } from '@shared/media'
+import { MEDIA_GROUPS, WEB_PARTITION, figureClass, fileGroups, mediaGroup, mediaPlace, viewerOrder, type FigureClass, type MediaPlace } from '@shared/media'
 import type { MediaItem, MediaPage } from '@shared/types'
 import { discardTyped, leaveScroll, sendEsc } from '../actions'
 import { agentTitle, ago, bytes, doingText } from '../format'
@@ -1014,16 +1014,8 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
       live = false
     }
   }, [host, items])
-  const stem = (path: string): string => path.replace(/\.[^./]+$/, '')
-  const pdfs = new Map((items ?? []).filter((it) => it.kind === 'pdf').map((it) => [stem(it.path), it]))
-  const groupOf = (it: MediaItem): string => {
-    if (!host || it.kind === 'md' || it.kind === 'html' || it.kind === 'url') return mediaGroup(it.kind)
-    if (it.kind === 'pdf') return mediaGroup('pdf', pdfKinds.get(pdfKey(host, it)))
-    // an image is what the PDF of the same name beside it is (a figure saved as both); else its name says
-    const twin = pdfs.get(stem(it.path))
-    const same = twin && pdfKinds.get(pdfKey(host, twin))
-    return same && same !== 'slides' ? same : figureClass(it.path)
-  }
+  const grouped = fileGroups(items ?? [], (it) => (host ? pdfKinds.get(pdfKey(host, it)) : undefined))
+  const groupOf = (it: MediaItem): string => (host ? grouped(it) : mediaGroup(it.kind))
 
   /** Show a file where the keyboard is (or in tile `at`); `beside`: in a tile of its own, next to it. */
   const show = (it: MediaItem, beside = false, at = focus): void => {

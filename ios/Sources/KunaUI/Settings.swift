@@ -8,6 +8,7 @@ struct SettingsView: View {
   @Environment(\.look) private var look
   @Environment(\.dismiss) private var dismiss
   @AppStorage("lock") private var lock = true
+  @AppStorage("homeLook") private var homeLook = HomeLook.blocks.rawValue
   @AppStorage("termFont") private var termFont = 11.0
   @State private var host: HostDraft?
 
@@ -52,6 +53,18 @@ struct SettingsView: View {
             }
           } footer: {
             Text(imported)
+          }
+
+          Section {
+            Picker("Projects", selection: $homeLook) {
+              ForEach(HomeLook.allCases) { Text($0.name).tag($0.rawValue) }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+          } header: {
+            Text("Home screen")
+          } footer: {
+            Text("Four ways to lay the projects out, to compare. The others go once you have chosen.")
           }
 
           Section("Colours") {
@@ -309,6 +322,7 @@ struct ProjectForm: View {
             Text("Agents start in a folder, and an agent running in or below it is listed under it.")
           }
           ColorSection(colors: model.repoColors, color: $draft.project.color)
+          IconSection(model: model, project: $draft.project)
           if !draft.isNew {
             Section { Button("Remove this project", role: .destructive) { deleting = true } } footer: { Text("Its agents keep running on the host; they are no longer listed here unless another project is on that host.") }
           }
@@ -367,6 +381,36 @@ struct ProjectForm: View {
       if let i = state.projects.firstIndex(where: { $0.id == project.id }) { state.projects[i] = project } else { state.projects.append(project) }
     }
     dismiss()
+  }
+}
+
+/// The Mac's project icons to pick from, or a letter of your own; none shows the name's initial.
+private struct IconSection: View {
+  let model: AppModel
+  @Binding var project: Project
+  @Environment(\.look) private var look
+
+  var body: some View {
+    let color = Color(hex: project.color)
+    Section {
+      TextField("A letter instead: μ, H, τ", text: Binding(get: { model.icons[project.icon ?? ""] == nil ? project.icon ?? "" : "" }, set: { project.icon = $0.isEmpty ? nil : String($0.prefix(2)) })).plain()
+      LazyVGrid(columns: [GridItem(.adaptive(minimum: 38), spacing: 6)], spacing: 6) {
+        ForEach(model.iconNames, id: \.self) { name in
+          let on = project.icon == name
+          Button { project.icon = on ? nil : name } label: {
+            ProjectIcon(model: model, icon: name, name: "", size: 22).foregroundStyle(on ? look.ground : color).frame(width: 38, height: 38)
+              .background(on ? color : color.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel(name)
+        }
+      }
+      .padding(.vertical, 4)
+    } header: {
+      Text("Icon")
+    } footer: {
+      Text("As on the Mac. With none, the project shows the first letter of its name.")
+    }
   }
 }
 
