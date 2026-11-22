@@ -30,6 +30,8 @@ Kuna runs commands **as you** on this Mac and on every SSH host you add a projec
 - On this Mac: `~/Library/Application Support/Kuna/kuna-state.json` (projects, folders, settings, each window's panes and place; no credentials).
 - On each host: `~/.kuna/`, made private (mode 700) — the helper, its tmux configuration, Kuna's hook settings, and per agent its command, first prompt and latest status. Kuna's hooks only record what happens; they print nothing, so they can never approve a tool call. The status-line command records your plan usage there.
 - ssh connections Kuna opens stay shared for 10 minutes after it quits (`ControlPersist`); their sockets live in `~/.kuna/ssh`, readable only by you.
+- **Export for iPhone…** writes a file only when you ask, where you say: the projects on ssh hosts with their folders, agent names, the colour scheme, each host's address, user and port as your ssh resolves them, and the public host keys your Mac trusts for them. No passwords and no private keys are in it. It still says which machines you work on and as whom, so send it to your own phone only.
+- The iPhone app (`docs/IOS.md`) keeps its own ssh key in the Secure Enclave, passwords in the iPhone's keychain (this device only, never in a backup to another device), and its projects and hosts in the app's own folder. It talks to your hosts directly; there is no relay. A file it is given is read as data: only the fields an export has are taken from it, each checked.
 
 ## Known limits
 

@@ -76,7 +76,8 @@ body { margin: 0; background: var(--ground); color: var(--text); font: 16px/1.5 
 table.lines { border-collapse: collapse; width: 100%; table-layout: fixed }
 .scroll table.lines { width: max-content; min-width: 100%; table-layout: auto }
 .scroll { overflow-x: auto }
-td.n { width: 3.4em; text-align: right; padding: 0 .6em 0 .3em; color: var(--faint); user-select: none; -webkit-user-select: none; vertical-align: top; font-variant-numeric: tabular-nums }
+col.n { width: 3.1em }
+td.n { text-align: right; padding: 0 .6em 0 .3em; color: var(--faint); user-select: none; -webkit-user-select: none; vertical-align: top; font-variant-numeric: tabular-nums }
 td.c { padding: 0 .6em 0 .5em; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; vertical-align: top }
 .scroll td.c { white-space: pre; word-break: normal; overflow-wrap: normal }
 tr.add td.c, td.c.add { background: var(--add) } tr.add td.n, td.n.add { background: var(--addn); color: var(--text) }
@@ -85,7 +86,6 @@ td.c.none, td.n.none { background: var(--panel) }
 tr.fold td { text-align: center; color: var(--dim); background: var(--panel); padding: 5px; font: 12px -apple-system, system-ui, sans-serif; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line) }
 tr.note td { background: var(--raised); border-left: 3px solid var(--waiting); padding: 8px 10px; font: 14px/1.4 -apple-system, system-ui, sans-serif; white-space: pre-wrap }
 tr.hit td.c { outline: 1px solid var(--accent); outline-offset: -1px }
-.split td.c { width: 50% }
 .empty { color: var(--dim); text-align: center; padding: 48px 24px; font: 15px -apple-system, system-ui, sans-serif }
 `
 
@@ -237,7 +237,7 @@ export function code(path: string, text: string, scroll: boolean): void {
   el.className = 'code' + (scroll ? ' scroll' : '')
   const lines = paint(text, langOf(path))
   el.innerHTML = lines.length
-    ? `<table class="lines">${lines.map((l, i) => `<tr><td class="n">${i + 1}</td><td class="c">${l || ' '}</td></tr>`).join('')}</table>`
+    ? `<table class="lines"><colgroup><col class="n"><col></colgroup>${lines.map((l, i) => `<tr><td class="n">${i + 1}</td><td class="c">${l || ' '}</td></tr>`).join('')}</table>`
     : '<div class="empty">This file is empty.</div>'
 }
 
@@ -311,7 +311,9 @@ function draw(): void {
       }
     }
   })
-  el.innerHTML = `<table class="lines">${out.join('')}</table>`
+  // the columns' widths, said once: the first row may be a folded run across all of them
+  const cols = input.split ? '<col class="n"><col><col class="n"><col>' : '<col class="n"><col class="n"><col>'
+  el.innerHTML = `<table class="lines"><colgroup>${cols}</colgroup>${out.join('')}</table>`
   el.onclick = (e) => {
     const target = e.target as HTMLElement
     const fold = target.closest<HTMLElement>('tr.fold')

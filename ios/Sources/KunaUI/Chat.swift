@@ -9,6 +9,8 @@ final class OpenAgents {
   struct Open {
     let session: AgentSession
     let terminal: TerminalHolder
+    /// review comments written and not yet sent
+    let review: ReviewDraft
   }
 
   private var open: [String: Open] = [:]
@@ -16,7 +18,7 @@ final class OpenAgents {
   func get(_ key: String, _ model: AppModel) -> Open {
     if let found = open[key] { return found }
     let session = AgentSession(key: key, model: model)
-    let made = Open(session: session, terminal: TerminalHolder(session: session))
+    let made = Open(session: session, terminal: TerminalHolder(session: session), review: ReviewDraft())
     open[key] = made
     return made
   }
@@ -44,6 +46,7 @@ struct AgentScreen: View {
   @State private var renaming = false
   @State private var name = ""
   @FocusState private var typing: Bool
+  @State private var atEnd = true
 
   var body: some View {
     let here = open.get(key, model)
@@ -134,7 +137,11 @@ struct AgentScreen: View {
       }
       .defaultScrollAnchor(.bottom)
       .scrollDismissesKeyboard(.interactively)
+      // at the end, stay at the end as rows come; scrolled up to read, stay where the reader is
+      .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.containerSize.height >= $0.contentSize.height - 120 } action: { _, now in atEnd = now }
+      .onChange(of: session.items.last?.id) { if atEnd { proxy.scrollTo("end", anchor: .bottom) } }
       .onChange(of: session.outbox.count) { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
+      .onChange(of: typing) { if typing { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } }
     }
   }
 

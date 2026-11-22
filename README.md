@@ -78,7 +78,7 @@ Setting it up with a coding agent? Point it at [CLAUDE.md](CLAUDE.md).
 
 ## Docs
 
-[Keyboard](docs/KEYBOARD.md) · [Remote hosts](docs/REMOTE-HOSTS.md) · [Architecture](docs/ARCHITECTURE.md) · [Themes](docs/THEMES.md) · [Development](docs/DEVELOPMENT.md) · [Security](SECURITY.md)
+[Keyboard](docs/KEYBOARD.md) · [Remote hosts](docs/REMOTE-HOSTS.md) · [On the iPhone](docs/IOS.md) · [Architecture](docs/ARCHITECTURE.md) · [Themes](docs/THEMES.md) · [Development](docs/DEVELOPMENT.md) · [Security](SECURITY.md)
 
 ## Why "Kuna"?
 

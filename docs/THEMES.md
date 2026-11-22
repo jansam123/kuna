@@ -83,6 +83,6 @@ Black with plain, untinted greys: light grey text, darker grey for secondary tex
 
 ## Adding a scheme
 
-Schemes live in `src/renderer/src/themes.ts`. Add an object to `THEMES` with the chrome colours, `...STATUS_COLORS` (status colours are shared) and an xterm `terminal` palette (keep `background: '#000000'`). It appears in **⌘,** immediately in `npm run dev`.
+Schemes live in `src/shared/themes.ts` (the iPhone app uses the same ones). Add an object to `THEMES` with the chrome colours, `...STATUS_COLORS` (status colours are shared) and an xterm `terminal` palette (keep `background: '#000000'`). It appears in **⌘,** immediately in `npm run dev`.
 
 Typography follows your own tools, not the scheme. Kuna's interface uses VS Code's: the system font at VS Code's 13 px, and your `editor.fontFamily` / `editor.fontSize` for paths and numbers (read from VS Code's `settings.json`, including `window.zoomLevel`). Agent panes use the font Claude Code runs in for you: the default iTerm2 profile's font, size and spacing, or VS Code's `terminal.integrated.*` settings without iTerm2. **⌘,** shows what was found, changes the agent font size (⌘+ / ⌘− anywhere) and can switch the interface to your editor font.

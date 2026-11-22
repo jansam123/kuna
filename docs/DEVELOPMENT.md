@@ -43,8 +43,7 @@ src/
     keys.ts           keyboard state machine (navigate / typing / launch)
     actions.ts        focus, tabs, spawn, kill, resume, typing helpers
     terminals.ts      xterm registry kept outside React
-    tree.ts           sidebar tree: which agent goes under which folder
-    themes.ts         colour schemes
+    themes.ts         applies a colour scheme (the schemes themselves: src/shared/themes.ts)
     components/       Sidebar, PromptBar, PaneGrid, Inspector, overlays
 test/
   shared.test.ts             unit tests for src/shared

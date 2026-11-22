@@ -146,7 +146,8 @@ private struct HostBanner: View {
     case .connecting: "Signing in…"
     case .installing: "Installing Kuna's helper…"
     case .ready: "Connected."
-    case .failed(let why, _): why
+    case .failed(let why, _):
+      why.contains("sign-in refused") ? why + ". Add this phone's key to the host (Settings shows it), or save the host's password under Hosts." : why
     }
   }
 }
@@ -348,12 +349,15 @@ struct NewAgentSheet: View {
   var body: some View {
     NavigationStack {
       Form {
-        Section {
-          TextField("What should it do?", text: $prompt, axis: .vertical).lineLimit(4...12).focused($focused).accessibilityIdentifier("new-agent-prompt")
-        } footer: {
-          Text("Starts `\(place.project.agentCommand)` in \(place.folder.path) on \(place.project.host). Leave it empty to start without a task.")
+        Group {
+          Section {
+            TextField("What should it do?", text: $prompt, axis: .vertical).lineLimit(4...12).focused($focused).accessibilityIdentifier("new-agent-prompt")
+          } footer: {
+            Text("Starts `\(place.project.agentCommand)` in \(place.folder.path) on \(place.project.host). Leave it empty to start without a task.")
+          }
+          if let failure { Section { Text(failure).foregroundStyle(look.danger).textSelection(.enabled) } }
         }
-        if let failure { Section { Text(failure).foregroundStyle(look.danger).textSelection(.enabled) } }
+        .listRowBackground(look.panel)
       }
       .scrollContentBackground(.hidden)
       .background(look.ground)

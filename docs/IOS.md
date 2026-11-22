@@ -1,60 +1,96 @@
 # Kuna on the iPhone
 
-An iPhone app that signs in to your hosts over ssh, as the Mac app does, and shows the agents running there. It runs no agents itself. It is being built in steps; this page says what exists.
+An iPhone app that signs in to your hosts over ssh, as the Mac app does, and works with the agents running there: their conversations, their terminals, their plots and their changes. It runs no agents itself, and it does not reach this Mac's own agents. Nothing goes through a server of anyone's: the phone talks to your hosts directly.
 
-**Now (step 1, the connection proof):** one host, optionally through one jump host; sign-in with the phone's own key or a saved password; Kuna's helper is installed when missing; the host's agents with live status.
+## What it does
 
-**Not yet:** projects and the import from the Mac, the chat and the terminal, plots and PDFs, review, Face ID, colour schemes.
+- **Projects, folders and agents** as in the Mac's sidebar, with live status. An agent that needs you is also listed at the top.
+- **An agent's conversation**: what you wrote, what it answered, each tool call as one line, its thinking folded. A line under it says what it is doing right now. Write to it from the box at the bottom.
+- **Its terminal**, one tap away, with the keys a phone keyboard lacks (Esc, Tab, the arrows, Ctrl+C). Questions and permission prompts are answered there.
+- **Starting, stopping and removing agents**, and naming them.
+- **Plots and files**: the PDFs, pictures, Markdown files and HTML pages an agent mentioned or wrote, full screen, with a swipe to the next and the share sheet. HTML pages are live, fenced in as on the Mac.
+- **Review**: the uncommitted changes, the branch against its base, single commits, any file. Tap a line to comment; the comments go to the agent together.
+- **Colour schemes** as on the Mac.
 
-## Layout
+Not in it yet: notifications and a home screen widget (both need Apple's push service, which needs a paid developer account), a files browser outside git, the `.claude` browser, how full the plan's usage is, sending a photo to an agent.
 
-| Path | What |
-| --- | --- |
-| `ios/Package.swift` | a Swift package with the app's code; it also builds on macOS, so it is checked without a phone |
-| `ios/Sources/KunaCore` | everything that is not a screen: ssh (`swift-nio-ssh`), the keychain, the host's helper and watch stream |
-| `ios/Sources/KunaUI` | the screens (SwiftUI) |
-| `ios/bridge.ts` | what the app calls in Kuna's shared TypeScript (`src/shared`) |
-| `ios/App/Kuna.xcodeproj` | the Xcode project: the app's entry point around `KunaUI`, signing, the app's name |
+## Getting your projects onto the phone
 
-The app does not have its own parser for the watch stream. `npm run ios:bundle` bundles `ios/bridge.ts`, with `src/shared` and the helper script `kuna.sh`, into `ios/Sources/KunaCore/Resources/kuna-shared.js`, and the app runs that in JavaScriptCore. The bundle is not in git: **run `npm run ios:bundle` before building, and again after changing `src/shared`, `ios/bridge.ts` or `kuna.sh`.**
+1. On the Mac: **Kuna ▸ Export for iPhone…** and save the file (`Kuna projects.kuna`).
+2. Send it to the phone: AirDrop it, or save it to iCloud Drive / Files.
+3. On the phone, open it with Kuna (AirDrop offers it; in Files, tap the file), or in the app: **+ ▸ Import from the Mac**.
 
-The helper's version is the hash of `kuna.sh`, for both apps. A phone and a Mac built from different versions of `kuna.sh` each reinstall the helper when they connect; build both from the same commit.
+The file holds the projects on ssh hosts with their folders, the names you gave agents, the sessions you took off the list, the colour scheme, how ssh reaches each host (its address, user, port and the host it jumps through, as `ssh -G` resolves your `~/.ssh/config`), and the host keys your Mac trusts for them. It holds **no passwords and no keys of yours**. Projects on the Mac itself are left out.
 
-## Commands
+Importing again updates what came from the Mac and removes what the Mac no longer has; projects and hosts made on the phone stay. Nothing travels back to the Mac.
 
-- `npm run ios:bundle` — make the shared-logic bundle
-- `npm run ios:test` — bundle, then `swift test` in `ios/`. The tests start a throwaway `sshd` on this Mac (its own host key, a temporary `HOME`, a private tmux socket) and sign in to it, directly and as its own jump host. They touch none of your hosts. Needs Xcode selected (`xcode-select -p` shows Xcode, not the command line tools).
-- `sh scripts/ios-sim.sh` — build the app, open it in the simulator signed in to the same kind of throwaway `sshd` with two fake agents, and print the path of a screenshot. The way to look at a change without a phone.
+You can also set everything up by hand on the phone: **+ ▸ New project**, and a host under **Settings ▸ Hosts**.
+
+## Signing in to the hosts
+
+The phone has its own ssh key, made on first launch and held in the Secure Enclave: it can sign with it, but the key itself cannot be read out, not even by the app. **Settings ▸ This phone's key** shows its public half. Add that line to `~/.ssh/authorized_keys` on each host, and on the hosts they are reached through (one line does it where they share a home folder).
+
+A host that takes a password instead: type it under **Settings ▸ Hosts ▸** the host. It is kept in the iPhone's keychain, on this device only, and Kuna asks for Face ID when it opens.
+
+A host whose key the Mac's export brought is trusted without a question. For any other host the app shows the key's fingerprint the first time and asks; `ssh-keygen -lF <address>` on the Mac shows the one your Mac trusts. A host that later shows another key is refused.
+
+The app connects to every host that has a project when it opens. A sign-in the host refuses is not tried again until you tap **Try again**: login nodes lock accounts out for that. A connection that worked and dropped is tried again by itself, each time a little later. iOS cuts connections some seconds after you leave the app; it signs in again when you come back.
 
 ## Building it onto your iPhone
 
 Once:
 
-1. Install **Xcode** from the App Store (27.2 or later for iOS 27.2). Open it, accept the licence, and let it install the iOS platform.
+1. Install **Xcode** from the App Store (27.2 or later for iOS 27.2). Open it, accept the licence, and let it install the iOS platform. The other platforms are not needed.
 2. In Terminal: `sudo xcode-select -s /Applications/Xcode.app`.
 3. Xcode ▸ Settings ▸ Accounts ▸ **+** ▸ Apple Account: sign in with your Apple ID. This makes a free "Personal Team".
 4. Connect the iPhone by cable and tap **Trust** on it.
 5. On the iPhone: Settings ▸ Privacy & Security ▸ **Developer Mode** ▸ on. The phone restarts and asks once more. The switch shows up only after step 4.
+6. Tell the project who signs: put your team's ten characters in `ios/App/Local.xcconfig` (a file that stays out of git):
+
+   ```
+   DEVELOPMENT_TEAM = ABCDE12345
+   ```
+
+   Xcode shows them under **Kuna** (top of the left column) ▸ target **Kuna** ▸ **Signing & Capabilities** ▸ Team. Picking the team there works too; it then writes it into the project file, which git will show as changed.
 
 Every time:
 
 1. `npm run ios:bundle`
 2. `open ios/App/Kuna.xcodeproj`
-3. The first time: click **Kuna** at the top of the left column ▸ target **Kuna** ▸ **Signing & Capabilities** ▸ Team: your Personal Team.
+3. Wait until Xcode has fetched the packages (the bar at the top says so) the first time.
 4. Pick your iPhone in the bar at the top of the window and press **⌘R**.
 5. The first time, the phone refuses to open the app: Settings ▸ General ▸ VPN & Device Management ▸ your Apple ID ▸ **Trust**. Then press ⌘R again.
 
-With a free Apple account the app stops opening after 7 days; press ⌘R again to renew it. Its saved hosts, passwords and key stay.
+With a free Apple account the app stops opening after 7 days; press ⌘R again to renew it. Its projects, hosts, passwords and key stay.
 
-## First connection
+Build the Mac app from the same commit (`npm run dist`, or `npm run dev`). The helper script on the hosts is versioned by its content; a phone and a Mac built from different versions each reinstall it when they connect.
 
-1. Tap **Host**. Fill in the address and user, as `HostName` and `User` in your `~/.ssh/config`; switch on **Through a jump host** for a host with `ProxyJump`.
-2. For hosts that take keys: send **This phone's key** to your Mac and add the line to `~/.ssh/authorized_keys` on the host (and on the jump host). For hosts that take a password: type it; it is kept in the iPhone keychain.
-3. **Connect.** The first time, the app shows the host's key fingerprint and asks whether to trust it; `ssh-keygen -lF <address>` on the Mac shows the one your Mac trusts. Later a host showing another key is refused.
+## For working on it
 
-A sign-in the host refuses is not tried again until you tap **Try again**. A connection that worked and dropped is tried once more by itself; iOS cuts connections when the app is left, and the app signs in again when it comes back.
+| Path | What |
+| --- | --- |
+| `ios/Package.swift` | a Swift package with the app's code |
+| `ios/Sources/KunaCore` | everything that is not a screen: ssh (`swift-nio-ssh`), the keychain, the host's helper and watch stream, the app's model (`AppModel`: hosts, connections, projects, agents) and an open agent (`AgentSession`: its conversation and terminal). Builds on macOS too, so `swift test` checks it without a phone. |
+| `ios/Sources/KunaUI` | the screens (SwiftUI), the terminal (`SwiftTerm`) and the web views |
+| `ios/bridge.ts` | what the app calls in Kuna's shared TypeScript (`src/shared`), run in JavaScriptCore |
+| `ios/web/page.ts` | what its web views run: Markdown, a file's text, a diff |
+| `ios/App` | the Xcode project: the app's entry point, icon, the `.kuna` file type, signing; and the walkthrough test |
+| `src/shared/phone.ts` | the export's format, reading it, and merging it into what the phone has |
+| `src/main/phoneExport.ts` | the Mac's **Export for iPhone…** |
+
+The phone has no logic of its own for what the Mac already works out: the watch stream, statuses, titles, where an agent goes in the tree, the conversation's rows, the plots a reply mentions, git's output, the review comments' message and the colour schemes all come from `src/shared` through `ios/bridge.ts`. `npm run ios:bundle` bundles the bridge (with the helper script `kuna.sh`) into `ios/Sources/KunaCore/Resources/kuna-shared.js` and the web script into `ios/Sources/KunaUI/Resources/kuna-web.js`. Neither is in git: **run `npm run ios:bundle` before building, and again after changing `src/shared`, `ios/bridge.ts`, `ios/web` or `kuna.sh`.**
+
+- `npm run ios:bundle` — make the two bundles
+- `npm run ios:test` — bundle, then `swift test` in `ios/`. The tests start a throwaway `sshd` on this Mac (its own host key, a temporary `HOME`, a private tmux socket) and drive the ssh code and the app's model against it: sign-in, a jump host, host keys, the helper, starting and stopping an agent, typing into it, its conversation, its terminal, an import. They touch none of your hosts and not your keychain.
+- `sh scripts/ios-sim.sh` — build the app, open it in the simulator on the same kind of throwaway `sshd` with fake agents, plots and a git repository, walk through every screen (`ios/App/KunaUITests/Walkthrough.swift`) and save a picture of each. The way to look at a change without a phone. `KUNA_KEEP=1` leaves the server and the app running afterwards.
+
+The simulator has no Secure Enclave and no Face ID: there the key is an ordinary one in the simulator's keychain and the lock is skipped.
 
 ## Limits
 
-- The ssh library answers a key or a plain password. A host that asks for its password as a typed prompt (keyboard-interactive, as OTP hosts do) is refused; the message then says what the host takes.
-- The phone's key is ECDSA P-256, held in the Secure Enclave. A host that refuses that type is not supported yet.
+- The ssh library answers a key or a plain password. A host that asks for its password as a typed prompt (keyboard-interactive, as hosts with one-time codes do) is refused; the message then says what the host takes. Kerberos is not supported.
+- The phone's key is ECDSA P-256. A host that refuses that type, or whose only host key is RSA, cannot be used yet.
+- A conversation shows its newest 200 rows, read from the last 1.5 MB of the transcript. Replies arrive whole, not word by word; the terminal shows them as they are written.
+- A Claude Code background session takes input only on its own screen, so sending it a message opens its terminal behind the conversation (which also starts a stopped session again). If a question or a panel is open there, the message is not typed and the app says so.
+- Opening an agent's terminal sizes it to the phone, also for a Mac that has it open.
+- A diff side is read up to 2 MB, a file to view up to 200 MB.

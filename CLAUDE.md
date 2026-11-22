@@ -53,8 +53,8 @@ Read `docs/ARCHITECTURE.md` before changing how hosts, status or transcripts wor
 - `npm test` — vitest; includes an integration test that needs `tmux`
 - `npm run build` / `npm run dist` — bundles / unsigned `.app` in `release/`
 - `sh scripts/smoke.sh` — open the built app once with a throwaway profile and report
-- `npm run ios:bundle` / `npm run ios:test` — the iPhone app's shared-logic bundle / its tests (`docs/IOS.md`)
-- `sh scripts/ios-sim.sh` — open the iPhone app in the simulator against a throwaway `sshd` with two fake agents and save a screenshot
+- `npm run ios:bundle` / `npm run ios:test` — the iPhone app's two bundles of Kuna's TypeScript / its tests (`docs/IOS.md`)
+- `sh scripts/ios-sim.sh` — walk through the iPhone app in the simulator against a throwaway `sshd` with fake agents, and save a picture of every screen
 
 ### Rules
 
@@ -63,5 +63,6 @@ Read `docs/ARCHITECTURE.md` before changing how hosts, status or transcripts wor
 - The watch-frame format (`P`/`A`/`M` lines) is shared by `kuna.sh` and `src/shared/watch.ts`; change both and the tests together.
 - Keyboard behaviour lives in `src/renderer/src/keys.ts`; update `docs/KEYBOARD.md` and `HelpDialog.tsx` with any shortcut change.
 - Never start a test agent on the user's real tmux server without killing it afterwards; prefer `KUNA_TMUX_SOCKET` and a temp `HOME` as in `test/host.integration.test.ts`.
-- The iPhone app (`ios/`) runs `src/shared` through `ios/bridge.ts` in JavaScriptCore: no Node or DOM globals in what the bridge imports, and never a second parser in Swift. Its tests sign in to a throwaway `sshd` on this Mac, never to the user's hosts.
+- The iPhone app (`ios/`) runs `src/shared` through `ios/bridge.ts` in JavaScriptCore: no Node or DOM globals in what the bridge imports, and never a second copy in Swift of what `src/shared` works out (parsing, statuses, titles, the tree, git's output). What both apps need goes in `src/shared`, not in `src/renderer`. Its tests sign in to a throwaway `sshd` on this Mac, never to the user's hosts, and never touch the keychain.
+- A screen of the iPhone app is checked by looking at it: add a step to `ios/App/KunaUITests/Walkthrough.swift` and run `sh scripts/ios-sim.sh`. Run `npm run ios:bundle` before any build of it.
 - To see the app without a screen, drive it with `KUNA_AUTOMATION` (see `docs/DEVELOPMENT.md` and `scripts/smoke.js`): real key presses through `kunaDev.key`, screenshots through `kunaDev.capture`.

@@ -137,7 +137,7 @@ An agent has at most one pane across all windows. A pane is a `tmux attach`, and
 - `store.ts` — zustand store: projects/settings/lastSeen shared with the other windows and this window's layout (open panes in order, the focused one, sidebar hidden or not) plus live agents, details, hosts and UI focus. At start the saved panes reopen as their agents show up running; gone or stopped ones stay closed (attaching would restart a stopped background session).
 - `keys.ts` + `actions.ts` — the navigate/typing state machine. A single capture-phase key listener decides whether a key is an app command or belongs to the terminal.
 - `terminals.ts` — xterm instances kept outside React and re-parented into pane slots (and into the plot viewer's agent column), so re-layouts never drop a terminal or its connection.
-- `tree.ts` — places agents under folders: where the user put them by hand (a folder's `agents` list, from dragging or ⇧↑ ⇧↓; `@shared/arrange`), then by the folder they were launched from, then by working directory, then "Other agents". Background sessions stopped with Ctrl+X Ctrl+X are kept in `hidden` and left out until ⌘Z or until they run again.
+- `@shared/tree` — places agents under folders (shared with the iPhone app): where the user put them by hand (a folder's `agents` list, from dragging or ⇧↑ ⇧↓; `@shared/arrange`), then by the folder they were launched from, then by working directory, then "Other agents". Background sessions stopped with Ctrl+X Ctrl+X are kept in `hidden` and left out until ⌘Z or until they run again.
 - `components/` — sidebar, launch box, pane grid, inspector, overlays.
 
 ## Security notes

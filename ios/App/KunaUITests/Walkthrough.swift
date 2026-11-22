@@ -83,20 +83,49 @@ final class Walkthrough: XCTestCase {
       app.navigationBars.buttons.element(boundBy: 0).tap()
     }
 
-    // review
+    // review: the uncommitted changes, a diff, a comment on a line, the other lists, and the comment sent
     app.buttons["agent-more"].tap()
     if wait(app.buttons["Review changes"], 5) {
       app.buttons["Review changes"].tap()
-      sleep(6)
-      shot("review")
-      let file = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'change-'")).firstMatch
-      if file.waitForExistence(timeout: 10) {
+      let file = app.buttons["change-fit.py"]
+      if wait(file, 20, "the changed file in the review") {
+        shot("review-changes")
         file.tap()
-        sleep(5)
-        shot("diff")
+        let line = app.webViews.staticTexts.containing(NSPredicate(format: "label CONTAINS 'result.check()'")).firstMatch
+        if wait(line, 20, "the diff's added line") {
+          sleep(1)
+          shot("diff")
+          line.tap()
+          let comment = app.textFields["comment-text"].exists ? app.textFields["comment-text"] : app.textViews["comment-text"]
+          if wait(comment, 10, "the comment box") {
+            comment.typeText("Check the status before returning")
+            app.buttons["comment-save"].tap()
+            sleep(2)
+            shot("diff-commented")
+          }
+        } else {
+          shot("diff-missing")
+        }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        sleep(3)
+        shot("diff-landscape")
+        XCUIDevice.shared.orientation = .portrait
+        sleep(2)
+        app.buttons["diff-done"].tap()
+      }
+      for tab in ["Branch", "Commits", "Files"] {
+        app.buttons[tab].tap()
+        sleep(4)
+        shot("review-\(tab.lowercased())")
+      }
+      if app.buttons["send-comments"].exists {
+        app.buttons["send-comments"].tap()
+        wait(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Review comments on'")).firstMatch, 30, "the review comments in the conversation")
+        sleep(2)
+        shot("chat-after-review")
+      } else {
         app.navigationBars.buttons.element(boundBy: 0).tap()
       }
-      app.navigationBars.buttons.element(boundBy: 0).tap()
     }
 
     // back home; a new agent in the folder

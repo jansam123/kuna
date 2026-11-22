@@ -109,6 +109,12 @@ func ago(_ epoch: Double) -> String {
   return "\(d / 86400)d"
 }
 
+/// Put the keyboard away, whichever field has it.
+@MainActor
+func hideKeyboard() {
+  UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+}
+
 func sizeText(_ bytes: Double) -> String {
   if bytes < 1024 { return "\(Int(bytes)) B" }
   if bytes < 1024 * 1024 { return "\(Int(bytes / 1024)) KB" }

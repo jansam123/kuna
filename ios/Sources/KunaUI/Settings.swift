@@ -14,77 +14,83 @@ struct SettingsView: View {
   var body: some View {
     NavigationStack {
       Form {
-        Section {
-          ForEach(model.state.hosts) { h in
-            Button { host = HostDraft(model: model, host: h) } label: {
-              HStack(spacing: 10) {
-                StatusDot(status: status(h.alias))
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(h.alias).foregroundStyle(look.text)
-                  Text("\(h.user)@\(h.hostName)" + (h.jump.map { " through \($0)" } ?? "")).font(.footnote).foregroundStyle(look.dim).lineLimit(1)
+        Group {
+          Section {
+            ForEach(model.state.hosts) { h in
+              Button { host = HostDraft(model: model, host: h) } label: {
+                HStack(spacing: 10) {
+                  StatusDot(status: status(h.alias))
+                  VStack(alignment: .leading, spacing: 2) {
+                    Text(h.alias).foregroundStyle(look.text)
+                    Text("\(h.user)@\(h.hostName)" + (h.jump.map { " through \($0)" } ?? "")).font(.footnote).foregroundStyle(look.dim).lineLimit(1)
+                  }
+                  Spacer(minLength: 0)
+                  Image(systemName: "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(look.faint)
                 }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(look.faint)
+              }
+            }
+            Button("Add a host", systemImage: "plus") { host = HostDraft(model: model) }
+          } header: {
+            Text("Hosts")
+          } footer: {
+            Text("A host is signed in to when a project is on it, or when another host is reached through it.")
+          }
+
+          Section {
+            Text(model.publicKey.isEmpty ? "This phone could not make a key." : model.publicKey).font(.caption.monospaced()).foregroundStyle(look.dim).textSelection(.enabled).lineLimit(4)
+            if !model.publicKey.isEmpty { ShareLink("Send it to your Mac", item: model.publicKey) }
+          } header: {
+            Text("This phone's key")
+          } footer: {
+            Text("Add this line to ~/.ssh/authorized_keys on each host, and on the hosts they are reached through. The key never leaves this phone. Hosts that take a password need no key.")
+          }
+
+          Section {
+            Button("Import from the Mac", systemImage: "square.and.arrow.down") {
+              dismiss()
+              importing = true
+            }
+          } footer: {
+            Text(imported)
+          }
+
+          Section("Colours") {
+            ForEach(model.themes) { theme in
+              Button {
+                model.update {
+                  $0.theme = theme.id
+                  $0.themeChosen = true
+                }
+              } label: {
+                HStack(spacing: 12) {
+                  HStack(spacing: 0) {
+                    Color(hex: theme.ground)
+                    Color(hex: theme.raised)
+                    Color(hex: theme.accent)
+                  }
+                  .frame(width: 44, height: 26).clipShape(RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(look.line))
+                  VStack(alignment: .leading, spacing: 2) {
+                    Text(theme.name).foregroundStyle(look.text)
+                    Text(theme.blurb).font(.caption).foregroundStyle(look.dim).lineLimit(2)
+                  }
+                  Spacer(minLength: 0)
+                  if theme.id == model.theme.id { Image(systemName: "checkmark").foregroundStyle(look.accent) }
+                }
               }
             }
           }
-          Button("Add a host", systemImage: "plus") { host = HostDraft(model: model) }
-        } header: {
-          Text("Hosts")
-        } footer: {
-          Text("A host is signed in to when a project is on it, or when another host is reached through it.")
-        }
 
-        Section {
-          Text(model.publicKey.isEmpty ? "This phone could not make a key." : model.publicKey).font(.caption.monospaced()).foregroundStyle(look.dim).textSelection(.enabled).lineLimit(4)
-          if !model.publicKey.isEmpty { ShareLink("Send it to your Mac", item: model.publicKey) }
-        } header: {
-          Text("This phone's key")
-        } footer: {
-          Text("Add this line to ~/.ssh/authorized_keys on each host, and on the hosts they are reached through. The key never leaves this phone. Hosts that take a password need no key.")
-        }
-
-        Section {
-          Button("Import from the Mac", systemImage: "square.and.arrow.down") {
-            dismiss()
-            importing = true
+          Section {
+            if !model.state.hidden.isEmpty {
+            Button("Show the \(model.state.hidden.count) session\(model.state.hidden.count == 1 ? "" : "s") taken off the list again") { model.update { $0.hidden = [:] } }
           }
-        } footer: {
-          Text(imported)
-        }
-
-        Section("Colours") {
-          ForEach(model.themes) { theme in
-            Button {
-              model.update {
-                $0.theme = theme.id
-                $0.themeChosen = true
-              }
-            } label: {
-              HStack(spacing: 12) {
-                HStack(spacing: 0) {
-                  Color(hex: theme.ground)
-                  Color(hex: theme.raised)
-                  Color(hex: theme.accent)
-                }
-                .frame(width: 44, height: 26).clipShape(RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(look.line))
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(theme.name).foregroundStyle(look.text)
-                  Text(theme.blurb).font(.caption).foregroundStyle(look.dim).lineLimit(2)
-                }
-                Spacer(minLength: 0)
-                if theme.id == model.theme.id { Image(systemName: "checkmark").foregroundStyle(look.accent) }
-              }
-            }
-          }
-        }
-
-        Section {
           Toggle("Ask for Face ID when Kuna opens", isOn: $lock)
-          Stepper("Terminal text: \(Int(termFont)) pt", value: $termFont, in: 8...18)
-        } footer: {
-          Text("Saved passwords are in this iPhone's keychain and are not in backups to other devices.")
+            Stepper("Terminal text: \(Int(termFont)) pt", value: $termFont, in: 8...18)
+          } footer: {
+            Text("Saved passwords are in this iPhone's keychain and are not in backups to other devices.")
+          }
         }
+        .listRowBackground(look.panel)
       }
       .scrollContentBackground(.hidden)
       .background(look.ground)
@@ -139,47 +145,50 @@ struct HostForm: View {
   var body: some View {
     NavigationStack {
       Form {
-        Section {
-          TextField("Name, e.g. nikhef1", text: $draft.host.alias).plain().disabled(draft.original != nil)
-          TextField("Address (HostName)", text: $draft.host.hostName).plain().keyboardType(.URL)
-          TextField("User", text: $draft.host.user).plain()
-          TextField("Port", text: $draft.port).keyboardType(.numberPad)
-        } header: {
-          Text("Host")
-        } footer: {
-          Text(draft.original == nil ? "The name is what the Mac calls the host in ~/.ssh/config: agents and projects are filed under it." : "The name cannot change: agents and projects are filed under it.")
-        }
-        Section {
-          Picker("Reached through", selection: Binding(get: { draft.host.jump ?? "" }, set: { draft.host.jump = $0.isEmpty ? nil : $0 })) {
-            Text("Directly").tag("")
-            ForEach(model.state.hosts.filter { $0.alias != draft.host.alias }) { Text($0.alias).tag($0.alias) }
-          }
-        } footer: {
-          Text("ProxyJump: the host that is signed in to first. Add that one as a host of its own.")
-        }
-        Section {
-          SecureField("Password", text: $draft.password)
-        } footer: {
-          Text("Only for a host that takes a password. This phone's key is always offered first. A host that asks for a one-time code cannot be signed in to.")
-        }
-        if let original = draft.original {
+        Group {
           Section {
-            let known = model.state.hostKeys[original.target.knownHostsName] ?? []
-            ForEach(known, id: \.self) { key in
-              Text(fingerprint(openSSHKey: key)).font(.caption.monospaced()).foregroundStyle(look.dim).textSelection(.enabled)
-            }
-            if known.isEmpty { Text("None yet: the first connection asks.").foregroundStyle(look.dim) } else {
-              Button("Forget its key", role: .destructive) { model.forgetKeys(of: original) }
-            }
+            TextField("Name, e.g. nikhef1", text: $draft.host.alias).plain().disabled(draft.original != nil)
+            TextField("Address (HostName)", text: $draft.host.hostName).plain().keyboardType(.URL)
+            TextField("User", text: $draft.host.user).plain()
+            TextField("Port", text: $draft.port).keyboardType(.numberPad)
           } header: {
-            Text("Host key this phone trusts")
+            Text("Host")
+          } footer: {
+            Text(draft.original == nil ? "The name is what the Mac calls the host in ~/.ssh/config: agents and projects are filed under it." : "The name cannot change: agents and projects are filed under it.")
           }
           Section {
-            Button("Save and connect again") { if save() { dismiss() } }
-            Button("Remove this host", role: .destructive) { deleting = true }
+            Picker("Reached through", selection: Binding(get: { draft.host.jump ?? "" }, set: { draft.host.jump = $0.isEmpty ? nil : $0 })) {
+              Text("Directly").tag("")
+              ForEach(model.state.hosts.filter { $0.alias != draft.host.alias }) { Text($0.alias).tag($0.alias) }
+            }
+          } footer: {
+            Text("ProxyJump: the host that is signed in to first. Add that one as a host of its own.")
           }
+          Section {
+            SecureField("Password", text: $draft.password)
+          } footer: {
+            Text("Only for a host that takes a password. This phone's key is always offered first. A host that asks for a one-time code cannot be signed in to.")
+          }
+          if let original = draft.original {
+            Section {
+              let known = model.state.hostKeys[original.target.knownHostsName] ?? []
+              ForEach(known, id: \.self) { key in
+                Text(fingerprint(openSSHKey: key)).font(.caption.monospaced()).foregroundStyle(look.dim).textSelection(.enabled)
+              }
+              if known.isEmpty { Text("None yet: the first connection asks.").foregroundStyle(look.dim) } else {
+                Button("Forget its key", role: .destructive) { model.forgetKeys(of: original) }
+              }
+            } header: {
+              Text("Host key this phone trusts")
+            }
+            Section {
+              Button("Save and connect again") { if save() { dismiss() } }
+              Button("Remove this host", role: .destructive) { deleting = true }
+            }
+          }
+          if let problem { Section { Text(problem).foregroundStyle(look.danger) } }
         }
-        if let problem { Section { Text(problem).foregroundStyle(look.danger) } }
+        .listRowBackground(look.panel)
       }
       .scrollContentBackground(.hidden)
       .background(look.ground)
@@ -259,50 +268,53 @@ struct ProjectForm: View {
   var body: some View {
     NavigationStack {
       Form {
-        Section("Project") {
-          TextField("Name", text: $draft.project.name)
-          Picker("Host", selection: $draft.project.host) {
-            if model.host(draft.project.host) == nil { Text(draft.project.host.isEmpty ? "Choose…" : "\(draft.project.host) (missing)").tag(draft.project.host) }
-            ForEach(model.state.hosts) { Text($0.alias).tag($0.alias) }
-          }
-          Button("Add a host", systemImage: "plus") { addingHost = HostDraft(model: model) }
-        }
-        Section {
-          TextField("claude", text: $draft.project.agentCommand).plain().font(.body.monospaced())
-          if draft.project.startsClaude {
-            Picker("New agents run", selection: Binding(get: { draft.project.launch ?? "background" }, set: { draft.project.launch = $0 == "background" ? nil : $0 })) {
-              Text("As Claude Code background sessions").tag("background")
-              Text("In Kuna's tmux").tag("tmux")
+        Group {
+          Section("Project") {
+            TextField("Name", text: $draft.project.name)
+            Picker("Host", selection: $draft.project.host) {
+              if model.host(draft.project.host) == nil { Text(draft.project.host.isEmpty ? "Choose…" : "\(draft.project.host) (missing)").tag(draft.project.host) }
+              ForEach(model.state.hosts) { Text($0.alias).tag($0.alias) }
             }
+            Button("Add a host", systemImage: "plus") { addingHost = HostDraft(model: model) }
           }
-        } header: {
-          Text("Command that starts an agent")
-        } footer: {
-          Text("For example `claude --model opus`. Any other agent command runs in Kuna's tmux and opens in the terminal.")
-        }
-        Section {
-          ForEach($draft.project.folders) { $folder in
-            VStack(alignment: .leading, spacing: 4) {
-              TextField("Name", text: $folder.name)
-              TextField("Path on the host", text: $folder.path).plain().font(.footnote.monospaced()).foregroundStyle(look.dim)
+          Section {
+            TextField("claude", text: $draft.project.agentCommand).plain().font(.body.monospaced())
+            if draft.project.startsClaude {
+              Picker("New agents run", selection: Binding(get: { draft.project.launch ?? "background" }, set: { draft.project.launch = $0 == "background" ? nil : $0 })) {
+                Text("As Claude Code background sessions").tag("background")
+                Text("In Kuna's tmux").tag("tmux")
+              }
             }
+          } header: {
+            Text("Command that starts an agent")
+          } footer: {
+            Text("For example `claude --model opus`. Any other agent command runs in Kuna's tmux and opens in the terminal.")
           }
-          .onDelete { draft.project.folders.remove(atOffsets: $0) }
-          .onMove { draft.project.folders.move(fromOffsets: $0, toOffset: $1) }
-          HStack {
-            TextField("~/path/on/the/host", text: $newFolder).plain().font(.body.monospaced()).onSubmit(addFolder).accessibilityIdentifier("new-folder-path")
-            Button("Add", action: addFolder).disabled(newFolder.trimmingCharacters(in: .whitespaces).isEmpty)
+          Section {
+            ForEach($draft.project.folders) { $folder in
+              VStack(alignment: .leading, spacing: 4) {
+                TextField("Name", text: $folder.name)
+                TextField("Path on the host", text: $folder.path).plain().font(.footnote.monospaced()).foregroundStyle(look.dim)
+              }
+            }
+            .onDelete { draft.project.folders.remove(atOffsets: $0) }
+            .onMove { draft.project.folders.move(fromOffsets: $0, toOffset: $1) }
+            HStack {
+              TextField("~/path/on/the/host", text: $newFolder).plain().font(.body.monospaced()).onSubmit(addFolder).accessibilityIdentifier("new-folder-path")
+              Button("Add", action: addFolder).disabled(newFolder.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+          } header: {
+            Text("Folders")
+          } footer: {
+            Text("Agents start in a folder, and an agent running in or below it is listed under it.")
           }
-        } header: {
-          Text("Folders")
-        } footer: {
-          Text("Agents start in a folder, and an agent running in or below it is listed under it.")
+          ColorSection(colors: model.repoColors, color: $draft.project.color)
+          if !draft.isNew {
+            Section { Button("Remove this project", role: .destructive) { deleting = true } } footer: { Text("Its agents keep running on the host; they are no longer listed here unless another project is on that host.") }
+          }
+          if let problem { Section { Text(problem).foregroundStyle(look.danger) } }
         }
-        ColorSection(colors: model.repoColors, color: $draft.project.color)
-        if !draft.isNew {
-          Section { Button("Remove this project", role: .destructive) { deleting = true } } footer: { Text("Its agents keep running on the host; they are no longer listed here unless another project is on that host.") }
-        }
-        if let problem { Section { Text(problem).foregroundStyle(look.danger) } }
+        .listRowBackground(look.panel)
       }
       .scrollContentBackground(.hidden)
       .background(look.ground)
