@@ -208,6 +208,7 @@ describe('watch frames', () => {
     expect(titleOf({ ...a, prompt: 'Fit it\nthen plot' })).toBe('Fit it')
     expect(titleOf({ ...a, prompt: '', paneTitle: '✳ Fix tests' })).toBe('Fix tests')
     expect(titleOf({ ...a, prompt: '', paneTitle: 'zsh' })).toBe('agent ab12')
+    expect(titleOf({ ...a, prompt: '', paneTitle: 'cluster1', command: 'exec $SHELL' })).toBe('Terminal')
   })
 })
 

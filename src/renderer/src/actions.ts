@@ -264,7 +264,7 @@ export function discardTyped(e: TermEntry): void {
 
 // ---------------------------------------------------------------- agents --
 
-export async function spawnAgent(projectId: string, folderId: string, prompt: string, resumeSessionId?: string): Promise<string | undefined> {
+export async function spawnAgent(projectId: string, folderId: string, prompt: string, resumeSessionId?: string, shell?: boolean): Promise<string | undefined> {
   // size the tmux window like the pane it will most likely land in
   const s = get()
   const rows = gridRows(s.tabs.length + 1)
@@ -275,7 +275,7 @@ export async function spawnAgent(projectId: string, folderId: string, prompt: st
   const lines = Math.floor(h / rows.length / 17) - 2
   let res: Awaited<ReturnType<typeof window.kuna.agents.spawn>>
   try {
-    res = await window.kuna.agents.spawn({ projectId, folderId, prompt, cols, rows: lines, resumeSessionId })
+    res = await window.kuna.agents.spawn({ projectId, folderId, prompt, cols, rows: lines, resumeSessionId, shell })
   } catch (err) {
     res = { error: String(err) }
   }
@@ -288,9 +288,17 @@ export async function spawnAgent(projectId: string, folderId: string, prompt: st
     toast(prompt.trim() ? `${res.error.trim().replace(/[.:]?$/, '.')} Your prompt is back in the launch box.` : res.error, 'error')
     return
   }
-  openTab(res.key, false)
+  // a terminal is for typing in: it takes the focus
+  openTab(res.key, !!shell)
   set({ sel: `a:${res.key}` })
   return res.key
+}
+
+/** ⌘T: a terminal (your login shell, in Kuna's tmux like an agent) in the selected row's folder. */
+export function openTerminal(): void {
+  const t = targetFolder()
+  if (!t) return toast('Select a folder to open a terminal in (arrows), then press ⌘T.', 'warn')
+  void spawnAgent(t.projectId, t.folderId, '', undefined, true)
 }
 
 /**

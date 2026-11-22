@@ -143,6 +143,7 @@ The left side has five lists:
 | --- | --- |
 | ⌘N | new project |
 | ⌘O | add a folder to the selected project (on an agent under "Other agents": its directory is suggested). Paste a whole path into it, or type with Tab completion; ↑ ↓ walk the listed folders and Enter fills the picked one in (its folders are listed next); Enter with none picked adds the path |
+| ⌘T | a terminal in the selected folder (on an agent: its folder; on a project: its first folder): your login shell on the project's host, in Kuna's tmux like an agent, so it is a row in the sidebar, keeps running when Kuna quits and can be renamed (⌘R). Typing works as in an agent's pane, except that Enter keeps typing mode (↑ is the shell's history) and Esc Esc leaves it without erasing anything. `exit` closes it; so does Ctrl+X Ctrl+X |
 | ⌥↑ / ⌥↓ | move the selected project, folder or agent up or down; keep ⌥ held to carry it further (⇧↑ / ⇧↓ work too) |
 | ⌘R | rename the selected project, folder (colour too; `$…$` math allowed) or agent |
 | ⌘⌫ | remove the selected folder or project when nothing is typed (agents keep running) |

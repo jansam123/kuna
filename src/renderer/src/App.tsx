@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
-import type { AgentRuntime, AgentStatus } from '@shared/types'
-import { killing, openTab, windowCommand } from './actions'
+import { isShell, type AgentRuntime, type AgentStatus } from '@shared/types'
+import { killAgent, killing, openTab, windowCommand } from './actions'
 import { Inspector } from './components/Inspector'
 import { Overlays } from './components/Overlays'
 import { PaneGrid } from './components/PaneGrid'
@@ -65,6 +65,8 @@ function wireMain(): () => void {
       pruneLastSeen(all)
       pruneArrangement(all)
       reopenTabs()
+      // `exit` in a terminal closes it, as in any terminal (its shell has ended: an exit code, not just no pane yet)
+      for (const t of list) if (isShell(t) && t.exitCode !== undefined) void killAgent(t.key)
     }),
     window.kuna.agents.onDetails((key, details) => set((s) => ({ details: { ...s.details, [key]: details } }))),
     window.kuna.usage.onUpdate((usage) => set({ usage })),

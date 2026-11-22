@@ -373,6 +373,12 @@ export interface SpawnRequest {
   rows: number
   /** start with `claude --resume <id>` instead of a new conversation */
   resumeSessionId?: string
+  /** a terminal in the folder instead of an agent */
+  shell?: boolean
 }
+
+/** A terminal's command: the user's shell in place of the login shell agents start through (same environment). */
+export const SHELL_COMMAND = 'exec $SHELL'
+export const isShell = (a?: { command?: string }): boolean => a?.command === SHELL_COMMAND
 
 export const agentKey = (host: HostId, id: string): string => `${host}::${id}`

@@ -74,7 +74,7 @@ npm run dist     # or build release/mac-arm64/Kuna.app
 
 Setting it up with a coding agent? Point it at [CLAUDE.md](CLAUDE.md).
 
-**First steps:** ⌘N creates a project (this Mac or an SSH host) · ⌘O adds a folder · type a task and press Enter · Space shows its plots · ⌘/ shows every shortcut.
+**First steps:** ⌘N creates a project (this Mac or an SSH host) · ⌘O adds a folder · type a task and press Enter · ⌘T opens a terminal in the folder · Space shows its plots · ⌘/ shows every shortcut.
 
 ## Docs
 

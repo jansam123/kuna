@@ -95,6 +95,17 @@ describe.skipIf(!hasTmux)('Host over (fake) ssh', () => {
     expect(screen()).toMatch(/^got:\/compact$/m)
     await host.exec(['kill', 'snd456'])
 
+    // a terminal (⌘T): the shell itself in the folder, taking commands
+    const { SHELL_COMMAND } = await import('../src/shared/types')
+    await host.exec(['spawn', 'trm789', b64('~/work'), b64(SHELL_COMMAND), '100', '30', b64(meta), b64('')])
+    const term = (): string => execFileSync('tmux', ['-L', SOCKET, 'capture-pane', '-p', '-t', 'kuna_trm789']).toString()
+    await new Promise((r) => setTimeout(r, 800))
+    await host.exec(['send', 'trm789', b64('echo "in:${PWD##*/}"')])
+    const ran = Date.now() + 5000
+    while (Date.now() < ran && !/^in:/m.test(term())) await new Promise((r) => setTimeout(r, 100))
+    expect(term()).toMatch(/^in:work$/m)
+    await host.exec(['kill', 'trm789'])
+
     await host.exec(['kill', 'abc123'])
     const gone = Date.now() + 10_000
     while (Date.now() < gone && frames.at(-1)?.some((a) => a.id === 'abc123')) await new Promise((r) => setTimeout(r, 200))

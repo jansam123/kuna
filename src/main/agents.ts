@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import { StringDecoder } from 'node:string_decoder'
 import { TranscriptParser } from '@shared/transcript'
 import type { AgentDetails, AgentRuntime, HostId, PlanUsage, Project, SpawnRequest } from '@shared/types'
-import { agentKey } from '@shared/types'
+import { agentKey, SHELL_COMMAND } from '@shared/types'
 import { isHostId, isTmuxKeys, splitAgentKey } from '@shared/validate'
 import { b64 } from './hosts/exec'
 import { Host } from './hosts/host'
@@ -155,9 +155,9 @@ export class AgentService extends EventEmitter {
       if ((host.state.status as string) !== 'ready') return { error: `${project.host} is not connected: ${host.state.error ?? host.state.status}` }
     }
 
-    const base = project.agentCommand.trim() || 'claude'
+    const base = req.shell ? SHELL_COMMAND : project.agentCommand.trim() || 'claude'
     const isClaude = /(^|\/)claude(\s|$)/.test(base)
-    const prompt = req.prompt.trim()
+    const prompt = req.shell ? '' : req.prompt.trim()
     if (isClaude && (project.launch ?? 'background') === 'background' && !req.resumeSessionId) {
       return this.spawnBackground(host, base, folder.path, prompt, project.id, folder.id)
     }

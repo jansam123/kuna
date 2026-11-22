@@ -1,5 +1,6 @@
 import { screenState } from '@shared/input'
 import { texToText } from '@shared/tex'
+import { isShell } from '@shared/types'
 import {
   activateSelection,
   activeAgentKey,
@@ -12,6 +13,7 @@ import {
   interruptAgent,
   killRequest,
   launchDraft,
+  openTerminal,
   leaveInsert,
   leaveScroll,
   moveInGrid,
@@ -172,6 +174,10 @@ function globalShortcut(ev: KeyboardEvent): boolean {
   }
   if (k === 'g' && !ev.shiftKey) {
     openReview()
+    return true
+  }
+  if (k === 't' && !ev.shiftKey) {
+    openTerminal()
     return true
   }
   if (k === 'n' && !ev.shiftKey) {
@@ -462,7 +468,8 @@ function insertKey(ev: KeyboardEvent): void {
     // a panel or question on screen takes every Esc (/config: one clears its search, the next closes it)
     if (key && panelOnScreen(key)) return sendEsc(key)
     // the first goes to the agent; a second one right after leaves typing mode
-    if (escPressed()) leaveInsert(true)
+    // (a terminal keeps what was typed: the backspaces could land in vim or less)
+    if (escPressed()) leaveInsert(!isShell(get().agents[key ?? '']))
     else escToAgent(key)
     return
   }
@@ -513,6 +520,13 @@ export function typeToAgent(key: string, ev: KeyboardEvent, enter: (key: string,
 function insertEnter(key: string, shift: boolean): void {
   if (shift) {
     writeToAgent(key, '\x1b\r') // newline in Claude Code's input
+    return
+  }
+  if (isShell(get().agents[key])) {
+    // a terminal keeps the keyboard: the next command, or ↑ for the last one, follows
+    const e = terminalEntry(key)
+    if (e) e.typed = 0
+    writeToAgent(key, '\r')
     return
   }
   const answering = panelOnScreen(key)

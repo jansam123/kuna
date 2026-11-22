@@ -1,4 +1,4 @@
-import { agentKey, type Activity, type AgentRuntime, type AgentStatus, type HostId, type PendingQuestion, type UsageWindow } from './types'
+import { agentKey, isShell, type Activity, type AgentRuntime, type AgentStatus, type HostId, type PendingQuestion, type UsageWindow } from './types'
 
 /** One `P` line: a live tmux pane in the kuna server. */
 interface PaneRecord {
@@ -469,6 +469,7 @@ export function titleOf(a: AgentRuntime, custom?: string, detailsTitle?: string)
     detailsTitle ||
     a.name ||
     (a.prompt ? a.prompt.split('\n')[0] : '') ||
+    (isShell(a) ? 'Terminal' : '') ||
     (paneTitle && paneTitle !== a.id && !/^(claude|bash|zsh|sh)$/i.test(paneTitle) ? paneTitle : '') ||
     `agent ${a.id}`
   )
