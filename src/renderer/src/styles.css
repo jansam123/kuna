@@ -1822,6 +1822,9 @@ button.mini {
 .g-md {
   --g: #c9d1e3;
 }
+.g-url {
+  --g: #60a5fa;
+}
 /* where a file lives: outside the agent's folder reads plain, the other places stand out */
 .place {
   flex: none;

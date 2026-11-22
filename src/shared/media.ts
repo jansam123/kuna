@@ -62,6 +62,27 @@ export function extractMediaPaths(text: string): string[] {
   return out
 }
 
+/** The session every web page in the viewer runs in, sign-ins kept, apart from Kuna's own window; the main process lets a guest into no other. */
+export const WEB_PARTITION = 'persist:web'
+
+/**
+ * The http(s) addresses in a line of terminal text, and where each starts.
+ * What ends the sentence or closes a bracket around an address is not part of it.
+ */
+export function linksIn(line: string): { at: number; url: string }[] {
+  return [...line.matchAll(/https?:\/\/[^\s"'<>`\\^{}|]+/gi)].map((m) => {
+    let url = m[0]
+    while (/[.,;:!?)\]]$/.test(url)) {
+      const last = url[url.length - 1]
+      const opener = last === ')' ? '(' : last === ']' ? '[' : ''
+      // a bracket opened inside the address is its own
+      if (opener && url.split(opener).length >= url.split(last).length) break
+      url = url.slice(0, -1)
+    }
+    return { at: m.index, url }
+  })
+}
+
 /** POSIX normalisation without touching the filesystem. Keeps a leading `~`. */
 export function normalizePosix(path: string): string {
   const abs = path.startsWith('/')
@@ -96,6 +117,7 @@ export const MEDIA_GROUPS = [
   ['plot', 'Plots'],
   ['md', 'Markdown'],
   ['html', 'Pages'],
+  ['url', 'Web'],
   ['pdf', 'PDFs']
 ] as const
 
@@ -103,7 +125,7 @@ export type FigureClass = 'slides' | 'diagram' | 'plot'
 
 /** The group a file is listed under: a PDF or an image by what it is (`figure`), once that is known. */
 export const mediaGroup = (kind: string, figure?: FigureClass | null): string =>
-  kind === 'md' || kind === 'html' ? kind : (figure ?? (kind === 'pdf' ? 'pdf' : 'plot'))
+  kind === 'md' || kind === 'html' || kind === 'url' ? kind : (figure ?? (kind === 'pdf' ? 'pdf' : 'plot'))
 
 /** a name that says diagram: the file's own, or its folder's */
 const DIAGRAM_NAME = /diagram|flow-?chart|schem|sketch|workflow|pipeline|architecture|feynman|tikz/i

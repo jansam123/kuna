@@ -2,7 +2,8 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { Terminal } from '@xterm/xterm'
 import { screenState } from '@shared/input'
-import { get, toast } from './store'
+import { linksIn } from '@shared/media'
+import { get, set, toast } from './store'
 import { TERMINAL_FACE } from './fonts'
 import { themeById } from './themes'
 
@@ -258,6 +259,28 @@ export function getTerminal(key: string): TermEntry {
     // keys only reach xterm in typing mode; app shortcuts are handled first
     disableStdin: false
   })
+  /**
+   * The web addresses on line `y` of the buffer (from 1), each with its first and last cell (from 1).
+   * shortcut: an address broken over two rows is only known up to the end of its row; passing OSC 8 through tmux would carry it whole
+   */
+  const linksOn = (y: number): { url: string; from: number; to: number }[] => {
+    const line = term.buffer.active.getLine(y - 1)
+    // the cell each character is in: a wide one takes two
+    const cells: number[] = []
+    let text = ''
+    for (let x = 0; line && x < line.length; x++) {
+      const c = line.getCell(x)
+      if (!c?.getWidth()) continue
+      const chars = c.getChars() || ' '
+      text += chars
+      for (let i = 0; i < chars.length; i++) cells.push(x + 1)
+    }
+    return linksIn(text).map(({ at, url }) => ({ url, from: cells[at], to: cells[at + url.length - 1] }))
+  }
+  // an address is underlined under the pointer; the ⌘click on it is taken at the press, below (xterm's own comes at the release, after tmux has redrawn)
+  term.registerLinkProvider({
+    provideLinks: (y, done) => done(linksOn(y).map(({ url, from, to }) => ({ text: url, range: { start: { x: from, y }, end: { x: to, y } }, activate: () => {} })))
+  })
   const fit = new FitAddon()
   term.loadAddon(fit)
   term.open(el)
@@ -282,7 +305,19 @@ export function getTerminal(key: string): TermEntry {
   })
   el.addEventListener(
     'mousedown',
-    () => {
+    (ev) => {
+      // ⌘click on a web address: the page, in the viewer beside the agent; tmux never sees the click
+      const screen = ev.metaKey && ev.button === 0 ? el.querySelector('.xterm-screen')?.getBoundingClientRect() : undefined
+      if (screen) {
+        const x = Math.floor(((ev.clientX - screen.left) / screen.width) * term.cols) + 1
+        const y = Math.floor(((ev.clientY - screen.top) / screen.height) * term.rows) + 1 + term.buffer.active.viewportY
+        const hit = linksOn(y).find((l) => l.from <= x && x <= l.to)
+        if (hit) {
+          ev.preventDefault()
+          ev.stopPropagation()
+          return set({ overlay: { kind: 'media', key, url: hit.url } })
+        }
+      }
       const up = (): void => {
         window.removeEventListener('mouseup', up, true)
         entry.lastMouseUp = Date.now()

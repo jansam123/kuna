@@ -331,7 +331,8 @@ export interface MediaItem {
   path: string
   mtime: number
   size: number
-  kind: 'image' | 'pdf' | 'svg' | 'md' | 'html'
+  /** `url`: a web page, opened from an agent's terminal; its address is its `path` */
+  kind: 'image' | 'pdf' | 'svg' | 'md' | 'html' | 'url'
 }
 
 /** One step back through an agent's plots: newest reply first, the folder scan last. */

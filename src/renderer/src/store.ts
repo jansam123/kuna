@@ -20,7 +20,8 @@ import { REPO_COLORS } from './themes'
 export type Zone = 'sidebar' | 'prompt' | 'pane'
 
 export type Overlay =
-  | { kind: 'media'; key: string }
+  /** the viewer; `url`: a web page to show in it (⌘click on an address in the agent's terminal) */
+  | { kind: 'media'; key: string; url?: string }
   /** the review view (⌘G): a folder's git changes, with its agent beside them when there is one; `browse` (⇧⌘E): only its files */
   | { kind: 'review'; host: string; dir: string; key?: string; browse?: boolean }
   | { kind: 'claude'; host?: string }

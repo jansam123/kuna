@@ -46,6 +46,7 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
     keys: [
       ['Space', "plots, PDFs, HTML pages and Markdown files of the agent's latest reply"],
       ['click · Esc', 'in the preview: a page takes the keys, Esc gives them back'],
+      ['⌘click', 'a web address in a terminal: the page in the preview (⌘O: in your browser)'],
       ['→ / ←', 'the file after / before (→ keeps going into earlier replies)'],
       ['⌘Enter · ⌘W', 'in the preview: another file beside this one · close it'],
       ['⌥ arrows', 'in the preview: the file beside, above, below'],

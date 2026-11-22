@@ -7,7 +7,7 @@ import { parseJsonc } from '@shared/jsonc'
 import { cleanTypedPath, pastePath } from '@shared/paths'
 import { emptyPhoneState, hostKeyVerdict, knownHostsName, makeExport, mergeImport, parseExport, parseJumpSpec, parseKnownHosts, parseSshG, type PhoneState } from '@shared/phone'
 import { gridRows, neighbor } from '@shared/layout'
-import { extractMediaPaths, figureClass, mediaGroup, mediaKind, mediaPlace, normalizePosix, pageFile, resolveAgainst, viewerOrder } from '@shared/media'
+import { extractMediaPaths, figureClass, linksIn, mediaGroup, mediaKind, mediaPlace, normalizePosix, pageFile, resolveAgainst, viewerOrder } from '@shared/media'
 import { parseSshConfig } from '@shared/sshConfig'
 import { applyPatch, diffShared, mergePatch } from '@shared/sync'
 import { hasMath, splitMath, texToText } from '@shared/tex'
@@ -77,6 +77,15 @@ describe('media paths', () => {
     const text = 'Saved plots/mass.png and "/eos/user/s/out.pdf". See https://x.org/a.png, also ~/fig_1.jpeg.'
     expect(extractMediaPaths(text)).toEqual(['plots/mass.png', '/eos/user/s/out.pdf', '~/fig_1.jpeg'])
   })
+  it('finds the web addresses in a line of a terminal, without what closes the sentence around them', () => {
+    const line = '  Published: https://claude.ai/code/artifact/0b3d-11. (docs at http://localhost:8080/a?b=1#c), see [https://x.org/w_(a)].'
+    expect(linksIn(line)).toEqual([
+      { at: 13, url: 'https://claude.ai/code/artifact/0b3d-11' },
+      { at: 63, url: 'http://localhost:8080/a?b=1#c' },
+      { at: 100, url: 'https://x.org/w_(a)' }
+    ])
+    expect(linksIn('no address: ftp://x.org, file:///etc/passwd, plots/a.png')).toEqual([])
+  })
   it('finds Markdown files, as the viewer renders them', () => {
     expect(extractMediaPaths('Notes are in docs/RESULTS.md and `summary.markdown`; see https://x.org/README.md.')).toEqual([
       'docs/RESULTS.md',
@@ -111,6 +120,7 @@ describe('media paths', () => {
     expect(figureClass('plots/tagger_diagram.pdf', { pages: 1, maker: 'Matplotlib pdf backend' })).toBe('diagram')
     expect(figureClass('diagrams/setup.png')).toBe('diagram')
     expect(figureClass('/w/pipeline_study/plots/mass.png')).toBe('plot')
+    expect(mediaGroup('url')).toBe('url')
     expect(mediaGroup('pdf')).toBe('pdf')
     expect(mediaGroup('pdf', 'slides')).toBe('slides')
     expect(mediaGroup('svg')).toBe('plot')

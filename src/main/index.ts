@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, clipboard, ipcMain, Menu, protocol, session, shell, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import { IPC } from '@shared/ipc'
+import { WEB_PARTITION } from '@shared/media'
 import { applyPatch, sharedOf, type SharedPatch } from '@shared/sync'
 import type { GitSide } from '@shared/git'
 import type { SpawnRequest, WindowLayout } from '@shared/types'
@@ -214,6 +215,8 @@ function makeWindow(bounds: Rect | undefined, fullScreen: boolean): BrowserWindo
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      // a web page in the viewer is a guest (below)
+      webviewTag: true,
       devTools: fromSource
     }
   })
@@ -232,6 +235,26 @@ function makeWindow(bounds: Rect | undefined, fullScreen: boolean): BrowserWindo
   // an HTML page in the viewer stays in its frame: no going to the web (links included)
   win.webContents.on('will-frame-navigate', (e) => {
     if (!e.isMainFrame && !/^(kuna-page|about|data|blob):/.test(e.url)) e.preventDefault()
+  })
+  // a web page in the viewer (⌘click on an address in a terminal): a sandboxed guest with no preload or Node,
+  // http(s) only, in the one session kept for such pages, so nothing of Kuna's own is within its reach
+  win.webContents.on('will-attach-webview', (e, prefs, params) => {
+    delete prefs.preload
+    prefs.nodeIntegration = false
+    prefs.contextIsolation = true
+    prefs.sandbox = true
+    if (!/^https?:\/\//i.test(params.src) || params.partition !== WEB_PARTITION) e.preventDefault()
+  })
+  win.webContents.on('did-attach-webview', (_e, guest) => {
+    // a link that wants a window of its own: your browser
+    guest.setWindowOpenHandler(({ url }) => {
+      if (/^https?:/.test(url)) void shell.openExternal(url)
+      return { action: 'deny' }
+    })
+    // its keys are its own, as an HTML page's: Esc gives the keyboard back
+    guest.on('before-input-event', (_ev, input) => {
+      if (input.type === 'keyDown' && input.key === 'Escape') win.webContents.send(IPC.pageEscape)
+    })
   })
   // the window never sees the keys typed into such a page (or a frame of its own): its Esc gives the keyboard back
   win.webContents.on('before-input-event', (_e, input) => {
@@ -340,6 +363,12 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_wc, permission, done, details) => done(allowed(permission, details.isMainFrame)))
   session.defaultSession.setPermissionCheckHandler((_wc, permission, _origin, details) => allowed(permission, details.isMainFrame))
   protocol.handle('kuna-page', (req) => media.servePage(req))
+  // web pages in the viewer: a browser's name (sites turn an embedded one away at sign-in), and of the
+  // permissions a page can ask for only copying to the clipboard (a page's own Copy button)
+  const web = session.fromPartition(WEB_PARTITION)
+  web.setUserAgent(web.getUserAgent().replace(/ (Electron|Kuna|kuna)\/\S+/g, ''))
+  web.setPermissionRequestHandler((_wc, permission, done) => done(permission === 'clipboard-sanitized-write'))
+  web.setPermissionCheckHandler((_wc, permission) => permission === 'clipboard-sanitized-write')
   // a built Kuna.app has its icon; running from source, the Dock shows Electron's otherwise
   if (fromSource) app.dock?.setIcon(join(__dirname, '../../build/icon.png'))
   registerIpc()
