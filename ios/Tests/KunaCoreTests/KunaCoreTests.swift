@@ -299,10 +299,10 @@ private func freePort() throws -> Int {
 
   @Test func importsAnExportAndKeepsWhatWasMadeHere() async throws {
     let model = try model()
-    let file = ##"{"kuna":"iphone","version":1,"exportedAt":7,"projects":[{"id":"m1","name":"From the Mac","host":"nikhef1","color":"#2ee6c5","agentCommand":"claude","folders":[{"id":"mf","path":"~/ana","name":"ana","color":"#ffd166"}]}],"names":{"nikhef1::ab12":"Fit"},"hidden":{},"theme":"muon","hosts":[{"alias":"nikhef1","hostName":"stbc-i1.nikhef.nl","user":"sam","port":22,"jump":"login"},{"alias":"login","hostName":"login.nikhef.nl","user":"sam","port":22}],"hostKeys":{"login.nikhef.nl":["ssh-ed25519 AAAA"]}}"##
+    let file = ##"{"kuna":"iphone","version":1,"exportedAt":7,"projects":[{"id":"m1","name":"From the Mac","host":"node1","color":"#2ee6c5","agentCommand":"claude","folders":[{"id":"mf","path":"~/ana","name":"ana","color":"#ffd166"}]}],"names":{"node1::ab12":"Fit"},"hidden":{},"theme":"muon","hosts":[{"alias":"node1","hostName":"node1.example.org","user":"ada","port":22,"jump":"door"},{"alias":"door","hostName":"gate.example.org","user":"ada","port":22}],"hostKeys":{"gate.example.org":["ssh-ed25519 AAAA"]}}"##
     #expect(try model.importFile(file) == "1 project on 2 hosts")
     #expect(model.state.projects.map(\.id) == ["m1", "p1"])
-    #expect(model.state.hosts.map(\.alias) == ["nikhef1", "login", "gate", "test"])
+    #expect(model.state.hosts.map(\.alias) == ["node1", "door", "gate", "test"])
     #expect(model.theme.id == "muon")
     #expect(model.tree.map(\.project.name) == ["From the Mac", "Analysis"])
     #expect(throws: KunaError.self) { try model.importFile("{}") }

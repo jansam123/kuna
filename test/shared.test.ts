@@ -944,8 +944,8 @@ describe('the iPhone export', () => {
   })
 
   it('reads what ssh -G resolves an alias to', () => {
-    const r = parseSshG('host nikhef1\nuser sam\nhostname stbc-i1.nikhef.nl\nport 22\nproxyjump login-nikhef\nuserknownhostsfile ~/.ssh/known_hosts ~/.ssh/known_hosts2\nglobalknownhostsfile /etc/ssh/ssh_known_hosts\n')
-    expect(r).toMatchObject({ hostName: 'stbc-i1.nikhef.nl', user: 'sam', port: 22, proxyJump: 'login-nikhef' })
+    const r = parseSshG('host node1\nuser ada\nhostname node1.example.org\nport 22\nproxyjump gate\nuserknownhostsfile ~/.ssh/known_hosts ~/.ssh/known_hosts2\nglobalknownhostsfile /etc/ssh/ssh_known_hosts\n')
+    expect(r).toMatchObject({ hostName: 'node1.example.org', user: 'ada', port: 22, proxyJump: 'gate' })
     expect(r?.knownHostsFiles).toEqual(['~/.ssh/known_hosts', '~/.ssh/known_hosts2', '/etc/ssh/ssh_known_hosts'])
     expect(parseSshG('hostname a\nuser b\nport 2222\nproxyjump none\nhostkeyalias cluster\n')).toMatchObject({ port: 2222, proxyJump: undefined, hostKeyAlias: 'cluster' })
     expect(parseSshG('usage: ssh')).toBeNull()
@@ -953,8 +953,8 @@ describe('the iPhone export', () => {
 
   it('reads one hop of a ProxyJump', () => {
     expect(parseJumpSpec('login')).toEqual({ host: 'login', user: undefined, port: undefined })
-    expect(parseJumpSpec('sam@gate.example.org:2222')).toEqual({ host: 'gate.example.org', user: 'sam', port: 2222 })
-    expect(parseJumpSpec('ssh://sam@gate:22/')).toEqual({ host: 'gate', user: 'sam', port: 22 })
+    expect(parseJumpSpec('ada@gate.example.org:2222')).toEqual({ host: 'gate.example.org', user: 'ada', port: 2222 })
+    expect(parseJumpSpec('ssh://ada@gate:22/')).toEqual({ host: 'gate', user: 'ada', port: 22 })
     expect(parseJumpSpec('-oProxyCommand=x')).toBeNull()
   })
 
@@ -963,18 +963,18 @@ describe('the iPhone export', () => {
     expect(parseKnownHosts(out)).toEqual(['ssh-ed25519 AAAAC3Nz', 'ecdsa-sha2-nistp256 AAAAE2Vj'])
   })
 
-  const hosts = [{ alias: 'nikhef1', hostName: 'stbc-i1.nikhef.nl', user: 'sam', port: 22, jump: 'login' }, { alias: 'login', hostName: 'login.nikhef.nl', user: 'sam', port: 22 }]
+  const hosts = [{ alias: 'node1', hostName: 'node1.example.org', user: 'ada', port: 22, jump: 'gate' }, { alias: 'gate', hostName: 'gate.example.org', user: 'ada', port: 22 }]
 
   it('leaves this Mac and its agents out', () => {
     const e = makeExport(
-      { projects: [proj('a', 'nikhef1'), proj('b', 'local')], names: { 'nikhef1::ab12': 'Fit', 'local::zz99': 'Here' }, hidden: { 'local::cc-1234abcd': 5 }, theme: 'muon' },
+      { projects: [proj('a', 'node1'), proj('b', 'local')], names: { 'node1::ab12': 'Fit', 'local::zz99': 'Here' }, hidden: { 'local::cc-1234abcd': 5 }, theme: 'muon' },
       hosts,
-      { 'login.nikhef.nl': ['ssh-ed25519 AAAA'] },
+      { 'gate.example.org': ['ssh-ed25519 AAAA'] },
       1700000000.7
     )
     expect(e.projects.map((p) => p.id)).toEqual(['a'])
-    expect(e.projects[0].folders[0].agents).toEqual(['nikhef1::ab12'])
-    expect(e.names).toEqual({ 'nikhef1::ab12': 'Fit' })
+    expect(e.projects[0].folders[0].agents).toEqual(['node1::ab12'])
+    expect(e.names).toEqual({ 'node1::ab12': 'Fit' })
     expect(e.hidden).toEqual({})
     expect(e.exportedAt).toBe(1700000000)
   })
@@ -988,45 +988,45 @@ describe('the iPhone export', () => {
         kuna: 'iphone',
         version: 1,
         exportedAt: 5,
-        projects: [proj('a', 'nikhef1', { color: 'red', evil: 1, icon: 'μ' }), proj('b', 'local'), proj('c', '-oProxyCommand=x')],
-        names: { 'nikhef1::ab12': 'Fit', 'not a key': 'x' },
-        hidden: { 'nikhef1::cc-1234abcd': 9, 'nikhef1::ab12': 'soon' },
+        projects: [proj('a', 'node1', { color: 'red', evil: 1, icon: 'μ' }), proj('b', 'local'), proj('c', '-oProxyCommand=x')],
+        names: { 'node1::ab12': 'Fit', 'not a key': 'x' },
+        hidden: { 'node1::cc-1234abcd': 9, 'node1::ab12': 'soon' },
         theme: 'muon',
         hosts: [...hosts, { alias: 'bad host', hostName: 'x', user: 'y' }, { alias: 'lost', hostName: 'x', user: 'y', port: 99999, jump: 'nowhere' }],
-        hostKeys: { 'login.nikhef.nl': ['ssh-ed25519 AAAA', 'rm -rf /', 7] }
+        hostKeys: { 'gate.example.org': ['ssh-ed25519 AAAA', 'rm -rf /', 7] }
       })
     )
     expect(e.projects.map((p) => p.id)).toEqual(['a'])
     expect(e.projects[0]).not.toHaveProperty('evil')
     expect(e.projects[0].color).toBe('#4d8dff')
     expect(e.projects[0].icon).toBe('μ')
-    expect(e.names).toEqual({ 'nikhef1::ab12': 'Fit' })
-    expect(e.hidden).toEqual({ 'nikhef1::cc-1234abcd': 9 })
-    expect(e.hosts.map((h) => h.alias)).toEqual(['nikhef1', 'login', 'lost'])
+    expect(e.names).toEqual({ 'node1::ab12': 'Fit' })
+    expect(e.hidden).toEqual({ 'node1::cc-1234abcd': 9 })
+    expect(e.hosts.map((h) => h.alias)).toEqual(['node1', 'gate', 'lost'])
     expect(e.hosts[2].port).toBe(22)
     expect(e.hosts[2].jump).toBeUndefined()
-    expect(e.hostKeys).toEqual({ 'login.nikhef.nl': ['ssh-ed25519 AAAA'] })
+    expect(e.hostKeys).toEqual({ 'gate.example.org': ['ssh-ed25519 AAAA'] })
   })
 
   it('updates what came from the Mac and keeps what was made on the phone', () => {
-    const first = mergeImport(emptyPhoneState(), makeExport({ projects: [proj('a', 'nikhef1'), proj('gone', 'nikhef1')], theme: 'muon' }, hosts, { x: ['ssh-ed25519 A'] }, 10))
+    const first = mergeImport(emptyPhoneState(), makeExport({ projects: [proj('a', 'node1'), proj('gone', 'node1')], theme: 'muon' }, hosts, { x: ['ssh-ed25519 A'] }, 10))
     expect(first.theme).toBe('muon')
     const phone: PhoneState = {
       ...first,
       theme: 'black',
       themeChosen: true,
-      projects: [{ ...first.projects[0], collapsed: true }, first.projects[1], proj('mine', 'snell')],
-      hosts: [...first.hosts, { alias: 'snell', hostName: 'snellius.surf.nl', user: 'sam', port: 22 }],
-      names: { 'snell::ab12': 'Mine' },
+      projects: [{ ...first.projects[0], collapsed: true }, first.projects[1], proj('mine', 'hpc')],
+      hosts: [...first.hosts, { alias: 'hpc', hostName: 'hpc.example.org', user: 'ada', port: 22 }],
+      names: { 'hpc::ab12': 'Mine' },
       hostKeys: { ...first.hostKeys, x: ['ssh-ed25519 A', 'ecdsa-sha2-nistp256 B'] }
     }
-    const next = mergeImport(phone, makeExport({ projects: [proj('a', 'nikhef1', { name: 'Renamed' })], names: { 'nikhef1::ab12': 'Fit' }, theme: 'tracker' }, [hosts[1], hosts[0]], { x: ['ssh-ed25519 A'] }, 20))
+    const next = mergeImport(phone, makeExport({ projects: [proj('a', 'node1', { name: 'Renamed' })], names: { 'node1::ab12': 'Fit' }, theme: 'tracker' }, [hosts[1], hosts[0]], { x: ['ssh-ed25519 A'] }, 20))
     expect(next.projects.map((p) => [p.id, p.name, p.collapsed])).toEqual([['a', 'Renamed', true], ['mine', 'mine', undefined]])
-    expect(next.hosts.map((h) => h.alias)).toEqual(['login', 'nikhef1', 'snell'])
-    expect(next.names).toEqual({ 'snell::ab12': 'Mine', 'nikhef1::ab12': 'Fit' })
+    expect(next.hosts.map((h) => h.alias)).toEqual(['gate', 'node1', 'hpc'])
+    expect(next.names).toEqual({ 'hpc::ab12': 'Mine', 'node1::ab12': 'Fit' })
     expect(next.theme).toBe('black')
     expect(next.hostKeys.x).toEqual(['ssh-ed25519 A', 'ecdsa-sha2-nistp256 B'])
-    expect(next.fromMac).toEqual({ projects: ['a'], hosts: ['login', 'nikhef1'] })
+    expect(next.fromMac).toEqual({ projects: ['a'], hosts: ['gate', 'node1'] })
     expect(next.importedAt).toBe(20)
   })
 

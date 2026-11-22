@@ -147,7 +147,7 @@ struct HostForm: View {
       Form {
         Group {
           Section {
-            TextField("Name, e.g. nikhef1", text: $draft.host.alias).plain().disabled(draft.original != nil)
+            TextField("Name, e.g. cluster1", text: $draft.host.alias).plain().disabled(draft.original != nil)
             TextField("Address (HostName)", text: $draft.host.hostName).plain().keyboardType(.URL)
             TextField("User", text: $draft.host.user).plain()
             TextField("Port", text: $draft.port).keyboardType(.numberPad)
