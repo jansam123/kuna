@@ -261,6 +261,21 @@ private func freePort() throws -> Int {
     #expect(session.items.last?.text == "Fertig – plots/mass.png")
     #expect(session.mentionedFiles() == [server.dir.appendingPathComponent("home/work/plots/mass.png").path].map { _ in "~/work/plots/mass.png" })
 
+    // a file edited on the phone: saved whole, and not over what someone else wrote since it was read
+    let edited = server.dir.appendingPathComponent("home/work/notes.txt")
+    try "as it was\n".write(to: edited, atomically: true, encoding: .utf8)
+    let read = try #require(try FileManager.default.attributesOfItem(atPath: edited.path)[.modificationDate] as? Date).timeIntervalSince1970.rounded(.down)
+    await #expect(throws: KunaError.self) { try await model.write("test", path: "~/work/notes.txt", text: "lost", mtime: read - 9) }
+    #expect(try String(contentsOf: edited, encoding: .utf8) == "as it was\n")
+    let now = try await model.write("test", path: "~/work/notes.txt", text: "from the phone – ok\n", mtime: read)
+    #expect(now >= read)
+    #expect(try String(contentsOf: edited, encoding: .utf8) == "from the phone – ok\n")
+    // a folder kept to look through is kept by host, and keeps the host connected
+    model.keepPlace("test", "~/work/plots")
+    model.keepPlace("test", "~/work")
+    model.keepPlace("test", "~/work/plots", false)
+    #expect(model.state.places == ["test": ["~/work"]])
+
     // its own screen
     try await session.attach()
     try await until("the terminal to draw") { String(decoding: session.drawnSoFar, as: UTF8.self).contains("hello from the phone") }
@@ -354,6 +369,14 @@ private func freePort() throws -> Int {
   #expect(overview.head == "feat")
   #expect(overview.bases.map(\.value) == ["feat", "origin/main"])
   #expect(overview.heads.first?.kind == "worktree" && overview.heads.first?.value == nil)
+
+  // a panel on an agent's screen, and the commands a slash offers
+  let panel = try #require(try Shared.main.decode(Panel?.self, "panel", [[" Do you want to proceed?", " ❯ 1. Yes", "   2. No", "", " Esc to cancel"]]))
+  #expect(panel.text == ["Do you want to proceed?"])
+  #expect(panel.options.map(\.keys) == ["1", "2"])
+  #expect(try Shared.main.decode(Panel?.self, "panel", [["❯ "]]) == nil)
+  let found = try Shared.main.call("slashFound", ["G\t/h/.claude/skills/grill/SKILL.md"])
+  #expect(try Shared.main.decode([SlashCommand].self, "slash", ["/gri", found]).map(\.name) == ["/grill"])
 
   struct Listing: Decodable { var folders: [String]; var files: [MediaItem] }
   let listing = try Shared.main.decode(Listing.self, "folder", ["directory\t64\t5\t./plots\nregular file\t120\t7\t./fit.py\nregular file\t900\t8\t./mass.png", "/w/"])

@@ -222,7 +222,8 @@ public final class AppModel {
 
   /// Keep exactly the hosts with a project connected.
   private func rewatch() {
-    let want = Set(state.projects.map(\.host))
+    // a host with a project on it, or with a folder saved to look through
+    let want = Set(state.projects.map(\.host) + (state.places ?? [:]).filter { !$0.value.isEmpty }.keys)
     for (alias, link) in links where !want.contains(alias) {
       link.task?.cancel()
       links[alias] = nil
@@ -522,6 +523,28 @@ public final class AppModel {
   /// only through an attached terminal (`AgentSession.send`).
   public func type(_ agent: Agent, _ text: String) async throws {
     try await done(agent.host, ["send", agent.agentId, b64(text)], timeout: 15, or: "Could not type into the agent.")
+  }
+
+  /// Save a file edited on the phone. `mtime`: when the file was last changed as the phone read
+  /// it; the host refuses when someone has written it since. Says when it is changed now.
+  public func write(_ alias: String, path: String, text: String, mtime: Double) async throws -> Double {
+    let data = Data(text.utf8)
+    let done = try await run(alias, ["fwrite", b64(path), String(data.count), String(Int(mtime))], stdin: data, timeout: 60)
+    guard done.code == 0 else {
+      let said = done.stderr.replacingOccurrences(of: "kuna: ", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+      throw KunaError(said.isEmpty ? "Could not save the file." : said)
+    }
+    return Double(done.text.split(separator: "\t").first.map(String.init)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") ?? mtime
+  }
+
+  /// Save a folder of a host to look through later, or take it off the list.
+  public func keepPlace(_ alias: String, _ path: String, _ keep: Bool = true) {
+    update { state in
+      var list = (state.places ?? [:])[alias] ?? []
+      list.removeAll { $0 == path }
+      if keep { list.append(path) }
+      state.places = (state.places ?? [:]).merging([alias: list]) { $1 }
+    }
   }
 
   private func firstWords(_ texts: String..., or fallback: String) -> String {

@@ -721,6 +721,27 @@ read_file() {
   frame_file "$f" "$1" "$t"
 }
 
+write_file() {
+  # fwrite <path64> <bytes> <mtime>: stdin replaces a file that is there, which
+  # keeps its mode and is written through a symlink. Only when all <bytes>
+  # arrived (a connection cut on the way changes nothing), and only while the
+  # file still has the <mtime> it was read at (0: whatever it has): an agent may
+  # have written it meanwhile. Prints its new "mtime<TAB>size".
+  valid_num "$2" "$3"
+  f=$(expand "$(b64d "$1")")
+  [ -f "$f" ] || { echo "kuna: no such file" >&2; exit 3; }
+  if [ "$3" != 0 ]; then
+    was=$(fstat "$f")
+    [ "${was%%	*}" = "$3" ] || { echo "kuna: the file changed on the host since it was opened. Open it again." >&2; exit 4; }
+  fi
+  t=$(mktemp "${TMPDIR:-/tmp}/kuna-write.XXXXXX") || exit 3
+  trap 'rm -f "$t"' EXIT
+  cat > "$t" || exit 3
+  [ "$(wc -c < "$t" | tr -d ' ')" = "$2" ] || { echo "kuna: the file arrived incomplete; nothing was changed" >&2; exit 3; }
+  cat "$t" > "$f" || { echo "kuna: could not write the file" >&2; exit 3; }
+  fstat "$f"
+}
+
 real_paths() {
   # realpath <paths64>: newline separated directories -> "path<TAB>physical path"
   # (symlinks resolved, like the working directory an agent reports)
@@ -992,7 +1013,8 @@ case "$cmd" in
   realpath) real_paths "$@" ;;
   lsdir) list_dir "$@" ;;
   fread) read_file "$@" ;;
+  fwrite) write_file "$@" ;;
   claude-files) claude_files "$@" ;;
   git) git_cmd "$@" ;;
-  *) echo "usage: kuna {version|setup|doctor|spawn|run|kill|key|send|attach|hook|watch|read|stat|media|cat|pcat|ls|realpath|lsdir|fread|claude-files|git}" >&2; exit 2 ;;
+  *) echo "usage: kuna {version|setup|doctor|spawn|run|kill|key|send|attach|hook|watch|read|stat|media|cat|pcat|ls|realpath|lsdir|fread|fwrite|claude-files|git}" >&2; exit 2 ;;
 esac

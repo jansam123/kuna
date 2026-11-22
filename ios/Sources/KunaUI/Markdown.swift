@@ -87,9 +87,15 @@ struct MarkdownText: View {
         .foregroundStyle(level <= 2 ? look.accent : look.bright).padding(.top, 4)
     case "code":
       VStack(alignment: .leading, spacing: 0) {
-        if let lang = block.lang, !lang.isEmpty { Text(lang).font(.caption2.monospaced()).foregroundStyle(look.dim).padding(.horizontal, 10).padding(.top, 7) }
+        HStack {
+          Text(block.lang ?? "").font(.caption2.monospaced()).foregroundStyle(look.dim)
+          Spacer()
+          // code is there to be run: one tap takes the block
+          CopyButton(text: block.text ?? "", label: "Copy the code").accessibilityIdentifier("copy-code")
+        }
+        .padding(.leading, 10).padding(.trailing, 4).padding(.top, 3)
         ScrollView(.horizontal, showsIndicators: false) {
-          Text(block.text ?? "").font(.system(size: 12.5, design: .monospaced)).foregroundStyle(look.text).padding(10)
+          Text(block.text ?? "").font(.system(size: 12.5, design: .monospaced)).foregroundStyle(look.text).textSelection(.enabled).padding(.horizontal, 10).padding(.bottom, 10)
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)

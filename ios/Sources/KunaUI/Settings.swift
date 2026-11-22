@@ -6,10 +6,12 @@ struct SettingsView: View {
   let model: AppModel
   @Binding var importing: Bool
   @Environment(\.look) private var look
-  @Environment(\.dismiss) private var dismiss
   @AppStorage("lock") private var lock = true
   @AppStorage("homeLook") private var homeLook = HomeLook.blocks.rawValue
   @AppStorage("termFont") private var termFont = 11.0
+  @AppStorage("haptics") private var haptics = true
+  @AppStorage(Haptic.Moment.opened.rawValue) private var hapticOpen = Haptic.Moment.opened.usual.rawValue
+  @AppStorage(Haptic.Moment.sent.rawValue) private var hapticSend = Haptic.Moment.sent.usual.rawValue
   @State private var host: HostDraft?
 
   var body: some View {
@@ -38,8 +40,17 @@ struct SettingsView: View {
           }
 
           Section {
-            Text(model.publicKey.isEmpty ? "This phone could not make a key." : model.publicKey).font(.caption.monospaced()).foregroundStyle(look.dim).textSelection(.enabled).lineLimit(4)
-            if !model.publicKey.isEmpty { ShareLink("Send it to your Mac", item: model.publicKey) }
+            if model.publicKey.isEmpty {
+              Text("This phone could not make a key.").foregroundStyle(look.dim)
+            } else {
+              // not for whoever looks over a shoulder: its kind and its first letters, the rest by copying
+              HStack {
+                Text(masked).font(.caption.monospaced()).foregroundStyle(look.dim).lineLimit(1).accessibilityIdentifier("public-key")
+                Spacer(minLength: 4)
+                CopyButton(text: model.publicKey, label: "Copy the key").accessibilityIdentifier("copy-key")
+              }
+              ShareLink("Send it to your Mac", item: model.publicKey)
+            }
           } header: {
             Text("This phone's key")
           } footer: {
@@ -47,10 +58,7 @@ struct SettingsView: View {
           }
 
           Section {
-            Button("Import from the Mac", systemImage: "square.and.arrow.down") {
-              dismiss()
-              importing = true
-            }
+            Button("Import from the Mac", systemImage: "square.and.arrow.down") { importing = true }
           } footer: {
             Text(imported)
           }
@@ -64,7 +72,28 @@ struct SettingsView: View {
           } header: {
             Text("Home screen")
           } footer: {
-            Text("Four ways to lay the projects out, to compare. The others go once you have chosen.")
+            Text("Three ways to lay the projects out, to compare. The others go once you have chosen.")
+          }
+
+          Section {
+            Toggle("Haptics", isOn: $haptics)
+            if haptics {
+              Picker("An agent opens", selection: $hapticOpen) { ForEach(Haptic.allCases) { Text($0.name).tag($0.rawValue) } }
+              Picker("A message is sent", selection: $hapticSend) { ForEach(Haptic.allCases) { Text($0.name).tag($0.rawValue) } }
+              // the palette: each one to feel before it is chosen above
+              LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 8)], spacing: 8) {
+                ForEach(Haptic.allCases.filter { $0 != .none }) { haptic in
+                  Button(haptic.name) { haptic.play() }.font(.footnote.weight(.medium)).frame(maxWidth: .infinity, minHeight: 36)
+                    .background(look.raised, in: RoundedRectangle(cornerRadius: 9, style: .continuous)).foregroundStyle(look.text)
+                    .buttonStyle(.plain).accessibilityIdentifier("haptic-\(haptic.rawValue)")
+                }
+              }
+              .padding(.vertical, 4)
+            }
+          } header: {
+            Text("Haptics")
+          } footer: {
+            Text("A tap of the phone when an agent's screen has connected, and when a message is sent. Tap one to feel it.")
           }
 
           Section("Colours") {
@@ -109,10 +138,16 @@ struct SettingsView: View {
       .background(look.ground)
       .navigationTitle("Settings")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+      .onChange(of: hapticOpen) { (Haptic(rawValue: hapticOpen) ?? .none).play() }
+      .onChange(of: hapticSend) { (Haptic(rawValue: hapticSend) ?? .none).play() }
       .sheet(item: $host) { draft in HostForm(model: model, draft: draft).environment(\.look, look) }
     }
-    .preferredColorScheme(.dark)
+  }
+
+  /// the key's kind and the first letters of the key itself
+  private var masked: String {
+    let parts = model.publicKey.split(separator: " ")
+    return "\(parts.first ?? "") \(parts.dropFirst().first?.prefix(8) ?? "")" + String(repeating: "•", count: 14)
   }
 
   private func status(_ alias: String) -> String {
@@ -206,6 +241,7 @@ struct HostForm: View {
       .scrollContentBackground(.hidden)
       .background(look.ground)
       .navigationTitle(draft.original?.alias ?? "New host")
+      .keyboardButton()
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -333,6 +369,7 @@ struct ProjectForm: View {
       .scrollContentBackground(.hidden)
       .background(look.ground)
       .navigationTitle(draft.isNew ? "New project" : draft.project.name)
+      .keyboardButton()
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }

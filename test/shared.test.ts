@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { describeActivity, shortActivity } from '@shared/activity'
 import { baseModelId, contextInfo, contextLevel, contextWindowSize, modelFlag, shortModel } from '@shared/context'
 import { ChatLog } from '@shared/chat'
-import { compactBlocker, enterWatch, hasInputBox, screenState, slashTyped } from '@shared/input'
+import { compactBlocker, enterWatch, hasInputBox, screenPanel, screenState, slashTyped } from '@shared/input'
+import { slashFromFiles, slashMatches } from '@shared/slash'
 import { parseJsonc } from '@shared/jsonc'
 import { diffLines, foldUnchanged, splitLines, type DiffRow } from '@shared/linediff'
 import { cleanTypedPath, pastePath } from '@shared/paths'
@@ -534,6 +535,64 @@ describe('typing /compact', () => {
     expect(over(3900, false, 900)).toBe(false)
     expect(over(4000, false, 900)).toBe(false)
     expect(over(4300, false, 900)).toBe(true)
+  })
+
+  it('reads a question or a panel as rows to tap', () => {
+    const rule = '─'.repeat(60)
+    // a permission: numbered, picked by its number
+    const ask = screenPanel(['● Bash(rm -rf build)', rule, ' Do you want to proceed?', ' ❯ 1. Yes', "   2. Yes, and don't ask again for rm", '      in this folder', '   3. No, and tell Claude what to do differently (esc)', '', ' Esc to cancel'])!
+    expect(ask.state).toBe('question')
+    expect(ask.text).toEqual(['Do you want to proceed?'])
+    expect(ask.options.map((o) => [o.label, o.keys, o.current])).toEqual([
+      ['Yes', '1', true],
+      ["Yes, and don't ask again for rm", '2', false],
+      ['No, and tell Claude what to do differently (esc)', '3', false]
+    ])
+    expect(ask.options[1].detail).toBe('in this folder')
+    expect(ask.hint).toEqual(['Esc to cancel'])
+    // a question of the agent's, its last choice under a rule of its own
+    const q = screenPanel([rule, ' ☐ Library', '', ' Which library should format the dates?', '', '   1. date-fns', '      Modern and modular', ' ❯ 2. dayjs', '   3. Type something.', ' ──────────────', '   4. Chat about this', '', ' Enter to select · ↑/↓ to navigate · Esc to cancel'])!
+    expect(q.text).toEqual(['☐ Library', 'Which library should format the dates?'])
+    expect(q.options.map((o) => o.keys)).toEqual(['1', '2', '3', '4'])
+    expect(q.options[0].detail).toBe('Modern and modular')
+    expect(q.options[1].current).toBe(true)
+    // /config: no numbers, so the ❯ is walked to the row; the "more" line is not a row
+    const config = screenPanel(['  Settings  Status   Config   Usage', '  ╭' + rule + '╮', '  │ ⌕ Search settings…  │', '  ╰' + rule + '╯', '    Auto-compact                                true', '  ❯ Verbose output                              false', '    Theme                                       dark', '    ↓ 26 more', '  Enter/Space to change · / to search · Esc to close'])!
+    expect(config.state).toBe('menu')
+    expect(config.options.map((o) => o.keys)).toEqual(['\x1b[A\r', '\r', '\x1b[B\r'])
+    expect(config.hint).toEqual(['↓ 26 more', 'Enter/Space to change · / to search · Esc to close'])
+    // a panel with nothing to pick is still read; the input box is no panel
+    expect(screenPanel(['  Current session', '  ██████ 12% used', 'Press Esc to go back'])!.options).toEqual([])
+    expect(screenPanel(['● Done.', rule, '❯ ', rule])).toBeNull()
+  })
+})
+
+describe('slash commands for the phone', () => {
+  it('offers what starts with what is typed, then what contains it', () => {
+    expect(slashMatches('/com').map((c) => c.name)).toEqual(['/compact', '/pr-comments'])
+    expect(slashMatches('/').length).toBe(8)
+    // only while a single word is typed, and not once it is whole
+    expect(slashMatches('/model fable')).toEqual([])
+    expect(slashMatches('fix /usr')).toEqual([])
+    expect(slashMatches('/usr/bin')).toEqual([])
+    expect(slashMatches('/clear')).toEqual([])
+  })
+
+  it("names the host's commands and skills as they are typed", () => {
+    const found = slashFromFiles(
+      [
+        'G\t/home/u/.claude/CLAUDE.md',
+        'G\t/home/u/.claude/skills/grill/SKILL.md',
+        'G\t/home/u/.claude/commands/git/sync.md',
+        'L\t/work/.claude/commands/fit.md',
+        'P\t/home/u/.claude/plugins/cache/market/pony/5.3.3/skills/groups/tail/SKILL.md',
+        'P\t/home/u/.claude/plugins/cache/market/pony/5.3.3/.other/skills/tail/SKILL.md',
+        'P\t/home/u/.claude/plugins/marketplaces/market/plugins/unused/skills/x/SKILL.md'
+      ].join('\n')
+    )
+    expect(found.map((c) => c.name)).toEqual(['/grill', '/git:sync', '/fit', '/pony:tail'])
+    expect(slashMatches('/tai', found).map((c) => c.name)).toEqual(['/pony:tail'])
+    expect(slashMatches('/fi', found)[0]).toEqual({ name: '/fit', about: 'this project' })
   })
 })
 
@@ -1070,7 +1129,8 @@ describe('the iPhone export', () => {
       projects: [{ ...first.projects[0], collapsed: true }, first.projects[1], proj('mine', 'hpc')],
       hosts: [...first.hosts, { alias: 'hpc', hostName: 'hpc.example.org', user: 'ada', port: 22 }],
       names: { 'hpc::ab12': 'Mine' },
-      hostKeys: { ...first.hostKeys, x: ['ssh-ed25519 A', 'ecdsa-sha2-nistp256 B'] }
+      hostKeys: { ...first.hostKeys, x: ['ssh-ed25519 A', 'ecdsa-sha2-nistp256 B'] },
+      places: { hpc: ['~/plots'] }
     }
     const next = mergeImport(phone, makeExport({ projects: [proj('a', 'node1', { name: 'Renamed' })], names: { 'node1::ab12': 'Fit' }, theme: 'tracker' }, [hosts[1], hosts[0]], { x: ['ssh-ed25519 A'] }, 20))
     expect(next.projects.map((p) => [p.id, p.name, p.collapsed])).toEqual([['a', 'Renamed', true], ['mine', 'mine', undefined]])
@@ -1080,6 +1140,7 @@ describe('the iPhone export', () => {
     expect(next.hostKeys.x).toEqual(['ssh-ed25519 A', 'ecdsa-sha2-nistp256 B'])
     expect(next.fromMac).toEqual({ projects: ['a'], hosts: ['gate', 'node1'] })
     expect(next.importedAt).toBe(20)
+    expect(next.places).toEqual({ hpc: ['~/plots'] })
   })
 
   it('trusts a known key, refuses a changed one, asks about a type it never saw', () => {

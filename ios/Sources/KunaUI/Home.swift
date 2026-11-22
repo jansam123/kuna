@@ -1,18 +1,18 @@
 #if os(iOS)
 import KunaCore
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// What the app opens with: the projects, their folders and their agents, as the Mac's sidebar.
 struct HomeView: View {
   let model: AppModel
   @Binding var path: [Route]
   @Binding var notice: Notice?
+  @Binding var importing: Bool
+  /// to the hosts, in Settings
+  let hosts: () -> Void
   @Environment(\.look) private var look
   @AppStorage("homeLook") private var homeLook = HomeLook.blocks.rawValue
   @AppStorage("stripProject") private var stripProject = ""
-  @State private var settings = false
-  @State private var importing = false
   @State private var sheets = ProjectSheets.State()
 
   var body: some View {
@@ -22,14 +22,13 @@ struct HomeView: View {
       LazyVStack(alignment: .leading, spacing: 18) {
         if !troubled.isEmpty || model.state.projects.isEmpty {
           VStack(spacing: 18) {
-            ForEach(troubled) { link in HostBanner(model: model, link: link, edit: { settings = true }) }
+            ForEach(troubled) { link in HostBanner(model: model, link: link, edit: hosts) }
             if model.state.projects.isEmpty { Welcome(importing: $importing, new: { sheets.editing = ProjectDraft(model: model) }) }
           }
           .padding(.horizontal, 16)
         }
         switch style {
         case .blocks: BlocksHome(model: model, actions: actions)
-        case .cards: CardsHome(model: model, actions: actions)
         case .tiles: TilesHome(model: model, actions: actions)
         case .strip:
           if let tree = model.tree.first(where: { $0.id == stripProject }) ?? model.tree.first { ProjectPage(model: model, tree: tree, actions: actions) }
@@ -48,11 +47,8 @@ struct HomeView: View {
       try? await Task.sleep(for: .milliseconds(600))
     }
     .navigationTitle("Kuna")
-    .navigationBarTitleDisplayMode(style == .strip ? .inline : .automatic)
+    .navigationBarTitleDisplayMode(.inline)
     .toolbar {
-      ToolbarItem(placement: .topBarLeading) {
-        Button("Settings", systemImage: "gearshape") { settings = true }
-      }
       ToolbarItem(placement: .primaryAction) {
         Menu("Add", systemImage: "plus") {
           Button("New project", systemImage: "folder.badge.plus") { sheets.editing = ProjectDraft(model: model) }
@@ -60,18 +56,7 @@ struct HomeView: View {
         }
       }
     }
-    .sheet(isPresented: $settings) { SettingsView(model: model, importing: $importing).environment(\.look, look) }
     .modifier(ProjectSheets(model: model, state: $sheets, path: $path))
-    .fileImporter(isPresented: $importing, allowedContentTypes: [.json, .data, .item]) { result in
-      guard case .success(let url) = result else { return }
-      let scoped = url.startAccessingSecurityScopedResource()
-      defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-      do {
-        notice = Notice(title: "Imported", text: "\(try model.importFile(try String(contentsOf: url, encoding: .utf8))) from your Mac.")
-      } catch {
-        notice = Notice(title: "Could not import", text: error.localizedDescription)
-      }
-    }
   }
 
   /// hosts that are not simply connected: said at the top, with what to do
@@ -102,7 +87,7 @@ struct ProjectScreen: View {
     .navigationTitle(model.tree.first { $0.id == id }.map { model.plain($0.project.name) } ?? "")
     .toolbar {
       if let tree = model.tree.first(where: { $0.id == id }) {
-        ToolbarItem(placement: .primaryAction) { Button("Edit", systemImage: "ellipsis.circle") { actions.edit(tree.project) } }
+        ToolbarItem(placement: .primaryAction) { Button("Edit", systemImage: "ellipsis") { actions.edit(tree.project) } }
       }
     }
     .modifier(ProjectSheets(model: model, state: $sheets, path: $path))
@@ -329,6 +314,7 @@ struct NewAgentSheet: View {
         }
       }
       .onAppear { focused = true }
+      .keyboardButton()
     }
     .presentationDetents([.medium, .large])
   }

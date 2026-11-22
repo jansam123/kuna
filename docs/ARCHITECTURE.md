@@ -38,6 +38,7 @@ Opening a pane runs `ssh -tt <host> sh .kuna/bin/kuna attach <id>` inside a loca
 | `statusline` | Claude Code status line entry point; records plan usage (`rate_limits`) |
 | `attach`, `kill`, `key`, `send` | tmux plumbing |
 | `read`, `stat`, `cat`, `media`, `ls`, `claude-files` | file access for transcripts, plots, completion and the `.claude` browser |
+| `fwrite <file> <bytes> <mtime>` | the iPhone's editor saves a file: stdin replaces a file that is there, only when all the bytes arrived and the file still has the modification time it was read at |
 | `pcat <folder> <file>` | a file for an HTML page in the viewer, only if it lies inside the page's folder on disk (no symlinked file, no symlinked folder leading out) |
 | `git info`, `status`, `compare`, `files`, `cat` | the review view's read-only git (below) |
 | `within <s> <command>` | every command comes this way: git, `media`, `lsdir` and `claude-files` stop themselves (with `timeout`, where it works) a little before the app gives up on them, since sshd lets a command run on after its connection went |

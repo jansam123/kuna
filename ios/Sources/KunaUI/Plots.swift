@@ -56,6 +56,11 @@ final class MediaStore {
   private(set) var scanned = false
   @ObservationIgnored private var cache: [String: Data] = [:]
   @ObservationIgnored private var order: [String] = []
+  /// files saved from the phone: what they hold now, and when the host says they were changed
+  private var saved: [String: (data: Data, mtime: Double)] = [:]
+  var edited: Bool { !saved.isEmpty }
+  /// past this a file is not edited on the phone
+  static let editBelow = 400.0 * 1024
 
   /// past this a file is not shown at all
   static let most = 200.0 * 1024 * 1024
@@ -130,7 +135,20 @@ final class MediaStore {
     }
   }
 
+  /// What a file holds since it was saved from here, unless the host has listed a newer one since.
+  func saved(_ item: MediaItem) -> Data? {
+    guard let mine = saved[item.path], item.mtime <= mine.mtime else { return nil }
+    return mine.data
+  }
+
+  /// Save a file edited on the phone: refused by the host when someone else wrote it since it was read.
+  func save(_ item: MediaItem, text: String, host: String, model: AppModel) async throws {
+    let mtime = try await model.write(host, path: item.path, text: text, mtime: saved[item.path]?.mtime ?? item.mtime)
+    saved[item.path] = (Data(text.utf8), mtime)
+  }
+
   func data(for item: MediaItem, host: String, model: AppModel) async throws -> Data {
+    if let mine = saved(item) { return mine }
     let key = "\(host)\n\(item.path)\n\(item.stamp)"
     if let hit = cache[key] { return hit }
     guard item.size <= Self.most else { throw KunaError("\(item.name) is \(sizeText(item.size)): too large to show on the phone.") }
@@ -168,9 +186,9 @@ struct PlotsScreen: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbar { PromptButton(here: here) }
     .task { await reload() }
-    .fullScreenCover(item: $showing) { item in
+    .inPlace($showing) { item in
       if let agent {
-        ViewerScreen(model: model, store: store, host: agent.host, items: store.groups.flatMap(\.items), start: item, agent: here).environment(\.look, look)
+        ViewerScreen(model: model, store: store, host: agent.host, items: store.groups.flatMap(\.items), start: item, agent: here) { showing = nil }
       }
     }
   }
@@ -273,6 +291,8 @@ struct PlaceChip: View {
   }
 }
 
+/// One file in view, the others a swipe away. A file of text can be edited here and saved back
+/// to the host; the editor stays as it is while another tab is looked at.
 struct ViewerScreen: View {
   let model: AppModel
   let store: MediaStore
@@ -280,15 +300,20 @@ struct ViewerScreen: View {
   let items: [MediaItem]
   /// the agent whose files these are, to write to while looking at them
   var agent: OpenAgents.Open?
+  let close: () -> Void
   @State var current: String
   @Environment(\.look) private var look
-  @Environment(\.dismiss) private var dismiss
   @State private var shared: URL?
   @State private var saving: URL?
   @State private var failure: Notice?
+  /// the text being edited, and the file it is
+  @State private var editing: String?
+  @State private var busy = false
+  @State private var area = TextArea.Handle()
 
-  init(model: AppModel, store: MediaStore, host: String, items: [MediaItem], start: MediaItem, agent: OpenAgents.Open? = nil) {
+  init(model: AppModel, store: MediaStore, host: String, items: [MediaItem], start: MediaItem, agent: OpenAgents.Open? = nil, close: @escaping () -> Void) {
     self.agent = agent
+    self.close = close
     self.model = model
     self.store = store
     self.host = host
@@ -298,47 +323,101 @@ struct ViewerScreen: View {
 
   var body: some View {
     let index = items.firstIndex { $0.id == current } ?? 0
+    let item = items[index]
     VStack(spacing: 0) {
       HStack(spacing: 12) {
-        Button("Done") { dismiss() }.fontWeight(.semibold).accessibilityIdentifier("viewer-done")
-        if let group = store.group(of: items[index]) {
-          Image(systemName: group.symbol).foregroundStyle(group.color.map { Color(hex: $0) } ?? look.dim).accessibilityLabel(group.label)
-        }
-        VStack(alignment: .leading, spacing: 1) {
-          Text(items[index].name).font(.subheadline.weight(.semibold)).foregroundStyle(look.text).lineLimit(1).truncationMode(.middle)
-          Text("\(index + 1) of \(items.count) · \(sizeText(items[index].size)) · \(ago(items[index].mtime))").font(.caption2).foregroundStyle(look.dim)
-        }
-        if let place = items[index].place { PlaceChip(place: place) }
-        Spacer(minLength: 0)
-        if let agent { PromptButton(here: agent) }
-        Button("Download", systemImage: "arrow.down.to.line") {
-          let item = items[index]
-          Task {
-            do { saving = try phoneCopy(of: try await store.data(for: item, host: host, model: model), named: item.name) } catch {
-              failure = Notice(title: "Not downloaded", text: error.localizedDescription)
-            }
+        if editing != nil {
+          Button("Cancel") { editing = nil }.accessibilityIdentifier("edit-cancel")
+        } else {
+          Button("Done", action: close).fontWeight(.semibold).accessibilityIdentifier("viewer-done")
+          if let group = store.group(of: item) {
+            Image(systemName: group.symbol).foregroundStyle(group.color.map { Color(hex: $0) } ?? look.dim).accessibilityLabel(group.label)
           }
         }
-        .labelStyle(.iconOnly).accessibilityIdentifier("viewer-download")
-        if let shared { ShareLink(item: shared) { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("Share") }
+        VStack(alignment: .leading, spacing: 1) {
+          Text(item.name).font(.subheadline.weight(.semibold)).foregroundStyle(look.text).lineLimit(1).truncationMode(.middle)
+          Text(editing != nil ? "editing · \(host)" : "\(index + 1) of \(items.count) · \(sizeText(item.size)) · \(ago(item.mtime))").font(.caption2).foregroundStyle(look.dim)
+        }
+        if editing == nil, let place = item.place { PlaceChip(place: place) }
+        Spacer(minLength: 0)
+        if let agent { PromptButton(here: agent) }
+        if editing != nil {
+          Button("Keyboard", systemImage: "keyboard") { area.toggleKeyboard() }.labelStyle(.iconOnly).accessibilityIdentifier("edit-keyboard")
+          if busy { ProgressView() } else { Button("Save") { save(item) }.fontWeight(.semibold).accessibilityIdentifier("edit-save") }
+        } else {
+          if ["file", "md", "html", "svg"].contains(item.kind) {
+            Button("Edit", systemImage: "pencil") { edit(item) }.labelStyle(.iconOnly).disabled(busy).accessibilityIdentifier("viewer-edit")
+          }
+          Button("Download", systemImage: "arrow.down.to.line") {
+            Task {
+              do { saving = try phoneCopy(of: try await store.data(for: item, host: host, model: model), named: item.name) } catch {
+                failure = Notice(title: "Not downloaded", text: error.localizedDescription)
+              }
+            }
+          }
+          .labelStyle(.iconOnly).accessibilityIdentifier("viewer-download")
+          if let shared { ShareLink(item: shared) { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("Share") }
+        }
       }
       .padding(.horizontal, 14)
       .padding(.vertical, 8)
       .background(look.panel)
-      TabView(selection: $current) {
-        ForEach(items) { item in
-          MediaPage(model: model, store: store, host: host, item: item, front: item.id == current) { shared = $0 }.tag(item.id)
+      if editing != nil {
+        TextArea(text: Binding(get: { editing ?? "" }, set: { editing = $0 }), editable: true, handle: area).background(look.ground).accessibilityIdentifier("editor")
+      } else {
+        TabView(selection: $current) {
+          ForEach(items) { item in
+            MediaPage(model: model, store: store, host: host, item: item, front: item.id == current) { shared = $0 }.tag(item.id)
+          }
         }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .background(look.ground)
       }
-      .tabViewStyle(.page(indexDisplayMode: .never))
-      .background(look.ground)
       if let agent { PromptDrawer(model: model, here: agent) }
     }
     .background(look.panel.ignoresSafeArea())
-    .preferredColorScheme(.dark)
     .onChange(of: current) { shared = nil }
     .fileMover(isPresented: Binding(get: { saving != nil }, set: { if !$0 { saving = nil } }), file: saving) { _ in saving = nil }
     .alert(item: $failure) { Alert(title: Text($0.title), message: Text($0.text)) }
+  }
+
+  /// Open the file's text to edit: only text, and not more of it than a phone edits well.
+  private func edit(_ item: MediaItem) {
+    guard item.size <= MediaStore.editBelow else {
+      failure = Notice(title: "Too large to edit here", text: "\(item.name) is \(sizeText(item.size)). Files up to \(sizeText(MediaStore.editBelow)) are edited on the phone.")
+      return
+    }
+    busy = true
+    Task {
+      defer { busy = false }
+      do {
+        let data = try await store.data(for: item, host: host, model: model)
+        // a file that is not UTF-8 would be saved back as something else
+        guard !data.contains(0), let text = String(data: data, encoding: .utf8) else {
+          failure = Notice(title: "Not edited here", text: "\(item.name) is not plain text in UTF-8.")
+          return
+        }
+        editing = text
+      } catch {
+        failure = Notice(title: "Could not read it", text: error.localizedDescription)
+      }
+    }
+  }
+
+  private func save(_ item: MediaItem) {
+    guard let text = editing else { return }
+    busy = true
+    Task {
+      do {
+        try await store.save(item, text: text, host: host, model: model)
+        hideKeyboard()
+        editing = nil
+      } catch {
+        // what was written stays in the editor
+        failure = Notice(title: "Not saved", text: error.localizedDescription)
+      }
+      busy = false
+    }
   }
 }
 
@@ -359,7 +438,8 @@ private struct MediaPage: View {
     ZStack {
       look.ground
       if let data {
-        shown(data)
+        // what was saved from the phone since is what the file holds now
+        shown(store.saved(item) ?? data)
       } else if asking {
         VStack(spacing: 14) {
           Text("\(item.name) is \(sizeText(item.size)).").foregroundStyle(look.text)

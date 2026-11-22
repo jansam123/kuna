@@ -7,7 +7,7 @@
 import { doingText, needsText } from '@shared/activity'
 import { ChatLog } from '@shared/chat'
 import { contextInfo, modelFlag, shortModel } from '@shared/context'
-import { screenState } from '@shared/input'
+import { screenPanel, screenState } from '@shared/input'
 import {
   defaultBase,
   parseCompare,
@@ -27,6 +27,7 @@ import { markdownBlocks } from '@shared/mdblocks'
 import { MEDIA_GROUPS, PAGE_CSP, figureClass, fileGroups, mediaKind, mediaPlace, mimeFor, pageFile as pageFileOf, resolveAgainst, viewerOrder, type FigureClass } from '@shared/media'
 import { emptyPhoneState, hostKeyVerdict, knownHostsName, mergeImport, parseExport, type PhoneHost, type PhoneState } from '@shared/phone'
 import { texToText } from '@shared/tex'
+import { slashFromFiles, slashMatches, type SlashCommand } from '@shared/slash'
 import { REPO_COLORS, THEMES } from '@shared/themes'
 import { OTHER_FOLDER_ID, assignAgents } from '@shared/tree'
 import { SHELL_COMMAND, isShell, type AgentRuntime, type HostId, type HostState, type MediaItem, type Project } from '@shared/types'
@@ -140,6 +141,12 @@ export const chatDrop = (key: string): void => void chats.delete(key)
 
 /** What the bottom of an agent's screen shows: `input` (ready for typing), `busy`, `question`, `menu`, `unknown`. */
 export const screen = (lines: string[]): string => screenState(lines)
+/** The question or panel on an agent's screen as text and rows to tap (`screenPanel`), or `null`. */
+export const panel = (lines: string[]): string => JSON.stringify(screenPanel(lines))
+/** `kuna claude-files` output → the host's own commands and skills, as they are typed. */
+export const slashFound = (files: string): string => JSON.stringify(slashFromFiles(files))
+/** The slash commands to offer for what is typed so far. */
+export const slash = (typed: string, found: string): string => JSON.stringify(slashMatches(typed, JSON.parse(found) as SlashCommand[]))
 
 // ----------------------------------------------------------------- media ----
 

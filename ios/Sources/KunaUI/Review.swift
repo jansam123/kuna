@@ -336,6 +336,8 @@ struct ReviewScreen: View {
     let id = UUID()
     var targets: [DiffTarget]
     var start: String
+    /// one file as it is, not a diff (the Files list)
+    var whole = false
   }
 
   struct CommitFiles: Identifiable {
@@ -383,8 +385,10 @@ struct ReviewScreen: View {
         await made.load()
       }
     }
-    .fullScreenCover(item: $diff) { list in
-      if let store { DiffScreen(model: model, store: store, draft: draft, targets: list.targets, start: list.start, agent: here).environment(\.look, look) }
+    .inPlace($diff) { list in
+      if let store {
+        DiffScreen(model: model, store: store, draft: list.whole ? ReviewDraft() : draft, targets: list.targets, start: list.start, whole: list.whole, agent: here) { diff = nil }
+      }
     }
     .sheet(item: $commit) { shown in
       NavigationStack {
@@ -443,7 +447,13 @@ struct ReviewScreen: View {
           case "changes": changes(store, overview)
           case "local": local(store, overview)
           case "commits": commits(store)
-          default: FileTree(model: model, store: store, agent: open.get(key, model))
+          default:
+            FileTree(store: store) { path in
+              let change = FileChange(path: path, oldPath: nil, kind: "M", added: nil, removed: nil, binary: nil)
+              // as it is on disk, or at head when head is not what is checked out here
+              let side: GitSide = store.filesRev.map { .rev($0, path) } ?? .worktree(path)
+              diff = DiffList(targets: [DiffTarget(change: change, old: side, new: side, anchor: "file", context: "the file as it is now")], start: "file" + change.id, whole: true)
+            }
           }
         }
       }
@@ -574,8 +584,7 @@ struct ReviewScreen: View {
   private func show(_ targets: [DiffTarget], _ change: FileChange) {
     commit = nil
     guard let start = targets.first(where: { $0.change == change }) else { return }
-    // a sheet on its way out and a cover on its way in do not mix
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { diff = DiffList(targets: targets, start: start.id) }
+    diff = DiffList(targets: targets, start: start.id)
   }
 
   /// the comments waiting to go to the agent
@@ -720,12 +729,11 @@ struct ChangeRow: View {
 
 /// Every file of the repository, a folder at a time.
 private struct FileTree: View {
-  let model: AppModel
   let store: ReviewStore
-  let agent: OpenAgents.Open
+  /// a file was picked, by its path in the repository
+  let show: (String) -> Void
   @Environment(\.look) private var look
   @State private var at = ""
-  @State private var file: String?
 
   var body: some View {
     let (folders, files) = children
@@ -744,27 +752,12 @@ private struct FileTree: View {
         .listRowBackground(look.panel)
       }
       ForEach(files, id: \.self) { name in
-        Button { file = at.isEmpty ? name : "\(at)/\(name)" } label: {
+        Button { show(at.isEmpty ? name : "\(at)/\(name)") } label: {
           Label(name, systemImage: "doc.text").foregroundStyle(look.text)
         }
         .listRowBackground(look.panel)
       }
     }
-    .fullScreenCover(item: Binding(get: { file.map { OneFile(path: $0) } }, set: { file = $0?.path })) { one in
-      let change = FileChange(path: one.path, oldPath: nil, kind: "M", added: nil, removed: nil, binary: nil)
-      // as it is on disk, or at head when head is not what is checked out here
-      let side: GitSide = store.filesRev.map { .rev($0, one.path) } ?? .worktree(one.path)
-      DiffScreen(
-        model: model, store: store, draft: ReviewDraft(),
-        targets: [DiffTarget(change: change, old: side, new: side, anchor: "file", context: "the file as it is now")], start: "file" + change.id, whole: true, agent: agent
-      )
-      .environment(\.look, look)
-    }
-  }
-
-  struct OneFile: Identifiable {
-    var path: String
-    var id: String { path }
   }
 
   /// the folders and files directly inside the folder being looked at
@@ -791,8 +784,8 @@ struct DiffScreen: View {
   @State var current: String
   /// the whole file as it is, not a diff (the Files tab)
   var whole = false
+  let close: () -> Void
   @Environment(\.look) private var look
-  @Environment(\.dismiss) private var dismiss
   @Environment(\.verticalSizeClass) private var height
   @State private var loaded: [String: Loaded] = [:]
   @State private var writing: Writing?
@@ -812,7 +805,8 @@ struct DiffScreen: View {
     var text = ""
   }
 
-  init(model: AppModel, store: ReviewStore, draft: ReviewDraft, targets: [DiffTarget], start: String, whole: Bool = false, agent: OpenAgents.Open? = nil) {
+  init(model: AppModel, store: ReviewStore, draft: ReviewDraft, targets: [DiffTarget], start: String, whole: Bool = false, agent: OpenAgents.Open? = nil, close: @escaping () -> Void) {
+    self.close = close
     self.agent = agent
     self.model = model
     self.store = store
@@ -827,7 +821,7 @@ struct DiffScreen: View {
     let target = targets[index]
     VStack(spacing: 0) {
       HStack(spacing: 12) {
-        Button("Done") { dismiss() }.fontWeight(.semibold).accessibilityIdentifier("diff-done")
+        Button("Done", action: close).fontWeight(.semibold).accessibilityIdentifier("diff-done")
         VStack(alignment: .leading, spacing: 1) {
           Text(target.change.name).font(.subheadline.weight(.semibold)).foregroundStyle(look.text).lineLimit(1).truncationMode(.middle)
           Text(whole ? target.change.folder : "\(index + 1) of \(targets.count)" + (target.change.folder.isEmpty ? "" : " · \(target.change.folder)")).font(.caption2).foregroundStyle(look.dim).lineLimit(1).truncationMode(.head)
@@ -865,7 +859,6 @@ struct DiffScreen: View {
       if let agent { PromptDrawer(model: model, here: agent) }
     }
     .background(look.panel.ignoresSafeArea())
-    .preferredColorScheme(.dark)
     .task(id: current) { await load(target) }
     .sheet(item: $writing) { draftLine in
       CommentSheet(writing: draftLine, path: target.change.path) { text in save(target, draftLine, text) }.environment(\.look, look)
@@ -962,6 +955,7 @@ private struct CommentSheet: View {
         text = writing.text
         focused = true
       }
+      .keyboardButton()
     }
     .presentationDetents([.medium, .large])
     .preferredColorScheme(.dark)

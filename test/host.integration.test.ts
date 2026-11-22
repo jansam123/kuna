@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -182,6 +182,40 @@ describe('the agent command through the login shell', () => {
       writeFileSync(join(home, '.profile'), '')
       execFileSync('sh', [script, 'setup'], { env, stdio: 'ignore' })
       expect(existsSync(join(home, '.kuna', 'claude-dir'))).toBe(false)
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('saving a file edited on the phone (fwrite)', () => {
+  const script = resolve(__dirname, '../src/main/remote/kuna.sh')
+  const b64 = (s: string): string => Buffer.from(s, 'utf8').toString('base64')
+
+  it('replaces a file only whole, and only while it is as it was read', () => {
+    const home = mkdtempSync(join(tmpdir(), 'kuna-fwrite-'))
+    const fwrite = (path: string, text: string, bytes: number, mtime: number): { code: number; out: string } => {
+      const r = spawnSync('sh', [script, 'fwrite', b64(path), String(bytes), String(mtime)], { env: { ...process.env, HOME: home }, input: text })
+      return { code: r.status ?? -1, out: r.stdout.toString() }
+    }
+    try {
+      const file = join(home, 'fit.py')
+      writeFileSync(file, 'bins = 40\n', { mode: 0o750 })
+      const read = Math.floor(statSync(file).mtimeMs / 1000)
+      // cut on the way: fewer bytes than promised
+      expect(fwrite('~/fit.py', 'bins', 10, read).code).toBe(3)
+      expect(readFileSync(file, 'utf8')).toBe('bins = 40\n')
+      // written by someone else since it was read
+      expect(fwrite('~/fit.py', 'bins = 41\n', 10, read - 5).code).toBe(4)
+      expect(readFileSync(file, 'utf8')).toBe('bins = 40\n')
+      const done = fwrite('~/fit.py', 'bins = 41\n', 10, read)
+      expect(done.code).toBe(0)
+      expect(done.out.trim().split('\t')[1]).toBe('10')
+      expect(readFileSync(file, 'utf8')).toBe('bins = 41\n')
+      expect(statSync(file).mode & 0o777).toBe(0o750)
+      // never makes a file
+      expect(fwrite('~/new.py', 'x', 1, 0).code).toBe(3)
+      expect(existsSync(join(home, 'new.py'))).toBe(false)
     } finally {
       rmSync(home, { recursive: true, force: true })
     }

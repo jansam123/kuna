@@ -23,6 +23,8 @@ public final class AgentSession {
   public private(set) var attaching = false
   /// the terminal closed by itself (the agent ended, or the connection did)
   public private(set) var terminalEnded = false
+  /// the question or panel on the agent's screen, while its terminal is open
+  public private(set) var panel: Panel?
 
   /// where the terminal's output goes as it comes (the terminal view)
   @ObservationIgnored public var onOutput: ((Data) -> Void)?
@@ -45,6 +47,8 @@ public final class AgentSession {
   /// the terminal was scrolled back with the wheel since the last key
   @ObservationIgnored public var scrolledBack = false
   @ObservationIgnored private var held: Data?
+  /// the host's own commands and skills, asked for once
+  @ObservationIgnored private var found: String?
 
   /// the most of a transcript read at first, and in one go after that
   private static let firstRead = 1_500_000
@@ -144,8 +148,10 @@ public final class AgentSession {
   private func settleOutbox() {
     guard !outbox.isEmpty else { return }
     let users = items.filter { $0.kind == "user" }
+    // sent in the middle of a turn, a message waits in Claude Code's queue until the turn is over
+    let queued = model.agent(key)?.status == "working"
     outbox.removeAll { out in
-      Date().timeIntervalSince(out.sent) > 90 || users.count > out.had && users.suffix(users.count - out.had).contains { $0.text.hasPrefix(out.text.prefix(40)) }
+      !queued && Date().timeIntervalSince(out.sent) > 90 || users.count > out.had && users.suffix(users.count - out.had).contains { $0.text.hasPrefix(out.text.prefix(40)) }
     }
   }
 
@@ -174,6 +180,8 @@ public final class AgentSession {
       // scrolled back, here or on the Mac: tmux would take the message's keys as its own
       if scrolledBack || agent.inCopyMode == true { await leaveScroll(agent) }
       try await model.type(agent, text)
+      // a command of Claude Code's own may open a panel: its screen is opened to show it
+      if text.hasPrefix("/") { Task { try? await self.attach() } }
     }
     outbox.append(Outgoing(text: text, had: had))
     Task {
@@ -190,16 +198,55 @@ public final class AgentSession {
       if terminalEnded { return "Its screen closed; nothing was typed." }
       if gotOutput, Date().timeIntervalSince(lastOutput) > 0.7, let lines = screen?() {
         seen = (try? shared.call("screen", [lines])) ?? "unknown"
-        if seen == "input" { return nil }
+        // in the middle of a turn Claude Code takes what is typed and reads it when it can
+        if seen == "input" || seen == "busy" { return nil }
       }
       try? await Task.sleep(for: .milliseconds(250))
     }
     switch seen {
     case "question": return "It is waiting for an answer. Open its terminal and answer there first."
     case "menu": return "A panel is open on its screen (Esc closes it). Open its terminal; nothing was typed."
-    case "busy": return "It is in the middle of a turn. Send it once it is idle, or open its terminal."
     default: return "Its input box did not show up, so nothing was typed. Open its terminal to see why."
     }
+  }
+
+  // ------------------------------------------------- panels and commands ----
+
+  /// Keep `panel` as the agent's screen shows it, for as long as this runs (the conversation is on screen).
+  public func watchScreen() async {
+    var last = ""
+    while !Task.isCancelled {
+      try? await Task.sleep(for: .milliseconds(350))
+      guard terminal != nil, let lines = screen?() else {
+        if panel != nil { panel = nil }
+        last = ""
+        continue
+      }
+      let text = lines.joined(separator: "\n")
+      guard text != last else { continue }
+      last = text
+      let now = (try? shared.decode(Panel?.self, "panel", [lines])) ?? nil
+      if now != panel { panel = now }
+    }
+  }
+
+  /// Press keys on the agent's own screen (a row of a panel, Esc, Shift+Tab), opening it first.
+  public func press(_ keys: String) async throws {
+    try await attach()
+    key(Data(keys.utf8))
+  }
+
+  /// The slash commands to offer for what is typed so far: Claude Code's own, and the host's once it has said them.
+  public func slash(_ typed: String) -> [SlashCommand] {
+    guard typed.hasPrefix("/") else { return [] }
+    if found == nil, let agent = model.agent(key) {
+      found = "[]"
+      Task {
+        let listed = try? await model.run(agent.host, ["claude-files", Data(agent.base.utf8).base64EncodedString()], timeout: 30)
+        if let listed, listed.code == 0 { found = (try? shared.call("slashFound", [listed.text])) ?? "[]" }
+      }
+    }
+    return (try? shared.decode([SlashCommand].self, "slash", [typed, found ?? "[]"])) ?? []
   }
 
   // ---------------------------------------------------------- terminal ----

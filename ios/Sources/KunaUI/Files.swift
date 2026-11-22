@@ -10,6 +10,71 @@ struct FolderListing: Decodable {
   var files: [MediaItem]
 }
 
+/// The Folders tab: folders kept to look through, by host. A path typed here, or a folder kept
+/// with its star while looking through another; the projects' own folders are there already.
+struct PlacesView: View {
+  let model: AppModel
+  @Binding var path: [Route]
+  @Environment(\.look) private var look
+  /// the host a path is being typed for
+  @State private var adding: String?
+  @State private var typed = "~/"
+
+  var body: some View {
+    List {
+      if model.state.hosts.isEmpty { Text("No hosts yet. Add one under Settings.").foregroundStyle(look.dim).listRowBackground(look.panel) }
+      ForEach(model.state.hosts) { host in
+        let kept = model.state.places?[host.alias] ?? []
+        let projects = model.state.projects.filter { $0.host == host.alias }.flatMap { project in project.folders.map { (project, $0) } }.filter { !kept.contains($0.1.path) }
+        Section {
+          ForEach(kept, id: \.self) { place in row(host.alias, place, nil) }
+            .onDelete { gone in for i in gone { model.keepPlace(host.alias, kept[i], false) } }
+          ForEach(projects, id: \.1.id) { project, folder in row(host.alias, folder.path, "\(model.plain(project.name)) · \(model.plain(folder.name))") }
+          Button("Add a folder", systemImage: "plus") {
+            typed = "~/"
+            adding = host.alias
+          }
+          .listRowBackground(look.panel)
+          .accessibilityIdentifier("add-place-\(host.alias)")
+        } header: {
+          Text(host.alias)
+        }
+      }
+    }
+    .scrollContentBackground(.hidden)
+    .background(look.ground)
+    .navigationTitle("Folders")
+    .navigationBarTitleDisplayMode(.inline)
+    .alert("A folder on \(adding ?? "")", isPresented: Binding(get: { adding != nil }, set: { if !$0 { adding = nil } })) {
+      TextField("~/path/on/the/host", text: $typed).plain()
+      Button("Save") {
+        var place = typed.trimmingCharacters(in: .whitespaces)
+        while place.count > 1, place.hasSuffix("/") { place.removeLast() }
+        if let adding, place.hasPrefix("/") || place == "~" || place.hasPrefix("~/") { model.keepPlace(adding, place) }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("Its path on the host, starting with / or ~/.")
+    }
+  }
+
+  private func row(_ host: String, _ place: String, _ from: String?) -> some View {
+    Button { path.append(.files(host, place)) } label: {
+      HStack(spacing: 10) {
+        Image(systemName: from == nil ? "star.fill" : "folder.fill").foregroundStyle(from == nil ? look.waiting : look.accent).frame(width: 24)
+        VStack(alignment: .leading, spacing: 2) {
+          Text(place).font(.subheadline.monospaced()).foregroundStyle(look.text).lineLimit(1).truncationMode(.head)
+          if let from { Text(from).font(.caption).foregroundStyle(look.dim).lineLimit(1) }
+        }
+        Spacer(minLength: 4)
+        Image(systemName: "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(look.faint)
+      }
+    }
+    .listRowBackground(look.panel)
+    .accessibilityIdentifier("place-\(place)")
+  }
+}
+
 /// A folder on a host, git or not, to look through and to take files from: the Mac's ⇧⌘E.
 /// Read one folder at a time, as it is opened.
 struct FolderScreen: View {
@@ -79,10 +144,19 @@ struct FolderScreen: View {
     .background(look.ground)
     .navigationTitle(full.split(separator: "/").last.map(String.init) ?? "/")
     .navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      let kept = model.state.places?[host]?.contains(dir) == true
+      Button(kept ? "Take it off the Folders tab" : "Keep it on the Folders tab", systemImage: kept ? "star.fill" : "star") { model.keepPlace(host, dir, !kept) }
+        .accessibilityIdentifier("keep-place")
+    }
     .refreshable { await load() }
     .task { if listing == nil { await load() } }
-    .fullScreenCover(item: $showing) { item in
-      ViewerScreen(model: model, store: store, host: host, items: listing?.files ?? [item], start: item).environment(\.look, look)
+    .inPlace($showing) { item in
+      ViewerScreen(model: model, store: store, host: host, items: listing?.files ?? [item], start: item) {
+        showing = nil
+        // what was edited has another size and time now
+        if store.edited { Task { await load() } }
+      }
     }
     .fileMover(isPresented: Binding(get: { saving != nil }, set: { if !$0 { saving = nil } }), file: saving) { _ in saving = nil }
   }

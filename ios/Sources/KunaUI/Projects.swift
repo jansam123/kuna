@@ -2,15 +2,14 @@
 import KunaCore
 import SwiftUI
 
-/// How the home screen lays the projects out. Four to compare (Settings ▸ Home screen); the
+/// How the home screen lays the projects out. Three to compare (Settings ▸ Home screen); the
 /// others go once one is chosen.
 enum HomeLook: String, CaseIterable, Identifiable {
-  case blocks, cards, strip, tiles
+  case blocks, strip, tiles
   var id: String { rawValue }
   var name: String {
     switch self {
     case .blocks: "A · Blocks, as the Mac's sidebar"
-    case .cards: "B · Cards"
     case .strip: "C · Icon strip, one project at a time"
     case .tiles: "D · Tiles, then the project"
     }
@@ -146,8 +145,6 @@ struct ProjectHeader: View {
   let model: AppModel
   let tree: ProjectTree
   let actions: ProjectActions
-  /// the icon alone (the Mac's row), or in a tile of its colour
-  var tile = false
   @Environment(\.look) private var look
 
   var body: some View {
@@ -161,12 +158,7 @@ struct ProjectHeader: View {
         }
       } label: {
         HStack(spacing: 10) {
-          if tile {
-            ProjectIcon(model: model, project: project, size: 20).foregroundStyle(color).frame(width: 34, height: 34)
-              .background(color.opacity(0.16), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-          } else {
-            ProjectIcon(model: model, project: project, size: 22).foregroundStyle(color)
-          }
+          ProjectIcon(model: model, project: project, size: 22).foregroundStyle(color)
           Text(model.plain(project.name)).font(.headline).foregroundStyle(look.text).lineLimit(1)
           HostBadge(model: model, project: project).layoutPriority(-1)
           Spacer(minLength: 4)
@@ -263,58 +255,31 @@ private struct FolderRows: View {
 
 // MARK: - A: blocks, as the Mac's sidebar
 
-/// Each project one block in its colour, edge to edge: a spine at the left through its header
-/// and rows, the header fading to the right and staying in view, the rows on a faint tint.
+/// Each project one block in its colour, with room around it and round corners: a spine at the
+/// left through its header and rows, the header fading to the right, the rows on a faint tint.
 struct BlocksHome: View {
   let model: AppModel
   let actions: ProjectActions
   @Environment(\.look) private var look
 
   var body: some View {
-    LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+    LazyVStack(spacing: 14) {
       ForEach(model.tree) { tree in
         let color = Color(hex: tree.project.color)
-        Section {
-          if tree.project.collapsed != true {
-            VStack(spacing: 0) { ProjectFolders(model: model, tree: tree, actions: actions, flat: true) }
-              .background(look.panel.tint(color, 0.05))
-              .overlay(alignment: .leading) { Rectangle().fill(look.panel.tint(color, 0.45)).frame(width: 3) }
-          }
-          Color.clear.frame(height: 10)
-        } header: {
-          ProjectHeader(model: model, tree: tree, actions: actions).padding(.leading, 14).padding(.trailing, 12).frame(height: 48)
+        VStack(spacing: 0) {
+          ProjectHeader(model: model, tree: tree, actions: actions).padding(.leading, 14).padding(.trailing, 12).frame(height: 50)
             .background(LinearGradient(colors: [look.panel.tint(color, 0.24), look.panel.tint(color, 0.06)], startPoint: .leading, endPoint: .trailing))
             .overlay(alignment: .leading) { Rectangle().fill(color).frame(width: 3) }
-        }
-      }
-    }
-  }
-}
-
-// MARK: - B: cards
-
-/// The same block as a rounded card with room around it, the icon in a tile of the project's colour.
-struct CardsHome: View {
-  let model: AppModel
-  let actions: ProjectActions
-  @Environment(\.look) private var look
-
-  var body: some View {
-    LazyVStack(spacing: 16) {
-      ForEach(model.tree) { tree in
-        let color = Color(hex: tree.project.color)
-        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
-        VStack(spacing: 0) {
-          ProjectHeader(model: model, tree: tree, actions: actions, tile: true).padding(.leading, 12).padding(.trailing, 12).frame(height: 58)
-            .background(LinearGradient(colors: [look.panel.tint(color, 0.24), look.panel.tint(color, 0.06)], startPoint: .leading, endPoint: .trailing))
-          if tree.project.collapsed != true { ProjectFolders(model: model, tree: tree, actions: actions, flat: true) }
+          if tree.project.collapsed != true {
+            VStack(spacing: 0) { ProjectFolders(model: model, tree: tree, actions: actions, flat: true) }
+              .overlay(alignment: .leading) { Rectangle().fill(look.panel.tint(color, 0.45)).frame(width: 3) }
+          }
         }
         .background(look.panel.tint(color, 0.05))
-        .clipShape(shape)
-        .overlay { shape.strokeBorder(color.opacity(0.22)) }
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
       }
     }
-    .padding(.horizontal, 16)
+    .padding(.horizontal, 14)
   }
 }
 

@@ -2,7 +2,8 @@
 # A stand-in for Claude Code in the simulator fixture (scripts/ios-sim.sh): it keeps a transcript
 # as Claude Code does, tells Kuna's helper where it is, and answers every line typed into it.
 # Usage: fake-agent.sh [task] [working|waiting|limit] ; run inside one of Kuna's tmux agents (KUNA_AGENT_ID is set).
-# The second word leaves it at work, waiting for a permission, or stopped by a usage limit, after its first reply.
+# The second word leaves it at work, waiting with two questions on its screen, or stopped by a usage limit, after its first reply.
+# `/model` typed into it opens a panel to pick from, as Claude Code's does.
 t=$PWD/.transcript-$KUNA_AGENT_ID.jsonl
 task=${1:-Fit the signal region and show me the mass plot.}
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -11,6 +12,17 @@ line() { n=$((n + 1)); printf '%s\n' "$1" >> "$t"; }
 hook() { printf '{"hook_event_name":"%s","transcript_path":"%s"}' "$1" "$t" | sh "$HOME/.kuna/bin/kuna" hook; }
 say() { # say <text as a JSON string body>
   line "{\"type\":\"assistant\",\"effort\":\"high\",\"uuid\":\"a$n\",\"timestamp\":\"$(now)\",\"message\":{\"model\":\"claude-opus-4-5\",\"usage\":{\"input_tokens\":41000,\"output_tokens\":900},\"content\":[{\"type\":\"text\",\"text\":\"$1\"}]}}"
+}
+key() { # one key, as it is pressed
+  old=$(stty -g)
+  stty -icanon -echo min 1 time 0
+  picked=$(dd bs=1 count=1 2> /dev/null)
+  stty "$old"
+}
+ask() { # ask <header> <question> <option> <about> <option> <about>: draws it, waits for a key, leaves it in $picked
+  printf '\033[2J\033[H──────────────────────────────────────────\n ☐ %s\n\n %s\n\n ❯ 1. %s\n      %s\n   2. %s\n      %s\n   3. Type something.\n\n Enter to select · ↑/↓ to navigate · Esc to cancel\n' "$1" "$2" "$3" "$4" "$5" "$6"
+  key
+  printf '\033[2J\033[H'
 }
 : > "$t"
 line "{\"type\":\"ai-title\",\"aiTitle\":\"Fit the signal region\"}"
@@ -28,7 +40,18 @@ say "The fit converged.\\n\\n## Result\\n\\n- **mu** = 1.04 ± 0.21, for \$m_{\\
 hook Stop
 case ${2:-} in
   working) hook UserPromptSubmit ;;
-  waiting) hook PermissionRequest ;;
+  waiting)
+    # two questions of its own, each a panel on its screen as Claude Code draws one
+    line "{\"type\":\"assistant\",\"uuid\":\"a$n\",\"timestamp\":\"$(now)\",\"message\":{\"model\":\"claude-opus-4-5\",\"content\":[{\"type\":\"tool_use\",\"id\":\"q1\",\"name\":\"AskUserQuestion\",\"input\":{\"questions\":[{\"question\":\"Which curves should be compared?\",\"header\":\"Curves\",\"options\":[{\"label\":\"All taggers\"},{\"label\":\"Only the new one\"}]},{\"question\":\"Log scale on the background axis?\",\"header\":\"Scale\",\"options\":[{\"label\":\"Yes\"},{\"label\":\"No\"}]}]}}]}}"
+    hook PermissionRequest
+    ask 'Curves' 'Which curves should be compared?' 'All taggers' 'Every tagger trained so far, on one canvas' 'Only the new one' 'Against the baseline'
+    first=$picked
+    ask 'Scale' 'Log scale on the background axis?' 'Yes' 'Rejection over four decades' 'No' 'Linear, as in the note'
+    line "{\"type\":\"user\",\"uuid\":\"u$n\",\"timestamp\":\"$(now)\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"q1\",\"content\":\"answered\"}]}}"
+    hook UserPromptSubmit
+    say "Comparing with choice $first, log scale choice $picked."
+    hook Stop
+    ;;
   limit)
     # as Claude Code writes a usage limit and a request that failed
     line "{\"type\":\"assistant\",\"uuid\":\"a$n\",\"timestamp\":\"$(now)\",\"isApiErrorMessage\":true,\"error\":\"server_error\",\"message\":{\"model\":\"<synthetic>\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: the connection dropped mid-response.\"}]}}"
@@ -39,6 +62,13 @@ printf 'fake agent ready\n'
 printf '──────────────────────────────\n❯ \n──────────────────────────────\n'
 while IFS= read -r typed; do
   [ -n "$typed" ] || continue
+  if [ "$typed" = /model ]; then
+    # a panel of Claude Code's own: nothing goes into the conversation
+    printf '\033[2J\033[H──────────────────────────────────────────\n Select model\n Switch between Claude models for this session.\n\n ❯ 1. Default (recommended)  Opus 4.5\n   2. Sonnet                 Sonnet 4.5\n   3. Haiku                  Haiku 4.5\n\n Enter to confirm · Esc to exit\n'
+    key
+    printf '\033[2J\033[H  ⎿  Set model to choice %s\n──────────────────────────────\n❯ \n──────────────────────────────\n' "$picked"
+    continue
+  fi
   hook UserPromptSubmit
   esc=$(printf '%s' "$typed" | sed 's/\\/\\\\/g; s/"/\\"/g')
   line "{\"type\":\"user\",\"uuid\":\"u$n\",\"timestamp\":\"$(now)\",\"message\":{\"content\":\"$esc\"}}"

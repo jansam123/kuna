@@ -285,7 +285,8 @@ body.resizing .main {
 .tree {
   flex: 1;
   overflow-y: auto;
-  padding: 2px 0 12px;
+  /* room at both sides: a project's block does not run from edge to edge */
+  padding: 2px 6px 12px;
 }
 .tree::-webkit-scrollbar {
   width: 6px;
@@ -322,6 +323,16 @@ body.resizing .main {
 }
 .row-project:first-child {
   margin-top: 0;
+}
+/* a block's corners are round: its header's at the top, its last row's at the bottom (a rolled-up project's header has all four) */
+.row-project {
+  border-radius: 8px 8px 0 0;
+}
+.tree > :has(+ .row-project),
+.tree > .row:last-child,
+.tree > .agent-need:last-child {
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
 }
 .row-project:hover,
 .row-project.sel {

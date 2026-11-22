@@ -35,11 +35,15 @@ private enum Boot {
 
 public struct RootView: View {
   private let model = Boot.model
+  /// the tab in front, and where each of the first two is: both stay as they were left
+  @State private var tab = "agents"
   @State private var path: [Route] = []
+  @State private var places: [Route] = []
   @State private var locked = UserDefaults.standard.object(forKey: "lock") as? Bool ?? true
   @State private var left: Date?
   @State private var notice: Notice?
   @State private var open = OpenAgents()
+  @State private var importing = false
   @Environment(\.scenePhase) private var scene
   @AppStorage("lock") private var lock = true
 
@@ -47,18 +51,10 @@ public struct RootView: View {
 
   public var body: some View {
     let look = Look(model.theme)
-    NavigationStack(path: $path) {
-      HomeView(model: model, path: $path, notice: $notice)
-        .navigationDestination(for: Route.self) { route in
-          switch route {
-          case .agent(let key): AgentScreen(model: model, key: key, path: $path, open: open)
-          case .plots(let key): PlotsScreen(model: model, key: key, open: open)
-          case .review(let key): ReviewScreen(model: model, key: key, path: $path, open: open)
-          case .project(let id): ProjectScreen(model: model, id: id, path: $path, notice: $notice)
-          case .files(let host, let dir): FolderScreen(model: model, host: host, dir: dir, path: $path)
-          }
-        }
-    }
+    tabs
+      .fileImporter(isPresented: $importing, allowedContentTypes: [.json, .data, .item]) { result in
+        if case .success(let url) = result { take(url, home: false) }
+      }
     .environment(\.look, look)
     .tint(look.accent)
     .preferredColorScheme(.dark)
@@ -70,8 +66,8 @@ public struct RootView: View {
       Text("This phone has not connected to \(question.host) before, and your Mac's export had no key for it. Its key is\n\(question.fingerprint)\n\nOn your Mac, `ssh-keygen -lF \(question.host)` shows the key your Mac trusts.")
     }
     .alert(item: $notice) { notice in Alert(title: Text(notice.title), message: Text(notice.text)) }
-    .onOpenURL { take($0) }
-    .onChange(of: path) { _, now in
+    .onOpenURL { take($0, home: true) }
+    .onChange(of: path + places) { _, now in
       open.keep(only: Set(now.compactMap { route in
         switch route {
         case .agent(let key), .plots(let key), .review(let key): key
@@ -120,14 +116,51 @@ public struct RootView: View {
     }
   }
 
-  /// A file opened with Kuna: an export from the Mac.
-  private func take(_ url: URL) {
+  /// As a terminal app's tabs: what is open in one stays open while another is looked at.
+  private var tabs: some View {
+    TabView(selection: $tab) {
+      Tab("Agents", systemImage: "sparkles", value: "agents") { agents }
+      Tab("Folders", systemImage: "folder", value: "folders") { folders }
+      Tab("Settings", systemImage: "gearshape", value: "settings") { SettingsView(model: model, importing: $importing) }
+    }
+    .tabBarMinimizeBehavior(.onScrollDown)
+  }
+
+  private var agents: some View {
+    NavigationStack(path: $path) {
+      HomeView(model: model, path: $path, notice: $notice, importing: $importing, hosts: { tab = "settings" })
+        .navigationDestination(for: Route.self) { route in screen(route, $path) }
+    }
+  }
+
+  private var folders: some View {
+    NavigationStack(path: $places) {
+      PlacesView(model: model, path: $places).navigationDestination(for: Route.self) { route in screen(route, $places) }
+    }
+  }
+
+  @ViewBuilder
+  private func screen(_ route: Route, _ path: Binding<[Route]>) -> some View {
+    switch route {
+    case .agent(let key): AgentScreen(model: model, key: key, path: path, open: open)
+    case .plots(let key): PlotsScreen(model: model, key: key, open: open)
+    case .review(let key): ReviewScreen(model: model, key: key, path: path, open: open)
+    case .project(let id): ProjectScreen(model: model, id: id, path: path, notice: $notice)
+    case .files(let host, let dir): FolderScreen(model: model, host: host, dir: dir, path: path)
+    }
+  }
+
+  /// An export from the Mac: a file opened with Kuna (`home`: back to the projects), or picked in the app.
+  private func take(_ url: URL, home: Bool) {
     let scoped = url.startAccessingSecurityScopedResource()
     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
     do {
       let text = try String(contentsOf: url, encoding: .utf8)
-      notice = Notice(title: "Imported", text: "\(try model.importFile(text)) from your Mac. Add this phone's key to the hosts, or type their passwords, under Hosts.")
-      path = []
+      notice = Notice(title: "Imported", text: "\(try model.importFile(text)) from your Mac. Add this phone's key to the hosts, or type their passwords, under Settings.")
+      if home {
+        path = []
+        tab = "agents"
+      }
     } catch {
       notice = Notice(title: "Could not import", text: error.localizedDescription)
     }

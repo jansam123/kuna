@@ -97,6 +97,8 @@ public struct PhoneState: Codable, Equatable, Sendable {
   public var fromMac = FromMac()
   public var themeChosen: Bool?
   public var importedAt: Double?
+  /// folders saved to look through, by host
+  public var places: [String: [String]]?
   public init() {}
 }
 
@@ -196,6 +198,30 @@ public struct ChatDetails: Codable, Hashable, Sendable {
   public var todos: [Todo]?
   public var questions: [Question]?
   public var context: ContextInfo?
+}
+
+/// One row to tap on a question or panel of Claude Code's (`PanelOption` in src/shared/input.ts).
+public struct PanelOption: Codable, Hashable, Sendable {
+  public var label: String
+  public var detail: String
+  /// the keys that pick it
+  public var keys: String
+  public var current: Bool
+}
+
+/// The question or panel on an agent's screen (`Panel` in src/shared/input.ts).
+public struct Panel: Codable, Hashable, Sendable {
+  public var state: String
+  public var text: [String]
+  public var options: [PanelOption]
+  public var hint: [String]
+}
+
+/// A slash command to offer while one is typed (`SlashCommand` in src/shared/slash.ts).
+public struct SlashCommand: Codable, Hashable, Identifiable, Sendable {
+  public var name: String
+  public var about: String
+  public var id: String { name }
 }
 
 public struct ChatState: Codable, Sendable {

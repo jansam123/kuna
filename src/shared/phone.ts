@@ -48,6 +48,8 @@ export interface PhoneState {
   themeChosen?: boolean
   /** when the last import was made on the Mac, epoch seconds */
   importedAt?: number
+  /** folders saved on the phone to look through, by host: paths on that host */
+  places?: Record<string, string[]>
 }
 
 export const emptyPhoneState = (): PhoneState => ({
@@ -283,7 +285,8 @@ export function mergeImport(phone: PhoneState, imp: PhoneExport): PhoneState {
     hosts: all,
     hostKeys,
     fromMac: { projects: imp.projects.map((p) => p.id), hosts: imp.hosts.map((h) => h.alias) },
-    importedAt: imp.exportedAt
+    importedAt: imp.exportedAt,
+    places: phone.places
   }
 }
 

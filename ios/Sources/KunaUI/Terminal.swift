@@ -26,6 +26,8 @@ final class TerminalHolder: NSObject, TerminalViewDelegate, UIGestureRecognizerD
   let mods = KeyModifiers()
   /// what the view sends right now is the wheel, not a key
   private var wheeling = false
+  /// the view is being shown what was drawn before it was there
+  private var replaying = false
   private let session: AgentSession
   private let reader = ScreenReader()
   private let screen: Terminal
@@ -70,7 +72,12 @@ final class TerminalHolder: NSObject, TerminalViewDelegate, UIGestureRecognizerD
     view.addGestureRecognizer(pan)
     apply(theme, fontSize, to: view)
     let drawn = session.drawnSoFar
-    if !drawn.isEmpty { view.feed(byteArray: ArraySlice(drawn)) }
+    if !drawn.isEmpty {
+      // what the host asked of the terminal back then was answered then: an answer now would be typed into the agent
+      replaying = true
+      view.feed(byteArray: ArraySlice(drawn))
+      replaying = false
+    }
     self.view = view
     return view
   }
@@ -146,7 +153,10 @@ final class TerminalHolder: NSObject, TerminalViewDelegate, UIGestureRecognizerD
     screen.resize(cols: newCols, rows: newRows)
     session.resize(cols: newCols, rows: newRows)
   }
-  func send(source: TerminalView, data: ArraySlice<UInt8>) { if wheeling { session.write(Data(data)) } else { key(Data(data)) } }
+  func send(source: TerminalView, data: ArraySlice<UInt8>) {
+    if replaying { return }
+    if wheeling { session.write(Data(data)) } else { key(Data(data)) }
+  }
   func setTerminalTitle(source: TerminalView, title: String) {}
   func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
   func scrolled(source: TerminalView, position: Double) {}

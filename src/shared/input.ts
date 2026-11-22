@@ -85,3 +85,97 @@ export function enterWatch(pressed: number): (now: number, panel: boolean, lastO
     return clear > 0 && now - clear >= PANEL_GRACE_MS
   }
 }
+
+/** One thing to pick on a question or panel: what it says, and the keys that pick it. */
+export interface PanelOption {
+  label: string
+  /** the lines under it, in one */
+  detail: string
+  keys: string
+  /** the one the screen's `❯` is on */
+  current: boolean
+}
+
+/** A question or a panel on a Claude Code screen, as something to read and tap. */
+export interface Panel {
+  state: 'question' | 'menu'
+  /** what it says above its list */
+  text: string[]
+  options: PanelOption[]
+  /** what it says under it: which keys do what */
+  hint: string[]
+}
+
+const firstCol = (l: string): number => l.search(/\S/)
+
+/**
+ * The question or panel at the bottom of a Claude Code screen (a permission, a
+ * question of the agent's, /model, /config): its text and the rows of its list,
+ * each with the keys that pick it. A numbered row is picked by its number; in
+ * a list without numbers the `❯` is walked to the row and Enter pressed. Null
+ * when the screen shows neither.
+ */
+export function screenPanel(lines: string[]): Panel | null {
+  const state = screenState(lines)
+  if (state !== 'question' && state !== 'menu') return null
+  // a box's sides are not text
+  const rows = lines.map((l) => l.replace(/^(\s*)│/, '$1 ').replace(/│\s*$/, '').trimEnd())
+  let end = rows.length
+  while (end > 0 && !rows[end - 1].trim()) end--
+  let at = -1
+  for (let i = end - 1; i >= Math.max(0, end - 40); i--) {
+    if (/^\s*❯\s+\S/.test(rows[i])) {
+      at = i
+      break
+    }
+  }
+  const edge = (i: number): boolean => /─{10,}|[╭╰]/.test(rows[i])
+  const top = (from: number): number => {
+    for (let i = from; i >= Math.max(0, from - 25); i--) if (edge(i)) return i + 1
+    return Math.max(0, from - 8)
+  }
+  /** the lines that say something, without the list's own rows (`skip`) */
+  const said = (from: number, to: number, skip?: Set<number>): string[] => {
+    const out: string[] = []
+    for (let i = from; i < to; i++) if (!skip?.has(i) && rows[i].trim() && !/^[\s─╭╮╰╯]+$/.test(rows[i])) out.push(rows[i].trim())
+    return out
+  }
+  if (at < 0) return { state, text: said(top(end - 1), end), options: [], hint: [] }
+
+  const col = rows[at].indexOf('❯') + 2
+  const label = (i: number): string => rows[i].slice(col).trim()
+  const numbered = /^\d+\.\s/.test(label(at))
+  const isOption = (i: number): boolean =>
+    i === at || (firstCol(rows[i]) === col && !/^[↑↓]\s*\d+ more/.test(label(i)) && (!numbered || /^\d+\.\s/.test(label(i))))
+  const start = top(at)
+  let picks: number[] = []
+  if (numbered) {
+    // a numbered list may have a gap in it (its last choices under a rule)
+    for (let i = start; i < end; i++) if (isOption(i)) picks.push(i)
+  } else {
+    let first = at
+    while (first > start && rows[first - 1].trim() && firstCol(rows[first - 1]) >= col) first--
+    let last = at
+    while (last + 1 < end && rows[last + 1].trim() && firstCol(rows[last + 1]) >= col) last++
+    for (let i = first; i <= last; i++) if (isOption(i)) picks.push(i)
+  }
+  picks = picks.sort((a, b) => a - b)
+  const cursor = picks.indexOf(at)
+  const taken = new Set<number>(picks)
+  const options = picks.map((i, n): PanelOption => {
+    const detail: string[] = []
+    for (let j = i + 1; j < end && rows[j].trim() && firstCol(rows[j]) > col && !taken.has(j); j++) {
+      detail.push(rows[j].trim())
+      taken.add(j)
+    }
+    const number = numbered ? Number(/^\d+/.exec(label(i))![0]) : 0
+    const walk = n - cursor
+    return {
+      label: label(i).replace(/^\d+\.\s+/, ''),
+      detail: detail.join(' '),
+      keys: number >= 1 && number <= 9 ? String(number) : (walk > 0 ? '\x1b[B'.repeat(walk) : '\x1b[A'.repeat(-walk)) + '\r',
+      current: i === at
+    }
+  })
+  return { state, text: said(start, picks[0]), options, hint: said(picks[0], end, taken) }
+}

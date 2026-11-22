@@ -57,6 +57,29 @@ final class Walkthrough: XCTestCase {
       app.buttons["send"].tap()
       wait(app.staticTexts["You said: Thanks, now the control region"], 30, "the fake agent's answer to what was sent")
       shot("chat-answered")
+      // a slash offers Claude Code's commands; /model opens its panel, read off the agent's screen, to tap
+      message.tap()
+      message.typeText("/mod")
+      if wait(app.buttons["slash-/model"], 10, "the commands offered for /mod") {
+        shot("chat-slash")
+        app.buttons["slash-/model"].tap()
+        app.buttons["send"].tap()
+        if wait(app.buttons["panel-option-2"], 40, "the model panel's rows") {
+          // the keyboard's own button puts it away
+          if app.buttons["keyboard"].exists { app.buttons["keyboard"].tap() }
+          sleep(1)
+          shot("chat-panel")
+          app.buttons["panel-option-2"].tap()
+          sleep(3)
+          shot("chat-panel-picked")
+        }
+      }
+      // the other agents, a tap on the name away
+      app.buttons["agent-switch"].tap()
+      sleep(1)
+      shot("chat-switcher")
+      app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)).tap()
+      sleep(1)
     }
 
     // its terminal
@@ -97,6 +120,7 @@ final class Walkthrough: XCTestCase {
         let boxes = app.textFields.matching(identifier: "message").allElementsBoundByIndex + app.textViews.matching(identifier: "message").allElementsBoundByIndex
         let prompt = boxes.last(where: \.isHittable) ?? app.textFields["message"].firstMatch
         if wait(prompt, 10, "the prompt over the viewer") {
+          // shown without the keyboard: the picture stays in view until the keyboard is asked for
           shot("viewer-prompt-open")
           prompt.tap()
           prompt.typeText("The pulls look off in the last bin")
@@ -190,7 +214,21 @@ final class Walkthrough: XCTestCase {
         app.buttons["file-fit.py"].tap()
         sleep(4)
         shot("folder-text")
+        // edited on the phone and saved back to the host
+        app.buttons["viewer-edit"].tap()
+        let editor = app.textViews["editor"]
+        if wait(editor, 15, "the editor") {
+          editor.tap()
+          editor.typeText("# checked on the phone\n")
+          shot("folder-edit")
+          app.buttons["edit-save"].tap()
+          wait(app.buttons["viewer-done"], 20, "the viewer, back from a saved edit")
+          sleep(3)
+          shot("folder-edited")
+        }
         app.buttons["viewer-done"].tap()
+        // kept on the Folders tab
+        app.buttons["keep-place"].tap()
         app.buttons["dir-plots"].tap()
         if wait(app.buttons["file-mass.png"], 20, "the plots folder") {
           app.buttons["file-mass.png"].tap()
@@ -215,6 +253,23 @@ final class Walkthrough: XCTestCase {
       wait(app.descendants(matching: .any)["chat-limit"], 30, "the usage limit in the conversation")
       sleep(1)
       shot("chat-limit")
+      app.navigationBars.buttons.element(boundBy: 0).tap()
+    }
+    // an agent with two questions: each as its screen shows it, answered by a tap
+    let asking = app.buttons["agent-dddd4444"]
+    if asking.waitForExistence(timeout: 5) {
+      asking.tap()
+      if wait(app.buttons["panel-option-2"], 40, "the first question's choices") {
+        sleep(1)
+        shot("question-1")
+        app.buttons["panel-option-2"].tap()
+        sleep(3)
+        shot("question-2")
+        app.buttons["panel-option-1"].tap()
+        wait(app.staticTexts["Comparing with choice 2, log scale choice 1."], 30, "the agent going on with both answers")
+        sleep(1)
+        shot("question-answered")
+      }
       app.navigationBars.buttons.element(boundBy: 0).tap()
     }
     let add = app.buttons["New in work"]
@@ -260,10 +315,22 @@ final class Walkthrough: XCTestCase {
       if app.buttons["Cancel"].exists { app.buttons["Cancel"].tap() }
     }
 
-    // settings and a host
-    app.buttons["Settings"].tap()
+    // the other tabs: the folders kept to look through, and the settings
+    app.tabBars.buttons["Folders"].tap()
+    sleep(2)
+    shot("folders")
+    app.tabBars.buttons["Settings"].tap()
     sleep(1)
     shot("settings")
-    if app.buttons["Done"].exists { app.buttons["Done"].tap() }
+    app.swipeUp()
+    sleep(1)
+    shot("settings-haptics")
+    // (scrolling down a list folds the tab bar into the tab in front; a tap on that unfolds it)
+    if !app.tabBars.buttons["Agents"].exists { app.tabBars.buttons["Settings"].tap() }
+    sleep(1)
+    // what was open under Agents is still there
+    app.tabBars.buttons["Agents"].tap()
+    sleep(1)
+    shot("home-again")
   }
 }
