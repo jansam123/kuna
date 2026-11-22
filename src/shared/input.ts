@@ -46,7 +46,8 @@ export function hasInputBox(lines: string[]): boolean {
  */
 export function screenState(lines: string[]): ScreenState {
   const tail = lines.filter((l) => l.trim()).slice(-12)
-  const text = tail.join('\n')
+  // on a narrow screen (a phone's) a hint is wrapped: "· Esc to" and "cancel" on the next line
+  const text = tail.map((l) => l.trim()).join(' ')
   if (/Enter to confirm|Esc to cancel|Do you want to/.test(text)) return 'question'
   if (tail.slice(-6).some((l) => MENU_HINT.test(l.trim()))) return 'menu'
   if (/… *\([0-9]|to interrupt/.test(text)) return 'busy'
@@ -89,11 +90,13 @@ export function enterWatch(pressed: number): (now: number, panel: boolean, lastO
 /** One thing to pick on a question or panel: what it says, and the keys that pick it. */
 export interface PanelOption {
   label: string
-  /** the lines under it, in one */
+  /** what stands beside it and the lines under it, in one */
   detail: string
   keys: string
   /** the one the screen's `❯` is on */
   current: boolean
+  /** marked with a `✔`: the one in use */
+  checked: boolean
 }
 
 /** A question or a panel on a Claude Code screen, as something to read and tap. */
@@ -104,6 +107,8 @@ export interface Panel {
   options: PanelOption[]
   /** what it says under it: which keys do what */
   hint: string[]
+  /** it is /model's list: a row's keys pick it for this session only (where Claude Code offers that); `effort` is its effort line, changed with ← and → */
+  model?: { effort: string | null }
 }
 
 const firstCol = (l: string): number => l.search(/\S/)
@@ -144,9 +149,13 @@ export function screenPanel(lines: string[]): Panel | null {
 
   const col = rows[at].indexOf('❯') + 2
   const label = (i: number): string => rows[i].slice(col).trim()
-  const numbered = /^\d+\.\s/.test(label(at))
+  const NUM = /^\d+\.\s/
+  // a row that unfolds more rows ("▸ More models")
+  const FOLD = /^[▸▾]\s/
+  const MORE = /^([↑↓])\s*(\d+) more/
+  const numbered = NUM.test(label(at)) || FOLD.test(label(at))
   const isOption = (i: number): boolean =>
-    i === at || (firstCol(rows[i]) === col && !/^[↑↓]\s*\d+ more/.test(label(i)) && (!numbered || /^\d+\.\s/.test(label(i))))
+    i === at || (firstCol(rows[i]) === col && !MORE.test(label(i)) && (!numbered || NUM.test(label(i)) || FOLD.test(label(i))))
   const start = top(at)
   let picks: number[] = []
   if (numbered) {
@@ -162,20 +171,37 @@ export function screenPanel(lines: string[]): Panel | null {
   picks = picks.sort((a, b) => a - b)
   const cursor = picks.indexOf(at)
   const taken = new Set<number>(picks)
+  const text = said(start, picks[0])
+  const isModel = /^select model/i.test(text[0] ?? '')
+  // Enter in /model makes the pick the default of every new session; `s` keeps it to this one
+  const here = isModel && /session only|default for new sessions/i.test(rows.slice(start, end).join(' '))
+  const walk = (n: number): string => (n > 0 ? '\x1b[B'.repeat(n) : '\x1b[A'.repeat(-n))
   const options = picks.map((i, n): PanelOption => {
-    const detail: string[] = []
-    for (let j = i + 1; j < end && rows[j].trim() && firstCol(rows[j]) > col && !taken.has(j); j++) {
+    const fold = FOLD.test(label(i))
+    const number = NUM.test(label(i)) ? Number(/^\d+/.exec(label(i))![0]) : 0
+    // in columns: the name, and beside it what it is
+    const [name, ...beside] = label(i).replace(/^(\d+\.|[▸▾])\s+/, '').split(/\s{2,}/)
+    const detail = beside
+    for (let j = i + 1; j < end && rows[j].trim() && firstCol(rows[j]) > col && !taken.has(j) && !MORE.test(rows[j].trim()); j++) {
       detail.push(rows[j].trim())
       taken.add(j)
     }
-    const number = numbered ? Number(/^\d+/.exec(label(i))![0]) : 0
-    const walk = n - cursor
-    return {
-      label: label(i).replace(/^\d+\.\s+/, ''),
-      detail: detail.join(' '),
-      keys: number >= 1 && number <= 9 ? String(number) : (walk > 0 ? '\x1b[B'.repeat(walk) : '\x1b[A'.repeat(-walk)) + '\r',
-      current: i === at
-    }
+    const keys = isModel ? walk(n - cursor) + (here && !fold ? 's' : '\r') : number >= 1 && number <= 9 ? String(number) : walk(n - cursor) + '\r'
+    return { label: name.replace(/\s*[✔✓]$/, ''), detail: detail.join(' '), keys, current: i === at, checked: /[✔✓]$/.test(name) }
   })
-  return { state, text: said(start, picks[0]), options, hint: said(picks[0], end, taken) }
+  // "↓ 4 more": rows the screen has no room for; the `❯` walked past the list's end brings them
+  for (let i = start; i < end; i++) {
+    const more = MORE.exec(rows[i].trim())
+    if (!more || taken.has(i)) continue
+    taken.add(i)
+    const option = { label: rows[i].trim(), detail: '', current: false, checked: false }
+    // a screenful further, so no row is skipped
+    const far = Math.min(Number(more[2]), picks.length)
+    if (more[1] === '↓') options.push({ ...option, keys: walk(picks.length - 1 - cursor + far) })
+    else options.unshift({ ...option, keys: walk(-cursor - far) })
+  }
+  const hint = said(picks[0], end, taken)
+  if (!isModel) return { state, text, options, hint }
+  const effort = hint.map((l) => /^\W*(\S.*?effort.*?)\s*←/.exec(l)?.[1]).find(Boolean) ?? null
+  return { state, text, options, hint, model: { effort } }
 }

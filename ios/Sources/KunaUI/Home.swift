@@ -46,7 +46,7 @@ struct HomeView: View {
       for link in model.links.values where !link.ready { model.reconnect(link.alias) }
       try? await Task.sleep(for: .milliseconds(600))
     }
-    .navigationTitle("Kuna")
+    .navigationTitle("Projects")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItem(placement: .primaryAction) {

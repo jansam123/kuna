@@ -44,9 +44,6 @@ public final class AgentSession {
   @ObservationIgnored private var replay = Data()
   @ObservationIgnored private var lastOutput = Date.distantPast
   @ObservationIgnored private var gotOutput = false
-  /// the terminal was scrolled back with the wheel since the last key
-  @ObservationIgnored public var scrolledBack = false
-  @ObservationIgnored private var held: Data?
   /// the host's own commands and skills, asked for once
   @ObservationIgnored private var found: String?
 
@@ -165,6 +162,31 @@ public final class AgentSession {
     guard !text.isEmpty else { return }
     guard let agent = model.agent(key) else { throw KunaError("The agent is no longer on the host.") }
     let had = items.filter { $0.kind == "user" }.count
+    try await type(text, agent)
+    // a command of Claude Code's own may open a panel: its screen is opened to show it
+    if text.hasPrefix("/"), !agent.isBackground { Task { try? await self.attach() } }
+    outbox.append(Outgoing(text: text, had: had))
+    Task {
+      try? await Task.sleep(for: .seconds(2))
+      await self.pull()
+    }
+  }
+
+  /// Run a command of Claude Code's own whose panel the app shows itself (`/model`): it is typed
+  /// and the agent's screen opened, to read the panel off it. Nothing is added to the conversation.
+  public func command(_ text: String) async throws {
+    guard let agent = model.agent(key) else { throw KunaError("The agent is no longer on the host.") }
+    if agent.status == "waiting" { throw KunaError("It is waiting for you. Answer it first.") }
+    if agent.isBackground {
+      try await type(text, agent)
+    } else {
+      async let opened: Void = attach()
+      try await type(text, agent)
+      try await opened
+    }
+  }
+
+  private func type(_ text: String, _ agent: Agent) async throws {
     if agent.isBackground {
       try await attach()
       if let why = await waitForInput(seconds: agent.alive ? 25 : 60) { throw KunaError(why) }
@@ -177,16 +199,9 @@ public final class AgentSession {
       terminal.write("\r")
     } else {
       guard agent.alive else { throw KunaError("The agent has exited. Start a new one in its folder.") }
-      // scrolled back, here or on the Mac: tmux would take the message's keys as its own
-      if scrolledBack || agent.inCopyMode == true { await leaveScroll(agent) }
+      // scrolled back on the Mac: tmux would take the message's keys as its own
+      if agent.inCopyMode == true { _ = try? await model.run(agent.host, ["key", agent.agentId, "-X", "cancel"], timeout: 10) }
       try await model.type(agent, text)
-      // a command of Claude Code's own may open a panel: its screen is opened to show it
-      if text.hasPrefix("/") { Task { try? await self.attach() } }
-    }
-    outbox.append(Outgoing(text: text, had: had))
-    Task {
-      try? await Task.sleep(for: .seconds(2))
-      await self.pull()
     }
   }
 
@@ -301,29 +316,18 @@ public final class AgentSession {
   public func write(_ text: String) { terminal?.write(text) }
   public func write(_ data: Data) { terminal?.write(data) }
 
-  /// Keys meant for the agent. After the terminal was scrolled back, tmux's scroll mode would take
-  /// them as its own: it is left first, and what is typed meanwhile waits its turn (`leaveScroll` on the Mac).
-  public func key(_ data: Data) {
-    if held != nil {
-      held?.append(data)
-      return
-    }
-    guard scrolledBack, let agent = model.agent(key), !agent.isBackground else {
-      terminal?.write(data)
-      return
-    }
-    held = data
-    Task {
-      await leaveScroll(agent)
-      if let held { terminal?.write(held) }
-      held = nil
-    }
-  }
+  /// Keys meant for the agent.
+  public func key(_ data: Data) { terminal?.write(data) }
 
-  /// Not in scroll mode any more (scrolled back down to the end): tmux says so, and nothing is lost.
-  private func leaveScroll(_ agent: Agent) async {
-    scrolledBack = false
-    _ = try? await model.run(agent.host, ["key", agent.agentId, "-X", "cancel"], timeout: 10)
+  /// The agent runs in a pane of Kuna's tmux, whose history the host can be asked for.
+  public var hasPane: Bool { model.agent(key).map { !$0.isBackground } ?? false }
+
+  /// What its pane scrolled past and shows now, as `kuna scrollback` prints it, from line `from`
+  /// of its history. Nil where there is no pane to ask, or the host did not answer.
+  public func scrollback(from: Int) async -> String? {
+    guard let agent = model.agent(key), !agent.isBackground, agent.alive else { return nil }
+    guard let got = try? await model.run(agent.host, ["scrollback", agent.agentId, String(from)], timeout: 20), got.code == 0 else { return nil }
+    return got.text
   }
 
   /// Close the terminal; the agent itself keeps running on the host.
@@ -338,5 +342,6 @@ public final class AgentSession {
   public func close() {
     detach()
     try? shared.call("chatDrop", [key])
+    try? shared.call("backDrop", [key])
   }
 }

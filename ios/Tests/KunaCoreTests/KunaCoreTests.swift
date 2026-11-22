@@ -281,12 +281,12 @@ private func freePort() throws -> Int {
     try await until("the terminal to draw") { String(decoding: session.drawnSoFar, as: UTF8.self).contains("hello from the phone") }
     session.write("typed in the terminal\r")
     try await until("the terminal's echo") { String(decoding: session.drawnSoFar, as: UTF8.self).contains("typed in the terminal") }
-    // the wheel puts tmux in its scroll mode, which would take keys as its own: a key leaves it first
-    session.write("\u{1b}[<64;5;5M")
-    session.scrolledBack = true
-    session.key(Data("typed after ".utf8))
-    session.key(Data("scrolling back\r".utf8))
-    try await until("what was typed after scrolling back") { String(decoding: session.drawnSoFar, as: UTF8.self).contains("typed after scrolling back") }
+    // what its pane shows and scrolled past, asked of the host for the terminal's own scrolling
+    let printed = try #require(await session.scrollback(from: 0))
+    let pane = try Shared.main.decode(BackUpdate.self, "backFeed", [key, printed, "{}"])
+    #expect(!pane.refetch)
+    #expect(pane.cols > 0)
+    #expect((pane.add.text + pane.screen.text).contains("typed in the terminal"))
     session.close()
 
     try await model.stop(agent)
@@ -375,6 +375,11 @@ private func freePort() throws -> Int {
   #expect(panel.text == ["Do you want to proceed?"])
   #expect(panel.options.map(\.keys) == ["1", "2"])
   #expect(try Shared.main.decode(Panel?.self, "panel", [["❯ "]]) == nil)
+  // what a pane scrolled past, with its colours
+  let back = try Shared.main.decode(BackUpdate.self, "backFeed", ["k", "1 1 40 100000\n\u{1b}[31mred\u{1b}[0m line\nscreen\n", "{\"red\":\"#ff0000\"}"])
+  #expect(back.add.text == "red line")
+  #expect(back.styles[back.add.runs[1]].fg == "#ff0000")
+  #expect(back.screen.text == "screen")
   let found = try Shared.main.call("slashFound", ["G\t/h/.claude/skills/grill/SKILL.md"])
   #expect(try Shared.main.decode([SlashCommand].self, "slash", ["/gri", found]).map(\.name) == ["/grill"])
 

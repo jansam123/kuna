@@ -3,6 +3,7 @@ import { describeActivity, shortActivity } from '@shared/activity'
 import { baseModelId, contextInfo, contextLevel, contextWindowSize, modelFlag, shortModel } from '@shared/context'
 import { ChatLog } from '@shared/chat'
 import { compactBlocker, enterWatch, hasInputBox, screenPanel, screenState, slashTyped } from '@shared/input'
+import { Scrollback } from '@shared/scrollback'
 import { slashFromFiles, slashMatches } from '@shared/slash'
 import { parseJsonc } from '@shared/jsonc'
 import { diffLines, foldUnchanged, splitLines, type DiffRow } from '@shared/linediff'
@@ -559,11 +560,90 @@ describe('typing /compact', () => {
     // /config: no numbers, so the ❯ is walked to the row; the "more" line is not a row
     const config = screenPanel(['  Settings  Status   Config   Usage', '  ╭' + rule + '╮', '  │ ⌕ Search settings…  │', '  ╰' + rule + '╯', '    Auto-compact                                true', '  ❯ Verbose output                              false', '    Theme                                       dark', '    ↓ 26 more', '  Enter/Space to change · / to search · Esc to close'])!
     expect(config.state).toBe('menu')
-    expect(config.options.map((o) => o.keys)).toEqual(['\x1b[A\r', '\r', '\x1b[B\r'])
-    expect(config.hint).toEqual(['↓ 26 more', 'Enter/Space to change · / to search · Esc to close'])
+    expect(config.options.map((o) => [o.label, o.detail, o.keys])).toEqual([
+      ['Auto-compact', 'true', '\x1b[A\r'],
+      ['Verbose output', 'false', '\r'],
+      ['Theme', 'dark', '\x1b[B\r'],
+      // the rows the screen has no room for: the ❯ goes a screenful past the last one
+      ['↓ 26 more', '', '\x1b[B'.repeat(4)]
+    ])
+    expect(config.hint).toEqual(['Enter/Space to change · / to search · Esc to close'])
     // a panel with nothing to pick is still read; the input box is no panel
     expect(screenPanel(['  Current session', '  ██████ 12% used', 'Press Esc to go back'])!.options).toEqual([])
     expect(screenPanel(['● Done.', rule, '❯ ', rule])).toBeNull()
+  })
+
+  // Claude Code 2.1.330's /model at a phone's width, as its screen had it
+  const MODEL = [
+    '❯ /model',
+    '─'.repeat(60),
+    '  Select model',
+    '  Your pick is the default for new sessions. For other',
+    '  models, use --model.',
+    '',
+    '    1.  Default (recommended)  Opus 5.5 · Best for',
+    '                               everyday, complex tasks',
+    '    2.  Opus 5.5               For complex work and',
+    '                               everyday tasks',
+    '  ❯ 3.  Fable 5.2 ✔            For your toughest',
+    '                               challenges',
+    '    4.  Sonnet 5.5             Most efficient for simpler',
+    '                               tasks',
+    '    5.  Haiku 5.5              Fastest for quick answers',
+    '    ▸   More models',
+    '',
+    '  ● High effort ←/→ to adjust',
+    '',
+    '  Use /fast to turn on fast mode (Fable 5.2).',
+    '',
+    '  s to use this session only · Enter to save · Esc to',
+    '  cancel'
+  ]
+
+  it("reads /model's list: the models by name, picked for this session", () => {
+    // the hint is wrapped, and is still a question's
+    expect(screenState(MODEL)).toBe('question')
+    const p = screenPanel(MODEL)!
+    expect(p.text[0]).toBe('Select model')
+    expect(p.model).toEqual({ effort: 'High effort' })
+    const D = '\x1b[B'
+    const U = '\x1b[A'
+    expect(p.options.map((o) => [o.label, o.detail, o.keys, o.checked])).toEqual([
+      ['Default (recommended)', 'Opus 5.5 · Best for everyday, complex tasks', U + U + 's', false],
+      ['Opus 5.5', 'For complex work and everyday tasks', U + 's', false],
+      ['Fable 5.2', 'For your toughest challenges', 's', true],
+      ['Sonnet 5.5', 'Most efficient for simpler tasks', D + 's', false],
+      ['Haiku 5.5', 'Fastest for quick answers', D + D + 's', false],
+      // Enter unfolds it
+      ['More models', '', D + D + D + '\r', false]
+    ])
+    expect(p.options[2].current).toBe(true)
+    // unfolded, with the ❯ on the fold and more rows than fit
+    const open = screenPanel([
+      '─'.repeat(60),
+      '  Select model',
+      '  Your pick is the default for new sessions. For other',
+      '  models, use --model.',
+      '',
+      '    5.  Haiku 5.5              Fastest for quick answers',
+      '  ❯ ▾   More models',
+      '    6.  Fable 5.1              Most capable for your',
+      '                               hardest and longest-running',
+      '                               tasks',
+      '    10. Fable 5                Most capable',
+      '    ↓ 4 more',
+      '',
+      '  Enter to collapse · Esc to cancel'
+    ])!
+    expect(open.options.map((o) => [o.label, o.keys])).toEqual([
+      ['Haiku 5.5', U + 's'],
+      ['More models', '\r'],
+      ['Fable 5.1', D + 's'],
+      ['Fable 5', D + D + 's'],
+      ['↓ 4 more', D.repeat(6)]
+    ])
+    expect(open.options[2].detail).toBe('Most capable for your hardest and longest-running tasks')
+    expect(open.model).toEqual({ effort: null })
   })
 })
 
@@ -1273,5 +1353,60 @@ describe('line diff', () => {
     expect(parts.map((p) => ('rows' in p ? `rows ${p.rows.length}` : `folded ${p.folded.length}`))).toEqual(['folded 13', 'rows 6', 'folded 12'])
     expect(splitLines('a\r\nb\n')).toEqual(['a', 'b'])
     expect(splitLines('')).toEqual([])
+  })
+})
+
+describe("a pane's history for the phone", () => {
+  const E = '\x1b'
+  const reply = (size: number, rows: number, cols: number, lines: string[]): string => `${size} ${rows} ${cols} 100000\n${lines.join('\n')}\n`
+  const palette = { foreground: '#eeeeee', background: '#000000', red: '#ff0000', brightGreen: '#00ff00' }
+
+  it('reads colours, and a pen that carries over lines', () => {
+    const back = new Scrollback()
+    const u = back.feed(reply(2, 2, 40, [`${E}[1;31mbold red`, `still${E}[0m plain ${E}[38;5;196mcube${E}[38;2;1;2;3mrgb${E}[7minv`, `${E}[0;92mscreen${E}[m`, '']), palette)
+    expect(u.refetch).toBe(false)
+    expect(u.keep).toBe(0)
+    expect(u.add.text).toBe('bold red\nstill plain cubergbinv')
+    const runs: [string, object][] = []
+    for (let i = 0, at = 0; i < u.add.runs.length; i += 2) {
+      runs.push([u.add.text.slice(at, at + u.add.runs[i]), u.styles[u.add.runs[i + 1]]])
+      at += u.add.runs[i]
+    }
+    expect(runs).toEqual([
+      ['bold red', { fg: '#ff0000', bold: true }],
+      ['\n', {}],
+      ['still', { fg: '#ff0000', bold: true }],
+      [' plain ', {}],
+      ['cube', { fg: '#ff0000' }],
+      ['rgb', { fg: '#010203' }],
+      ['inv', { fg: '#000000', bg: '#010203' }]
+    ])
+    expect(u.screen.text).toBe('screen\n')
+    expect(u.styles[u.screen.runs[1]]).toEqual({ fg: '#00ff00' })
+    expect([u.size, u.cols]).toEqual([2, 40])
+  })
+
+  it('goes on from where the lines that came are found, and says when they are not', () => {
+    const back = new Scrollback()
+    const lines = (from: number, to: number): string[] => Array.from({ length: to - from }, (_, i) => `line ${from + i}`)
+    back.feed(reply(50, 1, 40, [...lines(0, 50), 'screen']), palette)
+    const held = lines(0, 50).join('\n').length
+    // nothing new
+    expect(back.feed(reply(50, 1, 40, [...lines(30, 50), 'screen']), palette)).toMatchObject({ refetch: false, keep: held, add: { text: '' } })
+    // ten more lines: only they are added
+    const more = back.feed(reply(60, 1, 40, [...lines(30, 60), 'screen']), palette)
+    expect(more.keep).toBe(held)
+    expect(more.add.text).toBe(lines(50, 60).join('\n'))
+    // the pane got taller and took five lines back
+    const back5 = back.feed(reply(55, 6, 40, [...lines(30, 55), ...lines(55, 60), 'screen']), palette)
+    expect(back5).toMatchObject({ refetch: false, keep: lines(0, 55).join('\n').length, add: { text: '' } })
+    expect(back5.screen.text.split('\n').length).toBe(6)
+    // too much happened since: what came starts after what is held
+    expect(back.feed(reply(500, 1, 40, [...lines(400, 500), 'screen']), palette).refetch).toBe(true)
+    // another width: tmux wrapped every line anew
+    expect(back.feed(reply(55, 1, 30, [...lines(30, 55), 'screen']), palette).refetch).toBe(true)
+    const anew = back.feed(reply(55, 1, 30, [...lines(0, 55), 'screen']), palette)
+    expect(anew).toMatchObject({ refetch: false, keep: 0 })
+    expect(anew.add.text.split('\n').length).toBe(55)
   })
 })

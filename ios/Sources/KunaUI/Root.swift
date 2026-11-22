@@ -119,7 +119,7 @@ public struct RootView: View {
   /// As a terminal app's tabs: what is open in one stays open while another is looked at.
   private var tabs: some View {
     TabView(selection: $tab) {
-      Tab("Agents", systemImage: "sparkles", value: "agents") { agents }
+      Tab("Agents", systemImage: "square.stack.3d.up", value: "agents") { agents }
       Tab("Folders", systemImage: "folder", value: "folders") { folders }
       Tab("Settings", systemImage: "gearshape", value: "settings") { SettingsView(model: model, importing: $importing) }
     }
@@ -139,8 +139,13 @@ public struct RootView: View {
     }
   }
 
-  @ViewBuilder
+  /// A screen opened from one of the three lists: the tabs are for the lists, and are not shown on it.
   private func screen(_ route: Route, _ path: Binding<[Route]>) -> some View {
+    inside(route, path).toolbarVisibility(.hidden, for: .tabBar)
+  }
+
+  @ViewBuilder
+  private func inside(_ route: Route, _ path: Binding<[Route]>) -> some View {
     switch route {
     case .agent(let key): AgentScreen(model: model, key: key, path: path, open: open)
     case .plots(let key): PlotsScreen(model: model, key: key, open: open)

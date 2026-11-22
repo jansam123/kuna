@@ -218,6 +218,20 @@ send() {
   tm send-keys -t "kuna_$id" Enter
 }
 
+scrollback() {
+  # scrollback <id> <from>: what an agent's pane scrolled past and what it shows
+  # now, with their colours, for a phone to scroll and select as text. First line:
+  # "history-size pane-height pane-width history-limit"; then the history from its
+  # line <from> on (and a hundred before it, to find the place by; at most the
+  # newest 2000) and the screen. One tmux call, so the sizes fit the lines.
+  valid_id "$1"; valid_num "$2"
+  h=$(tm display-message -p -t "kuna_$1" '#{history_size}' 2>/dev/null) || exit 1
+  n=$((h - $2 + 100))
+  [ "$n" -gt 2000 ] && n=2000
+  [ "$n" -gt "$h" ] && n=$h
+  tm display-message -p -t "kuna_$1" '#{history_size} #{pane_height} #{pane_width} #{history_limit}' \; capture-pane -e -p -t "kuna_$1" -S "-$n"
+}
+
 attach() {
   valid_id "$1"
   if ! tm has-session -t "kuna_$1" 2>/dev/null; then
@@ -996,6 +1010,7 @@ case "$cmd" in
   key) key "$@" ;;
   send) send "$@" ;;
   attach) attach "$@" ;;
+  scrollback) scrollback "$@" ;;
   hook) hook ;;
   statusline) statusline ;;
   bgspawn) bgspawn "$@" ;;
@@ -1016,5 +1031,5 @@ case "$cmd" in
   fwrite) write_file "$@" ;;
   claude-files) claude_files "$@" ;;
   git) git_cmd "$@" ;;
-  *) echo "usage: kuna {version|setup|doctor|spawn|run|kill|key|send|attach|hook|watch|read|stat|media|cat|pcat|ls|realpath|lsdir|fread|fwrite|claude-files|git}" >&2; exit 2 ;;
+  *) echo "usage: kuna {version|setup|doctor|spawn|run|kill|key|send|attach|scrollback|hook|watch|read|stat|media|cat|pcat|ls|realpath|lsdir|fread|fwrite|claude-files|git}" >&2; exit 2 ;;
 esac

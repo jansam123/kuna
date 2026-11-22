@@ -38,6 +38,7 @@ Opening a pane runs `ssh -tt <host> sh .kuna/bin/kuna attach <id>` inside a loca
 | `statusline` | Claude Code status line entry point; records plan usage (`rate_limits`) |
 | `attach`, `kill`, `key`, `send` | tmux plumbing |
 | `read`, `stat`, `cat`, `media`, `ls`, `claude-files` | file access for transcripts, plots, completion and the `.claude` browser |
+| `scrollback <id> <from>` | the iPhone's terminal: the pane's history from line `<from>` on (with a hundred lines before it, at most the newest 2000) and its screen, with colours (`capture-pane -e`), under a line of sizes; `src/shared/scrollback.ts` keeps the lines |
 | `fwrite <file> <bytes> <mtime>` | the iPhone's editor saves a file: stdin replaces a file that is there, only when all the bytes arrived and the file still has the modification time it was read at |
 | `pcat <folder> <file>` | a file for an HTML page in the viewer, only if it lies inside the page's folder on disk (no symlinked file, no symlinked folder leading out) |
 | `git info`, `status`, `compare`, `files`, `cat` | the review view's read-only git (below) |

@@ -222,6 +222,53 @@ describe('saving a file edited on the phone (fwrite)', () => {
   })
 })
 
+describe.skipIf(!hasTmux)("a pane's history for the phone (scrollback)", () => {
+  const script = resolve(__dirname, '../src/main/remote/kuna.sh')
+
+  it('prints the sizes, the history from a line on and the screen, and they join up', async () => {
+    const { Scrollback } = await import('../src/shared/scrollback')
+    const home = mkdtempSync(join(tmpdir(), 'kuna-back-'))
+    const socket = `kuna-back-${process.pid}`
+    const env = { ...process.env, HOME: home, KUNA_TMUX_SOCKET: socket }
+    const kuna = (...args: string[]): string => execFileSync('sh', [script, ...args], { env }).toString()
+    const tmux = (...args: string[]): void => void execFileSync('tmux', ['-L', socket, '-f', join(home, '.kuna/tmux.conf'), ...args], { env })
+    const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+    try {
+      kuna('setup')
+      tmux('new-session', '-d', '-s', 'kuna_abc', '-x', '40', '-y', '10', "printf '\\033[31mline %s\\033[0m\\n' $(seq 1 30); read x; printf 'next %s\\n' $(seq 1 12); sleep 30")
+      await wait(500)
+      const back = new Scrollback()
+      const first = kuna('scrollback', 'abc', '0')
+      const [size, rows, cols] = first.split('\n')[0].split(' ').map(Number)
+      expect([rows, cols]).toEqual([10, 40])
+      const all = back.feed(first, { red: '#ff0000' })
+      expect(all.refetch).toBe(false)
+      expect(all.keep).toBe(0)
+      expect(all.add.text.split('\n').length).toBe(size)
+      expect(all.add.text.split('\n')[0]).toBe('line 1')
+      expect(all.styles[all.add.runs[1]]).toEqual({ fg: '#ff0000' })
+      // the screen goes on where the history ends, and is as tall as the pane
+      expect(all.screen.text.split('\n').length).toBe(10)
+      expect(all.screen.text.split('\n')[0]).toBe(`line ${size + 1}`)
+      // more scrolls past: only that is added
+      tmux('send-keys', '-t', 'kuna_abc', 'Enter')
+      await wait(500)
+      const more = back.feed(kuna('scrollback', 'abc', String(all.size)), {})
+      expect(more.refetch).toBe(false)
+      expect(more.keep).toBeGreaterThan(0)
+      expect(more.add.text).toContain('next 1')
+      expect(more.add.text).not.toContain('line 1\n')
+    } finally {
+      try {
+        execFileSync('tmux', ['-L', socket, 'kill-server'], { stdio: 'ignore' })
+      } catch {
+        /* already gone */
+      }
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('files for an HTML page in the viewer (pcat)', () => {
   const script = resolve(__dirname, '../src/main/remote/kuna.sh')
   const b64 = (s: string): string => Buffer.from(s, 'utf8').toString('base64')

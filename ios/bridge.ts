@@ -26,6 +26,7 @@ import {
 import { markdownBlocks } from '@shared/mdblocks'
 import { MEDIA_GROUPS, PAGE_CSP, figureClass, fileGroups, mediaKind, mediaPlace, mimeFor, pageFile as pageFileOf, resolveAgainst, viewerOrder, type FigureClass } from '@shared/media'
 import { emptyPhoneState, hostKeyVerdict, knownHostsName, mergeImport, parseExport, type PhoneHost, type PhoneState } from '@shared/phone'
+import { Scrollback, type BackPalette } from '@shared/scrollback'
 import { texToText } from '@shared/tex'
 import { slashFromFiles, slashMatches, type SlashCommand } from '@shared/slash'
 import { REPO_COLORS, THEMES } from '@shared/themes'
@@ -147,6 +148,19 @@ export const panel = (lines: string[]): string => JSON.stringify(screenPanel(lin
 export const slashFound = (files: string): string => JSON.stringify(slashFromFiles(files))
 /** The slash commands to offer for what is typed so far. */
 export const slash = (typed: string, found: string): string => JSON.stringify(slashMatches(typed, JSON.parse(found) as SlashCommand[]))
+
+// ------------------------------------------------------------- scrollback ----
+
+const backs = new Map<string, Scrollback>()
+
+/** Take what `kuna scrollback` printed for an agent's pane; says what to change in the text held so far (`BackUpdate`). */
+export function backFeed(key: string, reply: string, palette: string): string {
+  let back = backs.get(key)
+  if (!back) backs.set(key, (back = new Scrollback()))
+  return JSON.stringify(back.feed(reply, JSON.parse(palette) as BackPalette))
+}
+
+export const backDrop = (key: string): void => void backs.delete(key)
 
 // ----------------------------------------------------------------- media ----
 

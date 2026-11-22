@@ -207,6 +207,14 @@ public struct PanelOption: Codable, Hashable, Sendable {
   /// the keys that pick it
   public var keys: String
   public var current: Bool
+  /// marked as the one in use
+  public var checked: Bool
+}
+
+/// What /model's list has besides its rows (`Panel.model` in src/shared/input.ts).
+public struct ModelPanel: Codable, Hashable, Sendable {
+  /// its effort line ("High effort"), changed with ← and →
+  public var effort: String?
 }
 
 /// The question or panel on an agent's screen (`Panel` in src/shared/input.ts).
@@ -215,6 +223,36 @@ public struct Panel: Codable, Hashable, Sendable {
   public var text: [String]
   public var options: [PanelOption]
   public var hint: [String]
+  /// set when it is /model's list: its rows pick a model for this session
+  public var model: ModelPanel?
+}
+
+/// How a run of an agent's scrolled-past output looks (`BackStyle` in src/shared/scrollback.ts).
+public struct BackStyle: Codable, Hashable, Sendable {
+  public var fg: String?
+  public var bg: String?
+  public var bold: Bool?
+  public var dim: Bool?
+  public var italic: Bool?
+  public var underline: Bool?
+  public var strike: Bool?
+}
+
+/// Lines of text and their styles as `[length, style, length, style…]` (`BackBlock`).
+public struct BackBlock: Codable, Hashable, Sendable {
+  public var text: String
+  public var runs: [Int]
+}
+
+/// What changed in an agent's scrolled-past output since the last look (`BackUpdate`).
+public struct BackUpdate: Codable, Hashable, Sendable {
+  public var refetch: Bool
+  public var keep: Int
+  public var add: BackBlock
+  public var screen: BackBlock
+  public var styles: [BackStyle]
+  public var size: Int
+  public var cols: Int
 }
 
 /// A slash command to offer while one is typed (`SlashCommand` in src/shared/slash.ts).

@@ -125,24 +125,44 @@ struct TextArea: UIViewRepresentable {
   }
 }
 
-/// A text to select from: a reply, or what you wrote.
-struct SelectSheet: View {
-  let text: String
+/// Text in a conversation, selected as text is anywhere on the phone: a long press takes a word,
+/// the handles any part of it. (SwiftUI's own text is copied whole or not at all.)
+struct SelectableText: UIViewRepresentable {
+  let text: NSAttributedString
   @Environment(\.look) private var look
-  @Environment(\.dismiss) private var dismiss
 
-  var body: some View {
-    NavigationStack {
-      TextArea(text: .constant(text), mono: false)
-        .background(look.ground)
-        .navigationTitle("Select text")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-          ToolbarItem(placement: .cancellationAction) { Button("Copy all", systemImage: "doc.on.doc") { UIPasteboard.general.string = text } }
-          ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-        }
-    }
-    .preferredColorScheme(.dark)
+  init(_ text: NSAttributedString) { self.text = text }
+
+  /// One run of text in one look.
+  init(_ text: String, font: UIFont = .preferredFont(forTextStyle: .body), color: Color) {
+    self.text = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: UIColor(color)])
+  }
+
+  func makeUIView(context: Context) -> UITextView {
+    let view = UITextView()
+    view.isEditable = false
+    view.isScrollEnabled = false
+    view.backgroundColor = .clear
+    view.textContainerInset = .zero
+    view.textContainer.lineFragmentPadding = 0
+    view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    return view
+  }
+
+  func updateUIView(_ view: UITextView, context: Context) {
+    view.tintColor = UIColor(look.accent)
+    view.linkTextAttributes = [.foregroundColor: UIColor(look.accent), .underlineStyle: NSUnderlineStyle.single.rawValue]
+    if !view.attributedText.isEqual(to: text) { view.attributedText = text }
+  }
+
+  /// "as wide as it likes", as a width a frame can have
+  private static let wide: CGFloat = 20_000
+
+  func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+    // no width given: as wide as the text; as narrow as asked otherwise, and as tall as that makes it
+    let width = proposal.width.map { $0.isFinite ? max($0, 1) : Self.wide } ?? Self.wide
+    let fit = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+    return CGSize(width: min(fit.width, width), height: fit.height)
   }
 }
 

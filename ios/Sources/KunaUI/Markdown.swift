@@ -1,6 +1,7 @@
 #if os(iOS)
 import KunaCore
 import SwiftUI
+import UIKit
 
 /// A run of text in one style (`MdSpan` in src/shared/mdblocks.ts).
 struct MdSpan: Decodable, Hashable {
@@ -83,8 +84,8 @@ struct MarkdownText: View {
     case "h":
       let level = block.level ?? 3
       // the reply's skeleton stands out: its large headings in the accent, the small ones bright
-      Text(styled(block.spans)).font(level <= 1 ? .title3.weight(.bold) : level == 2 ? .headline : .subheadline.weight(.semibold))
-        .foregroundStyle(level <= 2 ? look.accent : look.bright).padding(.top, 4)
+      SelectableText(styled(block.spans, font: level <= 1 ? .preferredFont(forTextStyle: .title3).with(.traitBold) : level == 2 ? .preferredFont(forTextStyle: .headline) : .preferredFont(forTextStyle: .subheadline).with(.traitBold), color: level <= 2 ? look.accent : look.bright))
+        .padding(.top, 4)
     case "code":
       VStack(alignment: .leading, spacing: 0) {
         HStack {
@@ -95,7 +96,7 @@ struct MarkdownText: View {
         }
         .padding(.leading, 10).padding(.trailing, 4).padding(.top, 3)
         ScrollView(.horizontal, showsIndicators: false) {
-          Text(block.text ?? "").font(.system(size: 12.5, design: .monospaced)).foregroundStyle(look.text).textSelection(.enabled).padding(.horizontal, 10).padding(.bottom, 10)
+          SelectableText(block.text ?? "", font: .monospacedSystemFont(ofSize: 12.5, weight: .regular), color: look.text).padding(.horizontal, 10).padding(.bottom, 10)
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
@@ -105,7 +106,7 @@ struct MarkdownText: View {
       Text(block.text ?? "").font(.system(.body, design: .serif)).italic().frame(maxWidth: .infinity).padding(.vertical, 2)
     case "rule": Divider().overlay(look.line)
     case "table": table(block)
-    default: Text(styled(block.spans)).foregroundStyle(block.quote > 0 ? look.dim : look.text)
+    default: SelectableText(styled(block.spans, color: block.quote > 0 ? look.dim : look.text))
     }
   }
 
@@ -118,7 +119,7 @@ struct MarkdownText: View {
     func cell(_ spans: [MdSpan], _ column: Int, bold: Bool) -> some View {
       let how = (block.align ?? [])[safe: column] ?? nil
       let align: Alignment = how == "right" ? .trailing : how == "center" ? .center : .leading
-      return Text(styled(spans)).font(bold ? .footnote.weight(.semibold) : .footnote).foregroundStyle(bold ? look.bright : look.text)
+      return SelectableText(styled(spans, font: bold ? .preferredFont(forTextStyle: .footnote).with(.traitBold) : .preferredFont(forTextStyle: .footnote), color: bold ? look.bright : look.text))
         .frame(width: long[safe: column] == true ? 230 : nil, alignment: align)
         .fixedSize(horizontal: long[safe: column] != true, vertical: true)
         .padding(.horizontal, 10).padding(.vertical, 6)
@@ -137,31 +138,35 @@ struct MarkdownText: View {
     }
   }
 
-  /// Runs of bold, italics, `code`, struck text, math and links as one text.
-  private func styled(_ spans: [MdSpan]?) -> AttributedString {
-    var out = AttributedString()
+  /// Runs of bold, italics, `code`, struck text, math and links as one text, to select from.
+  private func styled(_ spans: [MdSpan]?, font: UIFont = .preferredFont(forTextStyle: .body), color: Color? = nil) -> NSAttributedString {
+    let out = NSMutableAttributedString()
     for span in spans ?? [] {
-      var piece = AttributedString(span.t)
-      var intent: InlinePresentationIntent = []
+      var traits: UIFontDescriptor.SymbolicTraits = []
+      var how: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor(color ?? look.text)]
       if span.b == true {
-        intent.insert(.stronglyEmphasized)
-        piece.foregroundColor = look.bright
+        traits.insert(.traitBold)
+        how[.foregroundColor] = UIColor(look.bright)
       }
-      if span.i == true || span.m == true { intent.insert(.emphasized) }
-      if span.s == true { intent.insert(.strikethrough) }
+      if span.i == true || span.m == true { traits.insert(.traitItalic) }
+      if !traits.isEmpty { how[.font] = font.with(traits) }
+      if span.s == true { how[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
       if span.c == true {
-        intent.insert(.code)
-        piece.foregroundColor = look.code
-        piece.backgroundColor = look.raised
+        how[.font] = UIFont.monospacedSystemFont(ofSize: font.pointSize * 0.9, weight: span.b == true ? .semibold : .regular)
+        how[.foregroundColor] = UIColor(look.code)
+        how[.backgroundColor] = UIColor(look.raised)
       }
-      if !intent.isEmpty { piece.inlinePresentationIntent = intent }
-      if let href = span.href, let url = URL(string: href) {
-        piece.link = url
-        piece.underlineStyle = .single
-      }
-      out += piece
+      if let href = span.href, let url = URL(string: href) { how[.link] = url }
+      out.append(NSAttributedString(string: span.t, attributes: how))
     }
     return out
+  }
+}
+
+extension UIFont {
+  /// the same face, bold or in italics as well as what it is
+  func with(_ traits: UIFontDescriptor.SymbolicTraits) -> UIFont {
+    fontDescriptor.withSymbolicTraits(fontDescriptor.symbolicTraits.union(traits)).map { UIFont(descriptor: $0, size: pointSize) } ?? self
   }
 }
 

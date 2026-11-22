@@ -25,6 +25,11 @@ final class Walkthrough: XCTestCase {
     return there
   }
 
+  /// A text of the conversation: it is selectable, so a text view and not a label.
+  func said(_ text: String) -> XCUIElement {
+    app.textViews.matching(NSPredicate(format: "value CONTAINS %@", text)).firstMatch
+  }
+
   func testWalkthrough() throws {
     let env = ProcessInfo.processInfo.environment
     app.launchArguments = ["-lock", "NO"]
@@ -39,9 +44,16 @@ final class Walkthrough: XCTestCase {
 
     // an agent's conversation
     agent.tap()
-    wait(app.staticTexts["The fit converged."], 30, "the agent's reply")
+    wait(said("The fit converged."), 30, "the agent's reply")
     sleep(1)
     shot("chat")
+    // the tabs are for the three lists: not here
+    if app.tabBars.buttons["Folders"].exists, app.tabBars.buttons["Folders"].isHittable { XCTFail("the tab bar is shown inside an agent's conversation") }
+    // a long press takes a word, to stretch over any part of the text
+    said("The fit converged.").press(forDuration: 1.2)
+    sleep(1)
+    shot("chat-select")
+    app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
     // its start: the task, the thinking, each tool in the colour of its work
     app.swipeDown()
     app.swipeDown()
@@ -55,7 +67,7 @@ final class Walkthrough: XCTestCase {
       message.typeText("Thanks, now the control region")
       shot("chat-typing")
       app.buttons["send"].tap()
-      wait(app.staticTexts["You said: Thanks, now the control region"], 30, "the fake agent's answer to what was sent")
+      wait(said("You said: Thanks, now the control region"), 30, "the fake agent's answer to what was sent")
       shot("chat-answered")
       // a slash offers Claude Code's commands; /model opens its panel, read off the agent's screen, to tap
       message.tap()
@@ -74,6 +86,19 @@ final class Walkthrough: XCTestCase {
           shot("chat-panel-picked")
         }
       }
+      // the model's name lists the models by name, as Claude Code's own list has them; a tap changes it
+      app.buttons["model-menu"].tap()
+      if wait(app.buttons["model-option-3"], 40, "the models in the list") {
+        sleep(1)
+        shot("model-list")
+        app.buttons["effort-more"].tap()
+        sleep(2)
+        shot("model-effort")
+        app.buttons["model-option-3"].tap()
+        sleep(3)
+        shot("model-picked")
+        if app.buttons["model-option-3"].exists { XCTFail("the list of models stayed up after a model was picked") }
+      }
       // the other agents, a tap on the name away
       app.buttons["agent-switch"].tap()
       sleep(1)
@@ -83,15 +108,30 @@ final class Walkthrough: XCTestCase {
     }
 
     // its terminal
-    // in place of the conversation; a drag is tmux's wheel; Ctrl goes with the next key
+    // in place of the conversation; what it scrolled past is text above it, scrolled as any; Ctrl goes with the next key
     app.buttons["open-terminal"].tap()
     wait(app.buttons["key-Control"], 10, "the terminal")
-    sleep(4)
+    sleep(5)
     shot("terminal")
     let screen = app.windows.firstMatch
     screen.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).press(forDuration: 0.05, thenDragTo: screen.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)))
     sleep(2)
     shot("terminal-scrolled")
+    if wait(app.buttons["terminal-live"], 5, "the button back to the live screen, once scrolled back") {
+      // a long press in what scrolled past takes a word, as in any text
+      screen.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.3)).press(forDuration: 1.2)
+      sleep(1)
+      shot("terminal-select-history")
+      app.buttons["terminal-live"].tap()
+      sleep(1)
+    }
+    // a long press on the live screen holds it as text, with the word selected
+    screen.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.142)).press(forDuration: 1.2)
+    sleep(3)
+    shot("terminal-select")
+    if wait(app.buttons["terminal-live"], 5, "the live screen held as text") { app.buttons["terminal-live"].tap() }
+    sleep(1)
+    shot("terminal-live")
     app.buttons["key-Control"].tap()
     shot("terminal-ctrl")
     app.buttons["open-terminal"].tap()
@@ -197,7 +237,7 @@ final class Walkthrough: XCTestCase {
       }
       if app.buttons["send-comments"].exists {
         app.buttons["send-comments"].tap()
-        wait(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Review comments on'")).firstMatch, 30, "the review comments in the conversation")
+        wait(said("Review comments on"), 30, "the review comments in the conversation")
         sleep(2)
         shot("chat-after-review")
       } else {
@@ -266,7 +306,7 @@ final class Walkthrough: XCTestCase {
         sleep(3)
         shot("question-2")
         app.buttons["panel-option-1"].tap()
-        wait(app.staticTexts["Comparing with choice 2, log scale choice 1."], 30, "the agent going on with both answers")
+        wait(said("Comparing with choice 2, log scale choice 1."), 30, "the agent going on with both answers")
         sleep(1)
         shot("question-answered")
       }

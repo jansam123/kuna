@@ -1,6 +1,7 @@
 #if os(iOS)
 import KunaCore
 import SwiftUI
+import UIKit
 
 /// What is being written to an agent: one text for its conversation, its plots and its review,
 /// as the Mac's prompt is one under all of them.
@@ -9,6 +10,8 @@ final class PromptDraft {
   var text = ""
   /// shown over the plots and the review (the conversation always shows it)
   var shown = false
+  /// the list of models is up: the panel Claude Code drew for it is shown there, not as a card
+  var picking = false
 }
 
 /// The agents whose screens are open: each keeps its conversation and its terminal for as long
@@ -67,15 +70,8 @@ struct AgentScreen: View {
   @State private var failure: Notice?
   @State private var renaming = false
   @State private var name = ""
-  /// a reply or a message opened to select text from
-  @State private var selecting: Selecting?
   @FocusState private var typing: Bool
   @State private var atEnd = true
-
-  struct Selecting: Identifiable {
-    let id = UUID()
-    let text: String
-  }
 
   var body: some View {
     let here = open.get(key, model)
@@ -132,7 +128,6 @@ struct AgentScreen: View {
       Text("Only on this phone. Empty takes its own title back.")
     }
     .alert(item: $failure) { Alert(title: Text($0.title), message: Text($0.text)) }
-    .sheet(item: $selecting) { SelectSheet(text: $0.text).environment(\.look, look) }
     .task(id: key) { await session.follow() }
     .task(id: key) { await session.watchScreen() }
     // it waits for an answer: its screen is opened, so the question can be read and answered from here
@@ -212,11 +207,11 @@ struct AgentScreen: View {
           }
           ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
             let whole = reply(endingAt: i, in: items, working: working)
-            ChatRow(item: item, last: i == items.count - 1 && whole == nil, select: { selecting = Selecting(text: $0) }).id(item.id)
+            ChatRow(item: item, last: i == items.count - 1 && whole == nil).id(item.id)
             if let whole { ReplyFoot(text: whole, at: item.at) }
           }
           ForEach(session.outbox) { out in
-            ChatRow(item: ChatItem(id: out.id.uuidString, kind: "user", text: out.text), pending: true, select: { selecting = Selecting(text: $0) }).id(out.id.uuidString)
+            ChatRow(item: ChatItem(id: out.id.uuidString, kind: "user", text: out.text), pending: true).id(out.id.uuidString)
           }
           Color.clear.frame(height: 1).id("end")
         }
@@ -228,7 +223,7 @@ struct AgentScreen: View {
       // the box floats over the conversation, which scrolls on under its glass
       .safeAreaInset(edge: .bottom, spacing: 0) {
         VStack(spacing: 8) {
-          if let panel = session.panel {
+          if let panel = session.panel, !(here.prompt.picking && panel.model != nil) {
             PanelCard(panel: panel, press: { keys in Task { try? await session.press(keys) } }, terminal: { terminal = true })
           }
           PromptBox(model: model, here: here, typing: $typing, terminal: { terminal = true })
@@ -283,7 +278,7 @@ struct PromptBox: View {
         .padding(.horizontal, 4)
       }
       if let agent {
-        StatusLine(agent: agent, details: here.session.details, terminal: terminal, command: { send($0, written: false) }, press: { keys in Task { try? await here.session.press(keys) } })
+        StatusLine(agent: agent, here: here, terminal: terminal)
       }
       HStack(alignment: .bottom, spacing: 8) {
         Button(typing.wrappedValue ? "Hide the keyboard" : "Show the keyboard", systemImage: typing.wrappedValue ? "keyboard.chevron.compact.down" : "keyboard") { typing.wrappedValue.toggle() }
@@ -291,7 +286,7 @@ struct PromptBox: View {
         TextField(agent?.status == "waiting" ? "It is waiting for you…" : "Message", text: $draft.text, axis: .vertical)
           .lineLimit(1...7).focused(typing).padding(.vertical, 8)
           .accessibilityIdentifier("message")
-        Button { send(here.prompt.text, written: true) } label: {
+        Button { send(here.prompt.text) } label: {
           if sending { ProgressView().frame(width: 34, height: 34) } else { Image(systemName: "arrow.up.circle.fill").font(.system(size: 34)) }
         }
         .disabled(sending || draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -307,17 +302,14 @@ struct PromptBox: View {
     .alert(item: $failure) { Alert(title: Text($0.title), message: Text($0.text)) }
   }
 
-  /// `written`: what is in the box, which is emptied; otherwise a command from the model's menu.
-  private func send(_ text: String, written: Bool) {
+  private func send(_ text: String) {
     sending = true
     Task {
       do {
         try await here.session.send(text)
         Haptic.play(.sent)
-        if written {
-          if here.prompt.text == text { here.prompt.text = "" }
-          sent()
-        }
+        if here.prompt.text == text { here.prompt.text = "" }
+        sent()
       } catch {
         failure = Notice(title: "Not sent", text: error.localizedDescription)
       }
@@ -355,18 +347,17 @@ struct PromptButton: View {
   }
 }
 
-/// What the agent is doing right now, its model (a tap changes it, the thinking effort or the
-/// mode, as Claude Code's own commands do), and how full its context is.
+/// What the agent is doing right now, its model (a tap lists the models to change to), and how
+/// full its context is.
 private struct StatusLine: View {
   let agent: Agent
-  let details: ChatDetails?
+  let here: OpenAgents.Open
   var terminal: (() -> Void)?
-  /// type one of Claude Code's commands; press keys on its screen
-  let command: (String) -> Void
-  let press: (String) -> Void
   @Environment(\.look) private var look
 
   var body: some View {
+    @Bindable var draft = here.prompt
+    let details = here.session.details
     HStack(spacing: 8) {
       if agent.status == "working" || agent.status == "starting" { ProgressView().controlSize(.mini) } else { StatusDot(status: agent.status, size: 8) }
       Text(words).font(.footnote).foregroundStyle(agent.status == "waiting" ? look.waiting : look.dim).lineLimit(1)
@@ -375,12 +366,7 @@ private struct StatusLine: View {
         Button("Terminal", action: terminal).font(.footnote.weight(.semibold)).buttonStyle(.bordered).controlSize(.small).tint(look.waiting).accessibilityIdentifier("answer-terminal")
       }
       if let model = agent.modelName ?? details?.model {
-        Menu {
-          Button("Model…", systemImage: "cpu") { command("/model") }
-          Button("Thinking effort…", systemImage: "brain") { command("/effort") }
-          Button("Next mode (⇧Tab)", systemImage: "arrow.triangle.2.circlepath") { press("\u{1b}[Z") }
-          if let mode = details?.permissionMode ?? agent.permissionMode { Section("Mode now: \(mode)") {} }
-        } label: {
+        Button { draft.picking = true } label: {
           HStack(spacing: 3) {
             // the model and how hard it thinks (the effort of its last reply), as the Mac's chip
             Text([model, details?.effort].compactMap { $0 }.joined(separator: " · ")).lineLimit(1)
@@ -388,7 +374,16 @@ private struct StatusLine: View {
           }
           .font(.footnote).foregroundStyle(look.dim)
         }
+        .buttonStyle(.plain)
         .accessibilityIdentifier("model-menu")
+        .popover(isPresented: $draft.picking) {
+          ModelList(session: here.session, mode: details?.permissionMode ?? agent.permissionMode, terminal: terminal) { draft.picking = false }
+            .environment(\.look, look).presentationCompactAdaptation(.popover)
+        }
+        // put away with the list still on the agent's screen: Esc closes it there
+        .onChange(of: draft.picking) { _, up in
+          if !up, here.session.panel?.model != nil { Task { try? await here.session.press("\u{1b}") } }
+        }
       }
       if let context = agent.context ?? details?.context {
         Text("\(Int(context.pct))%").font(.caption.monospacedDigit()).foregroundStyle(context.level == "ok" ? look.faint : context.level == "full" ? look.danger : look.waiting)
@@ -398,12 +393,113 @@ private struct StatusLine: View {
     .padding(.horizontal, 6)
     .padding(.top, 2)
     .frame(maxWidth: .infinity, alignment: .leading)
+    .accessibilityElement(children: .contain)
     .accessibilityIdentifier("status-line")
   }
 
   private var words: String {
     if agent.status == "waiting" { return agent.needs ?? "waiting for you" }
     return agent.doing == agent.status ? statusWord(agent) : agent.doing
+  }
+}
+
+/// The models to change to, by name: Claude Code's own list, which /model draws on the agent's
+/// screen and the app reads off it. A tap changes the model of this session; the effort is changed
+/// with the two arrows; the list unfolds as Claude Code's does.
+private struct ModelList: View {
+  let session: AgentSession
+  let mode: String?
+  var terminal: (() -> Void)?
+  let close: () -> Void
+  @Environment(\.look) private var look
+  @State private var problem: String?
+  /// the list was on the screen: gone again, a model was picked
+  @State private var seen = false
+
+  var body: some View {
+    let panel = session.panel.flatMap { $0.model == nil ? nil : $0 }
+    VStack(alignment: .leading, spacing: 10) {
+      Text("Model").font(.headline).foregroundStyle(look.bright)
+      if let panel {
+        ScrollView {
+          VStack(spacing: 2) {
+            ForEach(Array(panel.options.enumerated()), id: \.offset) { i, option in
+              Button { press(option.keys) } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                  VStack(alignment: .leading, spacing: 2) {
+                    Text(option.label).font(.subheadline.weight(.medium)).foregroundStyle(look.text)
+                    if !option.detail.isEmpty { Text(option.detail).font(.caption).foregroundStyle(look.dim).multilineTextAlignment(.leading) }
+                  }
+                  Spacer(minLength: 0)
+                  if option.checked { Image(systemName: "checkmark").font(.footnote.weight(.bold)).foregroundStyle(look.accent) }
+                }
+                .padding(.vertical, 7).padding(.horizontal, 8).contentShape(Rectangle())
+              }
+              .buttonStyle(.plain)
+              .accessibilityIdentifier("model-option-\(i + 1)")
+            }
+          }
+        }
+        .frame(maxHeight: 340)
+        if let effort = panel.model?.effort {
+          HStack(spacing: 10) {
+            Text(effort).font(.subheadline).foregroundStyle(look.text)
+            Spacer(minLength: 0)
+            Button("Less effort", systemImage: "minus") { press("\u{1b}[D") }.accessibilityIdentifier("effort-less")
+            Button("More effort", systemImage: "plus") { press("\u{1b}[C") }.accessibilityIdentifier("effort-more")
+          }
+          .labelStyle(.iconOnly).buttonStyle(.bordered).controlSize(.small).padding(.horizontal, 8)
+        }
+        Text("For this session.").font(.caption2).foregroundStyle(look.faint).padding(.horizontal, 8)
+      } else if let problem {
+        Text(problem).font(.subheadline).foregroundStyle(look.dim)
+        if let terminal {
+          Button("Its terminal", systemImage: "apple.terminal") {
+            close()
+            terminal()
+          }
+          .buttonStyle(.bordered)
+        }
+      } else {
+        ProgressView("Reading its models…").frame(maxWidth: .infinity).padding(.vertical, 18)
+      }
+      if let mode {
+        Divider()
+        // Shift+Tab goes to the input box, not to the list: Esc first
+        Button("Mode: \(mode). Next (⇧Tab)", systemImage: "arrow.triangle.2.circlepath") {
+          Task {
+            if session.panel?.model != nil {
+              try? await session.press("\u{1b}")
+              try? await Task.sleep(for: .milliseconds(400))
+            }
+            try? await session.press("\u{1b}[Z")
+          }
+          close()
+        }
+        .font(.footnote).foregroundStyle(look.dim).buttonStyle(.plain).padding(.horizontal, 8).accessibilityIdentifier("next-mode")
+      }
+    }
+    .padding(14)
+    .frame(width: 310, alignment: .leading)
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("model-list")
+    .task {
+      // a list left on the screen is the one to show; otherwise it is asked for
+      if session.panel?.model == nil {
+        do { try await session.command("/model") } catch { problem = error.localizedDescription }
+      }
+      try? await Task.sleep(for: .seconds(10))
+      if !seen, problem == nil { problem = "Its list of models did not show up. Its terminal shows why." }
+    }
+    // over the plots or the review nothing else reads the agent's screen
+    .task { await session.watchScreen() }
+    .onChange(of: panel != nil, initial: true) { _, up in
+      if up { seen = true } else if seen { close() }
+    }
+  }
+
+  private func press(_ keys: String) {
+    Task { try? await session.press(keys) }
   }
 }
 
@@ -418,13 +514,15 @@ private struct PanelCard: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      ForEach(Array(panel.text.enumerated()), id: \.offset) { i, line in
-        Text(line).font(i == panel.text.count - 1 ? .subheadline.weight(.semibold) : .footnote).foregroundStyle(i == panel.text.count - 1 ? look.bright : look.dim)
+      // the list of models says above its rows how Enter saves the pick, which a tap here does not do
+      let text = panel.model == nil ? panel.text : Array(panel.text.prefix(1))
+      ForEach(Array(text.enumerated()), id: \.offset) { i, line in
+        Text(line).font(i == text.count - 1 ? .subheadline.weight(.semibold) : .footnote).foregroundStyle(i == text.count - 1 ? look.bright : look.dim)
       }
       // as tall as its rows; a long list scrolls
       if panel.options.count > 5 { ScrollView { rows }.frame(maxHeight: 280) } else { rows }
       HStack(spacing: 10) {
-        Text(panel.hint.joined(separator: " ")).font(.caption2).foregroundStyle(look.faint).lineLimit(2)
+        Text(panel.model == nil ? panel.hint.joined(separator: " ") : "For this session.").font(.caption2).foregroundStyle(look.faint).lineLimit(2)
         Spacer(minLength: 0)
         Button("esc") { press("\u{1b}") }.font(.footnote.monospaced()).buttonStyle(.bordered).controlSize(.small).accessibilityLabel("Escape")
         Button("Its terminal", systemImage: "apple.terminal", action: terminal).labelStyle(.iconOnly).buttonStyle(.bordered).controlSize(.small)
@@ -484,8 +582,6 @@ private struct ChatRow: View {
   var pending = false
   /// the conversation's last row, in a turn that is not over
   var last = false
-  /// opens a text to select from
-  let select: (String) -> Void
   @Environment(\.look) private var look
   @State private var unfolded = false
 
@@ -507,14 +603,14 @@ private struct ChatRow: View {
     case "user":
       HStack {
         Spacer(minLength: 44)
-        Text(item.text).font(item.text.hasPrefix("/") ? .body.monospaced() : .body).foregroundStyle(look.bright).padding(.horizontal, 13).padding(.vertical, 9)
+        SelectableText(item.text, font: item.text.hasPrefix("/") ? .monospacedSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular) : .preferredFont(forTextStyle: .body), color: look.bright)
+          .padding(.horizontal, 13).padding(.vertical, 9)
           .background(look.raised.tint(look.accent, 0.3), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
           .opacity(pending ? 0.55 : 1)
-          .contextMenu { copying }
       }
       .padding(.top, 6)
     case "assistant":
-      MarkdownText(item.text).frame(maxWidth: .infinity, alignment: .leading).contextMenu { copying }
+      MarkdownText(item.text).frame(maxWidth: .infinity, alignment: .leading)
     case "limit": banner("hourglass", "Usage limit", look.waiting)
     case "error": banner("exclamationmark.triangle.fill", "The request failed", look.danger)
     case "thinking":
@@ -529,7 +625,7 @@ private struct ChatRow: View {
         }
         .buttonStyle(.plain)
         if unfolded {
-          Text(item.text).font(.footnote).italic().foregroundStyle(look.dim).textSelection(.enabled).padding(.leading, 12)
+          SelectableText(item.text, font: .preferredFont(forTextStyle: .footnote).with(.traitItalic), color: look.dim).padding(.leading, 12)
             .overlay(alignment: .leading) { Rectangle().fill(look.line).frame(width: 2) }
         }
       }
@@ -570,20 +666,13 @@ private struct ChatRow: View {
     }
   }
 
-  /// A long press: the whole text copied, or opened to select a part of it.
-  @ViewBuilder
-  private var copying: some View {
-    Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = item.text }
-    Button("Select text", systemImage: "selection.pin.in.out") { select(item.text) }
-  }
-
   /// What Claude Code says in the agent's place, in the colour of what it means for you.
   private func banner(_ symbol: String, _ title: String, _ color: Color) -> some View {
     HStack(alignment: .firstTextBaseline, spacing: 10) {
       Image(systemName: symbol).foregroundStyle(color)
       VStack(alignment: .leading, spacing: 3) {
         Text(title).font(.footnote.weight(.semibold)).foregroundStyle(color)
-        Text(item.text).font(.subheadline).foregroundStyle(look.text).textSelection(.enabled)
+        SelectableText(item.text, font: .preferredFont(forTextStyle: .subheadline), color: look.text)
       }
       Spacer(minLength: 0)
     }
