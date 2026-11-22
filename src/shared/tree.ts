@@ -115,6 +115,17 @@ export function agentCounts(projects: Project[], agents: AgentRuntime[], hosts: 
   return counts
 }
 
+/** The agents under each project, whatever is rolled in: what its row counts as waiting, working and failed. */
+export function agentsByProject(projects: Project[], agents: AgentRuntime[], hosts: Record<string, HostState>): Map<string, AgentRuntime[]> {
+  const by = new Map<string, AgentRuntime[]>()
+  for (const [k, list] of assignAgents(projects, agents, hosts)) {
+    // keys are "project:folder"; neither id holds a colon
+    const pid = k.slice(0, k.indexOf(':'))
+    by.set(pid, [...(by.get(pid) ?? []), ...list])
+  }
+  return by
+}
+
 /** Folder (and its project) an agent is shown under, for colouring tabs. */
 export function folderOfAgent(
   projects: Project[],

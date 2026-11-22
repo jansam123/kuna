@@ -59,7 +59,7 @@ Working, waiting on a job, needs you, idle or failed, and what it's running righ
 
 ![Context gauges in the sidebar and the Compact button](docs/images/context-warning.png)
 
-**Also in the box:** a browser for `.claude` skills, agents and settings (⌘K) · six dark colour schemes · LaTeX in project names · drag to arrange · your iTerm2 and VS Code fonts · open panes come back after a restart · gentle on shared cluster login nodes.
+**Also in the box:** a browser for `.claude` skills, agents and settings (⌘K) · six dark colour schemes · an icon and a colour for every project, particle physics included · LaTeX in project names · drag to arrange · your iTerm2 and VS Code fonts · open panes come back after a restart · gentle on shared cluster login nodes.
 
 ## Install
 

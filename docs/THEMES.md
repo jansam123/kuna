@@ -6,9 +6,9 @@ Every scheme follows the same rules, so you can switch without relearning anythi
 - **The chrome is a tinted near-black** one or two steps above black, so panes read as windows sitting on a surface.
 - **One accent family** marks focus and selection; a second hue marks **typing mode**, so you always know whether keys go to an agent.
 - **Status and notification colours are the same in every scheme**, so they never mix with a scheme's accent: blue `#4d8dff` working (a hollow blue ring: waiting on a job of its own), amber `#ffb547` needs you, grey `#6b7488` idle, red `#ff5a6e` failed, hollow `#3a4152` stopped, cyan `#6fe3ff` unread.
-- **Project and folder colours** (the rail on each pane, the square next to each folder) are the same 24 hues in every scheme, so a repo keeps its colour when you switch.
+- **Project and folder colours** (a project's icon, header and rows in the sidebar, the rail on each pane, the square next to each folder) are the same 24 hues in every scheme, so a repo keeps its colour when you switch.
 
-Switch with **⌘,** — ↑ ↓ previews live.
+Switch in the settings, **⌘,**: the colour scheme is the first row, and ← → try the previous or next one live.
 
 ## Cherenkov (default)
 

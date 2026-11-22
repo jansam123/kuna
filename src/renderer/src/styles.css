@@ -295,26 +295,53 @@ body.resizing .main {
   white-space: nowrap;
   cursor: default;
 }
+/* A project is one block in its colour (--proj, set on each of its rows): a spine at the sidebar's edge through the
+   header and its rows, the header's colour fading to the right, the rows on a faint tint of the same colour. */
 .row-project {
+  height: 30px;
+  margin-top: 10px;
   padding-left: 10px;
-  margin-top: 8px;
-  height: 28px;
+  gap: 9px;
+  border-left: 3px solid var(--proj);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--proj) 24%, var(--panel)), color-mix(in srgb, var(--proj) 6%, var(--panel)));
+  /* stays in view while its rows scroll under it; the shadow covers them in the space above it */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  box-shadow: 0 -10px 0 var(--panel);
 }
 .row-project:first-child {
   margin-top: 0;
 }
+.row-project:hover,
+.row-project.sel {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--proj) 32%, var(--raised)), color-mix(in srgb, var(--proj) 10%, var(--raised)));
+}
+.row-project.sel {
+  box-shadow:
+    0 -10px 0 var(--panel),
+    inset 0 0 0 1px color-mix(in srgb, var(--proj) 55%, transparent);
+}
+.row-folder,
+.row-agent,
+.agent-need {
+  border-left: 3px solid color-mix(in srgb, var(--proj) 45%, var(--panel));
+  background: color-mix(in srgb, var(--proj) 5%, var(--panel));
+}
 .row-folder {
-  padding-left: 26px;
+  padding-left: 23px;
 }
 .row-agent {
-  padding-left: 42px;
+  padding-left: 39px;
   height: 24px;
 }
-.row:hover {
-  background: color-mix(in srgb, var(--raised) 60%, transparent);
+.row-folder:hover,
+.row-agent:hover {
+  background: color-mix(in srgb, var(--proj) 10%, var(--panel));
 }
-.row.sel {
-  background: var(--raised);
+.row-folder.sel,
+.row-agent.sel {
+  background: color-mix(in srgb, var(--proj) 15%, var(--panel));
 }
 .row.sel-focus::before {
   content: '';
@@ -333,11 +360,12 @@ body.resizing .main {
   color: var(--danger);
 }
 
-/* roll-out arrows, in the project's colour */
+/* roll-out arrows: grey, so a colour is a project and blue is an agent working */
 .chev {
   width: 14px;
   height: 14px;
   flex: none;
+  color: var(--faint);
   transition: transform 0.12s ease-out;
 }
 .chev.open {
@@ -349,6 +377,73 @@ body.resizing .main {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* the project's icon, in its colour (ProjectIcon.tsx) */
+.proj-tile {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  color: var(--proj);
+  font-size: 15px;
+}
+.proj-icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* a letter as the icon: a particle's name in the math font, or the project's initial */
+.proj-icon.glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: italic 1.1em/1 KaTeX_Math, 'Times New Roman', serif;
+}
+.proj-icon.glyph.initial {
+  font: 700 0.85em/1 var(--ui);
+}
+/* the right end of a project's row: its agents in numbers, its buttons, its arrow */
+.proj-right {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+}
+.proj-right .chev {
+  width: 11px;
+  height: 11px;
+}
+.rollup {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font: var(--fs-mono) var(--mono);
+}
+.rollup:empty {
+  display: none;
+}
+.roll {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.roll i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.roll-waiting {
+  color: var(--waiting);
+}
+.roll-working {
+  color: var(--working);
+}
+.roll-failed {
+  color: var(--danger);
+}
 .row-actions {
   margin-left: auto;
   display: none;
@@ -356,6 +451,9 @@ body.resizing .main {
 }
 .row:hover .row-actions {
   display: flex;
+}
+.proj-right .row-actions {
+  margin-left: 0;
 }
 .row-actions button,
 button.mini {
@@ -371,14 +469,23 @@ button.mini {
   color: var(--waiting);
 }
 
+/* beside a long name the host gives way first, with an ellipsis */
 .host-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  flex-shrink: 100;
+  min-width: 0;
   font: var(--fs-mono) var(--mono);
-  color: var(--faint);
+  color: color-mix(in srgb, var(--proj) 35%, var(--dim));
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.host-badge i {
+  display: inline-block;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+/* this Mac is the usual place: named only while something is wrong with it */
+.host-local.host-ready {
+  display: none;
 }
 .host-badge i,
 .sb-host i {
@@ -466,8 +573,9 @@ button.mini {
 }
 .agent-need,
 .agent-detail {
-  margin: -3px 0 3px;
-  padding: 0 10px 0 60px;
+  /* tucked under its agent's row; its own space below is padding, so the project's edge and tint have no gap */
+  margin: -3px 0 0;
+  padding: 0 10px 3px 57px;
   font-size: var(--fs-small);
   line-height: 1.35;
   overflow: hidden;
@@ -477,6 +585,8 @@ button.mini {
 }
 .agent-need {
   color: var(--waiting);
+  /* its first 3px lie over the agent's row: left clear, so that row's highlight shows whole */
+  background: linear-gradient(transparent 3px, color-mix(in srgb, var(--proj) 5%, var(--panel)) 3px);
 }
 .agent-detail {
   color: var(--faint);
@@ -501,6 +611,67 @@ button.mini {
 /* filled: a pane in this window; hollow: in another window */
 .open-mark.here {
   background: var(--dim);
+}
+
+/* the projects' icons in a column beside the list, to jump with (Settings) */
+.sidebar.with-strip {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  grid-template-rows: 44px minmax(0, 1fr);
+}
+.sidebar.with-strip .brand {
+  grid-column: 1 / -1;
+}
+.proj-strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 0 12px;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+}
+.proj-strip::-webkit-scrollbar {
+  display: none;
+}
+.strip-btn {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 6px;
+  border: 0;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--proj) 16%, transparent);
+  color: var(--proj);
+  font-size: 17px;
+}
+.strip-btn.on {
+  background: var(--proj);
+  color: var(--ground);
+}
+.strip-btn.on::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--text);
+}
+.strip-btn b {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: var(--waiting);
+  color: #000;
+  font: 700 9px/15px var(--mono);
+  box-shadow: 0 0 0 2px var(--panel);
 }
 
 .empty-side {
@@ -1477,6 +1648,36 @@ button.mini {
 .swatch-btn.on {
   border-color: var(--text);
 }
+/* a project's icon, picked under its colour and drawn in it */
+.icon-pick {
+  margin-top: 12px;
+}
+.icon-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-top: 6px;
+}
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  padding: 5px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 16px;
+}
+.icon-btn:hover {
+  background: var(--raised);
+}
+.icon-btn.on {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  border-color: currentColor;
+}
+.dialog .icon-grid input {
+  width: 90px;
+  height: 28px;
+  margin: 0 0 0 6px;
+}
 
 /* themes */
 .themes {
@@ -1531,30 +1732,64 @@ button.mini {
   font-size: var(--fs-small);
   margin-top: 2px;
 }
-.font-row {
+/* settings: sections of rows, one setting a row, the one the keys act on lit */
+.set-section {
+  margin: 20px 0 6px;
+  font: var(--fs-mono) var(--mono);
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.set-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 18px;
+  gap: 16px;
+  min-height: 40px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  box-shadow: inset 2px 0 0 transparent;
 }
-.font-row button {
+.set-row.on {
+  background: var(--raised);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.set-row.tall {
+  display: block;
+  padding-bottom: 12px;
+}
+.set-row.tall .set-text {
+  margin-bottom: 10px;
+}
+.set-text {
+  flex: 1;
+  min-width: 0;
+}
+.set-hint {
+  color: var(--dim);
+  font-size: var(--fs-small);
+}
+.set-control {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+.set-control button {
   padding: 2px 10px;
 }
-.font-row button.on {
+.set-control button.on {
   border-color: var(--accent);
   color: var(--text);
+  background: color-mix(in srgb, var(--accent) 16%, var(--raised));
 }
-.dialog label.check-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 14px;
-  color: var(--text);
-  font-size: var(--fs);
+.set-control .mono {
+  min-width: 52px;
+  text-align: center;
 }
-.check-row input {
-  width: auto;
-  accent-color: var(--accent);
+.set-control button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--dim);
 }
 
 /* help */

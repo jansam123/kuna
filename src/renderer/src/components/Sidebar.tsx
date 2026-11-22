@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { dropPlan, moveFolderTo, moveProjectTo, placeAgent, type DropWhere, type RowRef } from '@shared/arrange'
-import { LOCAL_HOST, type HostState } from '@shared/types'
+import { LOCAL_HOST, type AgentRuntime, type HostState } from '@shared/types'
+import { texToText } from '@shared/tex'
 import { activateSelection } from '../actions'
 import { agentTitle, ago, contextOf, doingText, needsText, shortPath, tokens } from '../format'
 import { arrange, get, isUnread, set, toggleCollapsed, toggleFolder, useKuna } from '../store'
-import { OTHER_FOLDER_ID, agentCounts, assignAgents, buildTree, folderOfAgent, type TreeNode } from '@shared/tree'
+import { OTHER_FOLDER_ID, agentCounts, agentsByProject, assignAgents, buildTree, folderOfAgent, type TreeNode } from '@shared/tree'
+import { ProjectIcon } from './ProjectIcon'
 import { StatusDot } from './StatusDot'
 import { TexText } from './TexText'
 
-/** Roll-out arrow of a project or folder row, in the project's colour; turns down when open. */
-function Chevron({ open, color, small, hidden }: { open: boolean; color: string; small?: boolean; hidden?: boolean }): React.JSX.Element {
+/** Roll-out arrow of a project or folder row; turns down when open. */
+function Chevron({ open, small, hidden }: { open: boolean; small?: boolean; hidden?: boolean }): React.JSX.Element {
   return (
-    <svg className={`chev ${small ? 'small' : ''} ${open ? 'open' : ''}`} viewBox="0 0 10 10" style={{ color, visibility: hidden ? 'hidden' : undefined }} aria-hidden>
+    <svg className={`chev ${small ? 'small' : ''} ${open ? 'open' : ''}`} viewBox="0 0 10 10" style={{ visibility: hidden ? 'hidden' : undefined }} aria-hidden>
       <path d="M3.2 1.6 L6.8 5 L3.2 8.4" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
@@ -27,10 +29,56 @@ function HostBadge({ host, state }: { host: string; state?: HostState }): React.
         ? `Sign-in needed: ${state?.error ?? ''}`
         : (state?.error ?? status)
   return (
-    <span className={`host-badge host-${status}`} title={title}>
+    <span className={`host-badge host-${status} ${host === LOCAL_HOST ? 'host-local' : ''}`} title={title}>
       <i />
       {label}
     </span>
+  )
+}
+
+/** What a project's agents are up to, in numbers: the ones waiting for you, the ones working, the ones that failed. */
+function Rollup({ agents }: { agents: AgentRuntime[] }): React.JSX.Element {
+  const n = (...st: string[]): number => agents.filter((a) => st.includes(a.status)).length
+  const parts = [
+    ['waiting', n('waiting'), 'waiting for you'],
+    ['working', n('working', 'background', 'starting'), 'working'],
+    ['failed', n('failed'), 'failed']
+  ] as const
+  return (
+    <span className="rollup">
+      {parts.map(([st, c, what]) =>
+        c ? (
+          <span key={st} className={`roll roll-${st}`} title={`${c} ${what}`}>
+            <i />
+            {c}
+          </span>
+        ) : null
+      )}
+    </span>
+  )
+}
+
+/** The projects' icons in a column, to jump with (Settings); the lit one holds the selection, a number says how many agents wait for you. */
+function ProjectStrip({ byProject, current }: { byProject: Map<string, AgentRuntime[]>; current?: string }): React.JSX.Element {
+  const projects = useKuna((s) => s.projects)
+  return (
+    <div className="proj-strip">
+      {projects.map((p) => {
+        const waiting = (byProject.get(p.id) ?? []).filter((a) => a.status === 'waiting').length
+        return (
+          <button
+            key={p.id}
+            className={`strip-btn ${p.id === current ? 'on' : ''}`}
+            style={{ '--proj': p.color } as React.CSSProperties}
+            title={texToText(p.name)}
+            onClick={() => (p.collapsed && toggleCollapsed(p.id), set({ sel: `p:${p.id}`, zone: 'sidebar', mode: 'nav' }))}
+          >
+            <ProjectIcon icon={p.icon} name={texToText(p.name)} />
+            {waiting > 0 && <b>{waiting}</b>}
+          </button>
+        )
+      })}
+    </div>
   )
 }
 
@@ -69,6 +117,7 @@ function Row({
   selected,
   focused,
   count,
+  mine,
   dnd,
   drop
 }: {
@@ -76,6 +125,8 @@ function Row({
   selected: boolean
   focused: boolean
   count?: number
+  /** a project row: the agents under it */
+  mine?: AgentRuntime[]
   dnd: RowDnd
   drop?: DropWhere
 }): React.JSX.Element {
@@ -89,6 +140,8 @@ function Row({
   useEffect(() => {
     if (selected) ref.current?.scrollIntoView({ block: 'nearest' })
   }, [selected])
+  // the project's colour: its icon, its header, the edge and the tint of its rows
+  const tint = { '--proj': node.project.color } as React.CSSProperties
 
   const cls = ['row', `row-${node.kind}`, selected && 'sel', selected && focused && 'sel-focus', armed && 'armed', drop && `drop-${drop}`]
     .filter(Boolean)
@@ -107,29 +160,35 @@ function Row({
   if (node.kind === 'project') {
     const h = hosts[node.project.host]
     return (
-      <div ref={ref} className={cls} onClick={onClick} {...dnd}>
-        <Chevron open={!node.project.collapsed} color={node.project.color} />
+      <div ref={ref} className={cls} style={tint} onClick={onClick} {...dnd}>
+        <span className="proj-tile">
+          <ProjectIcon icon={node.project.icon} name={texToText(node.project.name)} />
+        </span>
         <span className="proj-name">
           <TexText text={node.project.name} bold />
         </span>
         <HostBadge host={node.project.host} state={h} />
-        {h?.status === 'auth' && (
-          <button className="mini" onClick={(e) => (e.stopPropagation(), set({ overlay: { kind: 'login', host: node.project.host } }))}>
-            Sign in
-          </button>
-        )}
-        {h?.status === 'error' && (
-          <button className="mini" onClick={(e) => (e.stopPropagation(), void window.kuna.hosts.reconnect(node.project.host))}>
-            Retry
-          </button>
-        )}
-        <span className="row-actions">
-          <button title="Add folder (⌘O)" onClick={(e) => (e.stopPropagation(), set({ overlay: { kind: 'folder', projectId: node.project.id } }))}>
-            +
-          </button>
-          <button title="Rename or edit the project (⌘R)" onClick={(e) => (e.stopPropagation(), set({ overlay: { kind: 'project', editId: node.project.id } }))}>
-            ⋯
-          </button>
+        <span className="proj-right">
+          <Rollup agents={mine ?? []} />
+          {h?.status === 'auth' && (
+            <button className="mini" onClick={(e) => (e.stopPropagation(), set({ overlay: { kind: 'login', host: node.project.host } }))}>
+              Sign in
+            </button>
+          )}
+          {h?.status === 'error' && (
+            <button className="mini" onClick={(e) => (e.stopPropagation(), void window.kuna.hosts.reconnect(node.project.host))}>
+              Retry
+            </button>
+          )}
+          <span className="row-actions">
+            <button title="Add folder (⌘O)" onClick={(e) => (e.stopPropagation(), set({ overlay: { kind: 'folder', projectId: node.project.id } }))}>
+              +
+            </button>
+            <button title="Name, colour, icon and host of the project (⌘R)" onClick={(e) => (e.stopPropagation(), set({ overlay: { kind: 'project', editId: node.project.id } }))}>
+              ⋯
+            </button>
+          </span>
+          <Chevron open={!node.project.collapsed} />
         </span>
       </div>
     )
@@ -137,8 +196,8 @@ function Row({
 
   if (node.kind === 'folder') {
     return (
-      <div ref={ref} className={cls} onClick={onClick} title={node.folder.path} {...dnd}>
-        <Chevron open={!node.folder.collapsed} color={node.project.color} small hidden={!count} />
+      <div ref={ref} className={cls} style={tint} onClick={onClick} title={node.folder.path} {...dnd}>
+        <Chevron open={!node.folder.collapsed} small hidden={!count} />
         <span className="swatch" style={{ background: node.folder.color }} />
         <span className="folder-name">
           <TexText text={node.folder.name} />
@@ -177,7 +236,7 @@ function Row({
     .join('\n')
   return (
     <>
-      <div ref={ref} className={`${cls} st-${a.status}`} onClick={onClick} onDoubleClick={onDouble} title={tip} {...dnd}>
+      <div ref={ref} className={`${cls} st-${a.status}`} style={tint} onClick={onClick} onDoubleClick={onDouble} title={tip} {...dnd}>
         <StatusDot status={a.status} />
         <span className={`agent-name ${unread ? 'unread' : ''}`}>
           {armed ? (a.kind === 'claude' && a.alive ? 'Ctrl+X again to stop' : 'Ctrl+X again to remove') : agentTitle(a, details)}
@@ -200,7 +259,7 @@ function Row({
         </span>
       </div>
       {need && (
-        <div className="agent-need" onClick={onClick} onDoubleClick={onDouble} title={need}>
+        <div className="agent-need" style={tint} onClick={onClick} onDoubleClick={onDouble} title={need}>
           {need}
         </div>
       )}
@@ -218,6 +277,8 @@ export function Sidebar(): React.JSX.Element {
   useKuna((s) => s.names)
   const nodes = useMemo(() => buildTree(projects, Object.values(agents), hosts), [projects, agents, hosts])
   const counts = useMemo(() => agentCounts(projects, Object.values(agents), hosts), [projects, agents, hosts])
+  const strip = useKuna((s) => !!s.settings.projectStrip)
+  const byProject = useMemo(() => agentsByProject(projects, Object.values(agents), hosts), [projects, agents, hosts])
 
   // where a dragged row would land: a line above/below a row, or the row lit up ("into")
   const [dropAt, setDropAt] = useState<{ id: string; where: DropWhere } | null>(null)
@@ -268,10 +329,11 @@ export function Sidebar(): React.JSX.Element {
   }, [nodes, sel])
 
   return (
-    <div className="sidebar">
+    <div className={`sidebar ${strip ? 'with-strip' : ''}`}>
       <div className="brand">
         <span className="brand-mark">kuna</span>
       </div>
+      {strip && <ProjectStrip byProject={byProject} current={nodes.find((n) => n.id === sel)?.project.id} />}
       <div className="tree" role="tree">
         {nodes.map((n) => (
           <Row
@@ -280,6 +342,7 @@ export function Sidebar(): React.JSX.Element {
             selected={n.id === sel}
             focused={zone === 'sidebar'}
             count={n.kind === 'folder' ? counts.get(`${n.project.id}:${n.folder.id}`) : undefined}
+            mine={n.kind === 'project' ? byProject.get(n.project.id) : undefined}
             dnd={dndFor(n)}
             drop={dropAt?.id === n.id ? dropAt.where : undefined}
           />

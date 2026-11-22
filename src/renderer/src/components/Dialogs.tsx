@@ -6,6 +6,7 @@ import { agentTitle } from '../format'
 import { addFolder, addProject, removeFolder, removeProject, renameAgent, set, toast, updateFolder, updateProject, useKuna } from '../store'
 import { REPO_COLORS } from '../themes'
 import { closeOverlay, useOverlayKeys } from './Overlays'
+import { GLYPHS, HEP_ICONS, ICONS, ProjectIcon } from './ProjectIcon'
 import { TexText } from './TexText'
 
 export function ProjectDialog({ editId }: { editId?: string }): React.JSX.Element {
@@ -16,6 +17,7 @@ export function ProjectDialog({ editId }: { editId?: string }): React.JSX.Elemen
   const [hostFilter, setHostFilter] = useState('')
   const [command, setCommand] = useState(editing?.agentCommand ?? 'claude')
   const [color, setColor] = useState(editing?.color ?? '')
+  const [icon, setIcon] = useState(editing?.icon ?? '')
   const [launch, setLaunch] = useState<'background' | 'tmux'>(editing?.launch ?? 'background')
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -38,10 +40,10 @@ export function ProjectDialog({ editId }: { editId?: string }): React.JSX.Elemen
   const save = (): void => {
     const n = name.trim() || (host === LOCAL_HOST ? 'Local' : host)
     if (editing) {
-      updateProject(editing.id, { name: n, host, agentCommand: command.trim() || 'claude', launch, ...(color ? { color } : {}) })
+      updateProject(editing.id, { name: n, host, agentCommand: command.trim() || 'claude', launch, icon: icon.trim() || undefined, ...(color ? { color } : {}) })
     } else {
       const p = addProject({ name: n, host, agentCommand: command.trim() || 'claude' })
-      updateProject(p.id, { launch, ...(color ? { color } : {}) })
+      updateProject(p.id, { launch, icon: icon.trim() || undefined, ...(color ? { color } : {}) })
       set({ overlay: { kind: 'folder', projectId: p.id } })
       return
     }
@@ -112,6 +114,29 @@ export function ProjectDialog({ editId }: { editId?: string }): React.JSX.Elemen
         <div className="swatches">
           {REPO_COLORS.map((c) => (
             <button key={c} className={`swatch-btn ${(color || editing?.color) === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setColor(c)} aria-label={`Colour ${c}`} />
+          ))}
+        </div>
+        <div className="icon-pick" style={{ color: color || editing?.color || 'var(--dim)' }}>
+          {(
+            [
+              ['Icon: particle physics', Object.keys(ICONS).slice(0, HEP_ICONS)],
+              ['Everything else', Object.keys(ICONS).slice(HEP_ICONS)],
+              ['A letter', GLYPHS]
+            ] as const
+          ).map(([title, names]) => (
+            <div key={title}>
+              <span className="field-note">{title}</span>
+              <div className="icon-grid">
+                {names.map((k) => (
+                  <button key={k} className={`icon-btn ${icon === k ? 'on' : ''}`} onClick={() => setIcon(icon === k ? '' : k)} title={k} aria-label={`Icon ${k}`}>
+                    <ProjectIcon icon={k} name="" />
+                  </button>
+                ))}
+                {title === 'A letter' && (
+                  <input value={ICONS[icon] ? '' : icon} onChange={(e) => setIcon([...e.target.value].slice(-2).join(''))} placeholder="or type one" aria-label="Any letter or emoji as the icon" />
+                )}
+              </div>
+            </div>
           ))}
         </div>
         <div className="dialog-actions">

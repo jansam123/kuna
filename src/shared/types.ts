@@ -21,6 +21,8 @@ export interface Project {
   name: string
   host: HostId
   color: string
+  /** an icon from the set in ProjectIcon.tsx, or any short text (μ, H, an emoji); none: the name's first letter */
+  icon?: string
   /** Command used to start new agents, e.g. `claude` or `claude --model opus`. */
   agentCommand: string
   /**
@@ -36,6 +38,8 @@ export interface Project {
 
 export interface Settings {
   theme: string
+  /** a column of the projects' icons beside the list, to jump to a project with a click */
+  projectStrip?: boolean
   /** agent terminals' font size when changed with ⌘+ / ⌘−; otherwise the detected one */
   termFontSize?: number
   /** the text size in zen mode (⇧⌘Enter) when changed there with ⌘+ / ⌘−; otherwise a little (15%) larger */

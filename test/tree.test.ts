@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { AgentRuntime, Project } from '@shared/types'
 import { dropPlan, moveFolderTo, moveProjectTo, placeAgent, pruneArranged, type RowRef } from '@shared/arrange'
-import { assignAgents, OTHER_FOLDER_ID } from '@shared/tree'
+import { agentsByProject, assignAgents, OTHER_FOLDER_ID } from '@shared/tree'
 
 const agent = (id: string, cwd: string): AgentRuntime => ({
   key: `cluster1::${id}`,
@@ -48,6 +48,11 @@ describe('placing agents under folders', () => {
     const m = assignAgents([project('/project/exp/Users/alice/analysis/fit')], agents, {})
     expect(ids(m, 'p:f')).toEqual(['cc-1', 'cc-2', 'cc-3'])
     expect(ids(m, `p:${OTHER_FOLDER_ID}`)).toEqual(['cc-4'])
+  })
+
+  it('counts a project by all its folders, "Other agents" included', () => {
+    const m = agentsByProject([project('/project/exp/Users/alice/analysis/fit')], agents, {})
+    expect(ids(m, 'p')).toEqual(['cc-1', 'cc-2', 'cc-3', 'cc-4'])
   })
 })
 

@@ -99,7 +99,7 @@ A single **Esc** goes to the agent, on a pane or while typing, as in a terminal:
 | ⌘G | review the agent's changes, as a pull request would show them (below) |
 | ⇧⌘E | browse the files of the agent's folder, or of the folder selected in the sidebar (no agent needed; the **files** button on a folder's row does the same): the review view with only its Folder list, so the same tree, editor, colours and keys as below, and no git is asked of the host. Text files are coloured by VS Code's own grammars in your VS Code theme, images are shown, and C comments on lines for the agent |
 | ⌘K | browse `.claude`: skills, agents, commands, `CLAUDE.md`, settings (Tab switches host) |
-| ⌘, | colour scheme, fonts, notifications |
+| ⌘, | settings: colour scheme, fonts, the project strip, the details panel, text sizes, how diffs are shown, notifications. ↑ ↓ pick a setting, ← → change it (on the colour scheme: the previous or next one, applied at once); Enter or Esc closes |
 | ⌘+ / ⌘− | agent font size (starts from your iTerm2 profile's) |
 | ⌘/ | this list, in the app |
 
@@ -145,7 +145,7 @@ The left side has five lists:
 | ⌘O | add a folder to the selected project (on an agent under "Other agents": its directory is suggested). Paste a whole path into it, or type with Tab completion; ↑ ↓ walk the listed folders and Enter fills the picked one in (its folders are listed next); Enter with none picked adds the path |
 | ⌘T | a terminal. On an agent (the focused pane, or its row in the sidebar) it starts in that agent's directory: its worktree if it has one, else where it was started. In the sidebar on a folder it starts in the folder (on a project: its first folder). It is your login shell on the project's host, in Kuna's tmux like an agent, so it is a row in the sidebar, keeps running when Kuna quits and can be renamed (⌘R). Typing works as in an agent's pane, except that Enter keeps typing mode (↑ is the shell's history) and Esc Esc leaves it without erasing anything. `exit` closes it; so does Ctrl+X Ctrl+X |
 | ⌥↑ / ⌥↓ | move the selected project, folder or agent up or down; keep ⌥ held to carry it further (⇧↑ / ⇧↓ work too) |
-| ⌘R | rename the selected project, folder (colour too; `$…$` math allowed) or agent |
+| ⌘R | rename the selected project, folder (colour too; `$…$` math allowed) or agent. A project also gets its icon there: one of the drawings (particle physics first), or any letter you type (μ, H, an emoji); with none, the first letter of its name |
 | ⌘⌫ | remove the selected folder or project when nothing is typed (agents keep running) |
 
 ## Mouse
@@ -165,6 +165,9 @@ Click selects; a click on a project or folder rolls it out or in, its ⋯ button
 
 | In the sidebar | Means |
 | --- | --- |
+| a block of one colour | a project: its icon and header in its colour, an edge of that colour down its folders and agents, which sit on a faint tint of it. The header stays at the top while you scroll inside the project |
+| numbers on a project's row | its agents, rolled in or not: amber waiting for you, blue working, red failed |
+| host after a project's name | where it runs. This Mac is named only while something is wrong with it |
 | blue dot | working: mid-turn. The right column says what on ("running", "editing", "subagent") |
 | hollow blue dot | between turns with work of its own: a scheduled check ("next 12:05") or jobs running ("2 jobs") |
 | amber dot | needs you: a permission prompt or a question, shown in amber under the row. Open it and press the number of your answer |
@@ -179,5 +182,7 @@ Click selects; a click on a project or folder rolls it out or in, its ⋯ button
 A pane's header shows the folder, the agent's name, how many PDFs and images Space would show, its context, model with its thinking effort ("opus 5.5 · xhigh") and status in a word ("running", "editing", "2 jobs"). What it is doing in full is in the status's tooltip and in the inspector.
 
 A tab whose agent finished or asked something since you last looked has a lit cyan header marked **new**. Landing on it (arrows, ⌘1–9, a click) clears it. A reply that arrives on the tab you are on stays marked until you leave it and come back.
+
+With **Project strip** on in the settings (⌘,), the projects' icons stand in a column beside the list: click one to jump to its project. The one holding the selection is filled, and an amber number counts its agents waiting for you.
 
 The inspector on the right (⌘B) shows the focused agent's context use, model, permission mode, token counts, task list, running subagents, recent tool calls, files it changed, and the exact command to attach from any terminal. Its **Compact** button runs `/compact` in the agent (it waits while the agent is mid-turn or asking you; anything half-typed is cleared first, and Ctrl+Y in the agent brings it back).

@@ -34,7 +34,7 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
       ['⇧Tab', "cycle the agent's permission mode"],
       ['⌘V', 'paste: into the launch box (sidebar) or the agent (pane)'],
       ['⌘.', 'interrupt the agent (sends Esc)'],
-      ['⌘R', 'rename the selected project, folder or agent'],
+      ['⌘R', 'rename the selected project (its colour and icon too), folder or agent'],
       ['⇧⌘R', 'resume an exited agent’s conversation'],
       ['⌘W', 'close the tab — the agent keeps running; back to where you opened it'],
       ['Ctrl+X Ctrl+X', 'in navigation: kill the agent · a background session: stop it, off the list'],
@@ -60,7 +60,7 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
       ['⌥ drag', 'select text in an agent; copied when you let go, ⌘C too'],
       ['⇧⌘E', "browse the files of the agent's folder (or of the selected folder), coloured as in VS Code"],
       ['⌘K', 'browse skills, agents, commands and CLAUDE.md'],
-      ['⌘,', 'colour scheme and fonts']
+      ['⌘,', 'settings: colour scheme, fonts, project strip, sizes']
     ]
   },
   {
