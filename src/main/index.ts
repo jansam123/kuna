@@ -247,12 +247,14 @@ function makeWindow(bounds: Rect | undefined, fullScreen: boolean): BrowserWindo
     if (!/^https?:\/\//i.test(params.src) || params.partition !== WEB_PARTITION) e.preventDefault()
   })
   win.webContents.on('did-attach-webview', (_e, guest) => {
-    // a link that wants a window of its own: your browser
-    guest.setWindowOpenHandler(({ url }) => {
+    // a link that wants a window of its own: your browser; a pop-up (Google's sign-in): a small window
+    // in the page's session, which hands the sign-in back to the page
+    guest.setWindowOpenHandler(({ url, disposition }) => {
+      if (disposition === 'new-window' && /^https:/.test(url))
+        return { action: 'allow', overrideBrowserWindowOptions: { width: 520, height: 680, parent: win, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } } }
       if (/^https?:/.test(url)) void shell.openExternal(url)
       return { action: 'deny' }
-    })
-    // its keys are its own, as an HTML page's: Esc gives the keyboard back
+    })    // its keys are its own, as an HTML page's: Esc gives the keyboard back
     guest.on('before-input-event', (_ev, input) => {
       if (input.type === 'keyDown' && input.key === 'Escape') win.webContents.send(IPC.pageEscape)
     })
@@ -364,10 +366,11 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_wc, permission, done, details) => done(allowed(permission, details.isMainFrame)))
   session.defaultSession.setPermissionCheckHandler((_wc, permission, _origin, details) => allowed(permission, details.isMainFrame))
   protocol.handle('kuna-page', (req) => media.servePage(req))
-  // web pages in the viewer: a browser's name (sites turn an embedded one away at sign-in), and of the
-  // permissions a page can ask for only copying to the clipboard (a page's own Copy button)
+  // web pages in the viewer and their sign-in pop-ups: a browser's name, app-wide since a pop-up takes no
+  // session's (sites turn an embedded one away at sign-in); and of the permissions a page can ask for only
+  // copying to the clipboard (a page's own Copy button)
+  app.userAgentFallback = app.userAgentFallback.replace(/ (Electron|Kuna|kuna)\/\S+/g, '')
   const web = session.fromPartition(WEB_PARTITION)
-  web.setUserAgent(web.getUserAgent().replace(/ (Electron|Kuna|kuna)\/\S+/g, ''))
   web.setPermissionRequestHandler((_wc, permission, done) => done(permission === 'clipboard-sanitized-write'))
   web.setPermissionCheckHandler((_wc, permission) => permission === 'clipboard-sanitized-write')
   // a built Kuna.app has its icon; running from source, the Dock shows Electron's otherwise

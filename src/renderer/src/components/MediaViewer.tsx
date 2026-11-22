@@ -810,7 +810,7 @@ function MediaTile({
         )}
         {web && (
           // the page itself, from the web, in a guest of its own: no way into Kuna's window, and what the main process allows a guest
-          <webview key={current.path} className="media-page" src={current.path} partition={WEB_PARTITION} onFocus={v.pageFocus} />
+          <webview key={current.path} className="media-page" src={current.path} partition={WEB_PARTITION} allowpopups onFocus={v.pageFocus} />
         )}
         {ready && current.size > SLOW_FILE &&!file?.error && !file?.url && !file?.page && !pdf && file?.html == null && (
           <div className="media-msg">
