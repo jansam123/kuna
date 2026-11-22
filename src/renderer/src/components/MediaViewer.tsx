@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { gridRows, neighbor, type Direction } from '@shared/layout'
-import { MEDIA_GROUPS, figureClass, mediaGroup, mediaPlace, viewerOrder, type FigureClass, type MediaPlace } from '@shared/media'
+import { MEDIA_GROUPS, WEB_PARTITION, figureClass, mediaGroup, mediaPlace, viewerOrder, type FigureClass, type MediaPlace } from '@shared/media'
 import type { MediaItem, MediaPage } from '@shared/types'
 import { discardTyped, leaveScroll, sendEsc } from '../actions'
 import { agentTitle, ago, bytes, doingText } from '../format'
@@ -44,7 +44,8 @@ const MIN_TILE = 160
 /** drag-and-drop type for a file of the viewer (`Dragged`) */
 const MEDIA_DRAG = 'application/x-kuna-media'
 /** where a file lives, in a word, and in a sentence */
-const PLACE: Record<MediaPlace, [string, string]> = {
+const PLACE: Record<MediaPlace | 'web', [string, string]> = {
+  web: ['web', "A web page, opened from the agent's terminal"],
   folder: ['folder', "Among the files of the agent's folder"],
   claude: ['.claude', 'In a .claude folder (plans, memory, skills), not among the files of the project'],
   tmp: ['tmp', 'In a temporary folder: gone after a restart or a cleanup'],
@@ -62,7 +63,10 @@ let tileIds = 0
 const newTile = (item: MediaItem): Tile => ({ id: ++tileIds, item, w: 1 })
 /** each agent's files side by side and the groups rolled out, until Kuna quits: Space brings them back */
 const kept = new Map<string, { tiles: Tile[]; heights: number[]; focus: number; opened: string[] }>()
-
+/** the site of a web address: `claude.ai` */
+const siteOf = (url: string): string => url.replace(/^https?:\/\//i, '').split(/[/?#]/)[0]
+/** the web pages opened from each agent's terminal (⌘click on an address), newest first, until Kuna quits */
+const webPages = new Map<string, MediaItem[]>()
 interface Loaded {
   path: string
   url?: string
@@ -367,6 +371,13 @@ const GROUP_ICON: Record<string, React.JSX.Element> = {
   ),
   pdf: <path d="M4 2h5l3 3v9H4zM9 2v3h3" />,
   html: <path d="M5.5 4.5 2.5 8l3 3.5M10.5 4.5l3 3.5-3 3.5" />,
+  // a globe
+  url: (
+    <>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M2.5 8h11M8 2.5c-3 3-3 8 0 11M8 2.5c3 3 3 8 0 11" />
+    </>
+  ),
   md: <path d="M4 2h5l3 3v9H4zM9 2v3h3M6 8.5h4M6 11h4" />
 }
 function GroupIcon({ group }: { group: string }): React.JSX.Element {
@@ -449,7 +460,7 @@ interface Dragged {
 interface TileHost {
   host: string | undefined
   rel(path: string): string
-  place(path: string): MediaPlace
+  place(path: string): MediaPlace | 'web'
   /** the group of the list a file is in */
   group(it: MediaItem): string
   note(text: string): void
@@ -506,18 +517,19 @@ function MediaTile({
 
   const prefetch = (): void => {
     // a page loads itself, from the host, when it is shown
-    if (ahead && host && ahead.kind !== 'html' && ahead.size <= PREFETCH_MAX) void window.kuna.media.fetch(host, ahead.path, stampOf(ahead))
+    if (ahead && host && ahead.kind !== 'html' && ahead.kind !== 'url' && ahead.size <= PREFETCH_MAX) void window.kuna.media.fetch(host, ahead.path, stampOf(ahead))
   }
 
   // the file itself, and the next one in the background
   useEffect(() => {
-    if (!host) return
     let url: string | undefined
     let cancelled = false
     setFile({ path: current.path })
     setPdf(null)
     setNatural(null)
     setZoom(1)
+    // a web page loads itself, from the web
+    if (!host || current.kind === 'url') return
     if (current.kind === 'html') {
       void window.kuna.media.page(host, current.path).then((res) => {
         if (cancelled) return
@@ -607,7 +619,8 @@ function MediaTile({
   const fit = base ? Math.min((stageSize.w - 2 * PAD) / base.w, (stageSize.h - 2 * PAD) / base.h, pdf ? Infinity : MAX_FIT_UPSCALE) : 1
   const scale = fit * zoom
   const md = current.kind === 'md'
-  const page = current.kind === 'html'
+  const web = current.kind === 'url'
+  const page = web || current.kind === 'html'
 
   /** Zoom by `factor`, keeping the point under (x, y) (default: the middle) where it is. */
   const zoomAt = useCallback((factor: number, x?: number, y?: number) => {
@@ -689,7 +702,7 @@ function MediaTile({
 
   const ready = file?.path === current.path
   const path = v.rel(current.path)
-  const name = path.split('/').pop()
+  const name = web ? siteOf(path) : path.split('/').pop()
   const place = v.place(current.path)
   // buttons leave the keyboard where it is
   const still = (e: React.MouseEvent): void => e.preventDefault()
@@ -733,7 +746,7 @@ function MediaTile({
         </button>
         <span className="ph-spacer" />
         <span className="media-meta">
-          {ago(current.mtime)} ago · {bytes(current.size)}
+          {web ? '⌘O opens it in your browser' : `${ago(current.mtime)} ago · ${bytes(current.size)}`}
           {page ? '' : ` · ${pdf && pdf.sizes.length > 1 ? `${pdf.sizes.length} pages · ` : ''}`}
           {page ? '' : md ? `${Math.round(zoom * 100)}%` : zoom === 1 ? 'fit' : `${zoom < 1 ? zoom.toFixed(2) : zoom.toFixed(1)}×`}
         </span>
@@ -756,9 +769,11 @@ function MediaTile({
             </button>
           </>
         )}
-        <button className="media-save" title="Save a copy in your Downloads folder (⌘S)" onMouseDown={still} onClick={() => v.save(current)}>
-          Save
-        </button>
+        {!web && (
+          <button className="media-save" title="Save a copy in your Downloads folder (⌘S)" onMouseDown={still} onClick={() => v.save(current)}>
+            Save
+          </button>
+        )}
         {!solo && (
           <button className="media-save tile-close" title="Close this file (⌘W)" onMouseDown={still} onClick={onClose}>
             ×
@@ -793,7 +808,11 @@ function MediaTile({
             }}
           />
         )}
-        {ready && current.size > SLOW_FILE && !file?.error && !file?.url && !file?.page && !pdf && file?.html == null && (
+        {web && (
+          // the page itself, from the web, in a guest of its own: no way into Kuna's window, and what the main process allows a guest
+          <webview key={current.path} className="media-page" src={current.path} partition={WEB_PARTITION} onFocus={v.pageFocus} />
+        )}
+        {ready && current.size > SLOW_FILE &&!file?.error && !file?.url && !file?.page && !pdf && file?.html == null && (
           <div className="media-msg">
             Loading {name}, {bytes(current.size)}
             {host && host !== 'local' ? `, from ${host}` : ''}…
@@ -909,7 +928,8 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
   const checkFocus = useRef(() => {})
   checkFocus.current = () => {
     const el = document.activeElement
-    const frame = el instanceof HTMLIFrameElement && el.classList.contains('media-page') ? el : null
+    // an HTML page's frame, or a web page's guest
+    const frame = el instanceof HTMLElement && el.classList.contains('media-page') ? el : null
     if (frame && Date.now() < Number(frame.dataset.until)) {
       // grabbed as the page loaded: back to whoever had it
       frame.blur()
@@ -957,7 +977,8 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
       }
       setNext((p as MediaPage['next']) ?? null)
       setBusy(null)
-      const all = viewerOrder([...have, ...fresh])
+      const web = (webPages.get(agentKey) ?? []).filter((w) => !have.includes(w))
+      const all = viewerOrder([...have, ...fresh, ...web])
       setItems(all)
       // the files shown stay, as the list now has them (a re-made plot is read again); with none shown, the first is
       setTiles((ts) => (ts.length ? ts.map((t) => ({ ...t, item: all.find((it) => it.path === t.item.path) ?? t.item })) : all[0] ? [newTile(all[0])] : ts))
@@ -996,7 +1017,7 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
   const stem = (path: string): string => path.replace(/\.[^./]+$/, '')
   const pdfs = new Map((items ?? []).filter((it) => it.kind === 'pdf').map((it) => [stem(it.path), it]))
   const groupOf = (it: MediaItem): string => {
-    if (!host || it.kind === 'md' || it.kind === 'html') return mediaGroup(it.kind)
+    if (!host || it.kind === 'md' || it.kind === 'html' || it.kind === 'url') return mediaGroup(it.kind)
     if (it.kind === 'pdf') return mediaGroup('pdf', pdfKinds.get(pdfKey(host, it)))
     // an image is what the PDF of the same name beside it is (a figure saved as both); else its name says
     const twin = pdfs.get(stem(it.path))
@@ -1015,6 +1036,20 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
       setFocus(at)
     }
   }
+
+  // ⌘click on an address in the agent's terminal (on its pane, or here beside the files): that page, where the keyboard is
+  const overlay = useKuna((s) => s.overlay)
+  useEffect(() => {
+    const url = overlay?.kind === 'media' ? overlay.url : undefined
+    if (!url) return
+    const mine = webPages.get(agentKey) ?? []
+    const it: MediaItem = mine.find((w) => w.path === url) ?? { path: url, kind: 'url', mtime: Date.now(), size: 0 }
+    webPages.set(agentKey, [it, ...mine.filter((w) => w !== it)])
+    // still loading: the list takes it from `webPages` when it comes
+    setItems((have) => (have && !have.includes(it) ? viewerOrder([...have, it]) : have))
+    show(it)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentKey, overlay])
 
   const closeTile = (at: number): void => {
     if (tiles.length <= 1) return closeOverlay()
@@ -1102,7 +1137,7 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
   const v: TileHost = {
     host,
     rel,
-    place: (p) => mediaPlace(agent?.worktree ?? agent?.cwd ?? '', p),
+    place: (p) => (/^https?:\/\//i.test(p) ? 'web' : mediaPlace(agent?.worktree ?? agent?.cwd ?? '', p)),
     group: groupOf,
     note: setNote,
     save,
@@ -1193,10 +1228,12 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
           tile?.toggleSource()
           return true
         case 'o':
-          if (current && host) void window.kuna.media.openExternal(host, current.path, stampOf(current))
+          // a web page: in your browser (the window hands it over)
+          if (current?.kind === 'url') window.open(current.path)
+          else if (current && host) void window.kuna.media.openExternal(host, current.path, stampOf(current))
           return true
         case 's':
-          if (current) save(current)
+          if (current && current.kind !== 'url') save(current)
           return true
         case 'r':
           void refresh()
@@ -1405,6 +1442,8 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
                       files.map((it) => {
                         const path = rel(it.path)
                         const cut = path.lastIndexOf('/')
+                        // a web page goes by its site, with the rest of its address after
+                        const site = it.kind === 'url' ? siteOf(path) : undefined
                         const place = v.place(it.path)
                         return (
                           <button
@@ -1428,8 +1467,8 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
                             <span className={`place place-${place}`} title={PLACE[place][1]}>
                               {PLACE[place][0]}
                             </span>
-                            <span className="mf-name">{path.slice(cut + 1)}</span>
-                            <span className="mf-dir">{cut > 0 ? path.slice(0, cut) : ''}</span>
+                            <span className="mf-name">{site ?? path.slice(cut + 1)}</span>
+                            <span className="mf-dir">{site ? path.slice(path.indexOf(site) + site.length) : cut > 0 ? path.slice(0, cut) : ''}</span>
                             <span className="mf-age">{ago(it.mtime)}</span>
                           </button>
                         )

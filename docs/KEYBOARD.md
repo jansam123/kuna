@@ -94,6 +94,7 @@ A single **Esc** goes to the agent, on a pane or while typing, as in a terminal:
 | ⌘A, ⌘C | a Markdown file: select all of it (rendered or source), copy what is selected |
 | ⌘S | save a copy in your Downloads folder (also the **Save** button; a taken name becomes `fit (1).pdf`) |
 | *click the page* | an HTML page takes the keyboard (its own keys, Space included); **Esc** gives it back to Kuna |
+| *⌘click a web address* | in an agent's terminal (on its pane, or beside the files): the page itself opens in the viewer, under **Web** in the list, where the keyboard is. An artifact's `claude.ai` link shows the published artifact; you sign in to the site once, in the page, and it stays signed in. A plain click stays the terminal's. **⌘O** opens the page in your browser. The pages stay in the agent's list until Kuna quits. An address broken over two rows is only read up to the end of its row |
 | ⌘R | read the list and the files again (reloads a page) |
 | Space or Esc | close; the agent's terminal goes back to its pane. The files side by side come back the next time, until Kuna quits |
 | ⌘G | review the agent's changes, as a pull request would show them (below) |
