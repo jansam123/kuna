@@ -171,7 +171,8 @@ private struct ProjectSection: View {
           }
         } label: {
           HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 3).fill(Color(hex: project.color)).frame(width: 6, height: 22)
+            Text(project.glyph).font(.system(size: 15, weight: .bold, design: .rounded)).foregroundStyle(.black.opacity(0.8)).frame(width: 30, height: 30)
+              .background(Color(hex: project.color), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             VStack(alignment: .leading, spacing: 1) {
               Text(project.name).font(.title3.weight(.semibold)).foregroundStyle(look.text).lineLimit(1)
               HStack(spacing: 5) {

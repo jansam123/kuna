@@ -988,7 +988,7 @@ describe('the iPhone export', () => {
         kuna: 'iphone',
         version: 1,
         exportedAt: 5,
-        projects: [proj('a', 'nikhef1', { color: 'red', evil: 1 }), proj('b', 'local'), proj('c', '-oProxyCommand=x')],
+        projects: [proj('a', 'nikhef1', { color: 'red', evil: 1, icon: 'μ' }), proj('b', 'local'), proj('c', '-oProxyCommand=x')],
         names: { 'nikhef1::ab12': 'Fit', 'not a key': 'x' },
         hidden: { 'nikhef1::cc-1234abcd': 9, 'nikhef1::ab12': 'soon' },
         theme: 'muon',
@@ -999,6 +999,7 @@ describe('the iPhone export', () => {
     expect(e.projects.map((p) => p.id)).toEqual(['a'])
     expect(e.projects[0]).not.toHaveProperty('evil')
     expect(e.projects[0].color).toBe('#4d8dff')
+    expect(e.projects[0].icon).toBe('μ')
     expect(e.names).toEqual({ 'nikhef1::ab12': 'Fit' })
     expect(e.hidden).toEqual({ 'nikhef1::cc-1234abcd': 9 })
     expect(e.hosts.map((h) => h.alias)).toEqual(['nikhef1', 'login', 'lost'])

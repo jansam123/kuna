@@ -189,6 +189,7 @@ function project(v: Json): Project | undefined {
     name: text(v.name, 200) || host,
     host,
     color: color(v.color, '#4d8dff'),
+    icon: text(v.icon, 40) || undefined,
     agentCommand: text(v.agentCommand, 1000) || 'claude',
     launch: v.launch === 'tmux' ? 'tmux' : v.launch === 'background' ? 'background' : undefined,
     folders: (Array.isArray(v.folders) ? v.folders : []).flatMap((f: Json) => folder(f) ?? []).slice(0, 500),

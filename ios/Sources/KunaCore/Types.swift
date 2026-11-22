@@ -29,6 +29,8 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
   /// a host's alias
   public var host: String
   public var color: String
+  /// a short text for its block (μ, H, an emoji), or the name of one of the Mac's drawn icons
+  public var icon: String?
   /// what starts a new agent, e.g. `claude` or `claude --model opus`
   public var agentCommand: String
   /// `background` (Claude Code's own sessions, the default for claude) or `tmux`
@@ -44,6 +46,13 @@ public struct Project: Codable, Identifiable, Hashable, Sendable {
     self.color = color
     self.agentCommand = agentCommand
     self.folders = folders
+  }
+
+  /// What its block shows: its icon when that is a letter or two (the Mac's drawn icons are
+  /// not on the phone), else the name's first letter.
+  public var glyph: String {
+    if let icon, !icon.isEmpty, icon.count <= 2 { return icon }
+    return name.trimmingCharacters(in: .whitespaces).first.map { String($0).uppercased() } ?? "?"
   }
 
   /// whether new agents are Claude Code (they get a session id, hooks and a transcript)
