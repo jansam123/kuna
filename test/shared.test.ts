@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { describeActivity, shortActivity } from '@shared/activity'
 import { baseModelId, contextInfo, contextLevel, contextWindowSize, modelFlag, shortModel } from '@shared/context'
 import { ChatLog } from '@shared/chat'
-import { compactBlocker, hasInputBox, screenState } from '@shared/input'
+import { compactBlocker, enterWatch, hasInputBox, screenState, slashTyped } from '@shared/input'
 import { parseJsonc } from '@shared/jsonc'
 import { diffLines, foldUnchanged, splitLines, type DiffRow } from '@shared/linediff'
 import { cleanTypedPath, pastePath } from '@shared/paths'
@@ -482,6 +482,45 @@ describe('typing /compact', () => {
     // the spinner's own hint is a running turn, and a reply that names the key is not a panel
     expect(screenState(['✳ Blanching… (7s · esc to interrupt)', rule, '❯ ', rule])).toBe('busy')
     expect(screenState(['● Press the Esc key to close the viewer.', rule, '❯ ', rule, '  ? for shortcuts'])).toBe('input')
+  })
+
+  it('sees a slash command in the input box, whose Enter may open a panel', () => {
+    const rule = '─'.repeat(60)
+    // Claude Code 2.1: the command between the rules, the list of commands under it
+    expect(slashTyped(['● Done.', rule + ' my session ─', '❯ /mod', rule, '  ❯ /model      Switch model', '    /effort     Set the effort level'])).toBe(true)
+    expect(slashTyped(['● Done.', rule, '❯ /model fable', rule, '  ⏵⏵ auto mode on'])).toBe(true)
+    expect(slashTyped(['╭' + rule + '╮', '│ > /config │', '╰' + rule + '╯'])).toBe(true)
+    // a prompt, a path in a prompt, the empty box
+    expect(slashTyped(['● Done.', rule, '❯ fix /usr/bin/thing', rule])).toBe(false)
+    expect(slashTyped(['● Done.', rule, '❯ ', rule])).toBe(false)
+    // a command that already ran, up in the conversation
+    expect(slashTyped(['❯ /model', '  ⎿  Kept model as Opus 5.5', '', rule, '❯ make the plot', rule])).toBe(false)
+  })
+
+  it('keeps the keyboard with the agent while an Enter may still bring a panel', () => {
+    // /model: the picker is in the screen's answer, stays for a while, and is then picked from
+    let over = enterWatch(1000)
+    expect(over(1100, false, 900)).toBe(false) // the screen hasn't answered yet
+    expect(over(1200, true, 1150)).toBe(false)
+    expect(over(9000, true, 1150)).toBe(false) // however long it is looked at
+    expect(over(9100, false, 9050)).toBe(false) // closed: the next question may follow
+    expect(over(9200, true, 9150)).toBe(false) // and did
+    expect(over(9300, false, 9250)).toBe(false)
+    expect(over(9600, false, 9250)).toBe(true)
+    // /clear: the screen answers with no panel, and none comes
+    over = enterWatch(1000)
+    expect(over(1100, false, 1050)).toBe(false)
+    expect(over(1300, false, 1250)).toBe(false)
+    expect(over(1400, false, 1350)).toBe(true)
+    // a far host: the panel comes late, and counts from the screen's answer, not from the Enter
+    over = enterWatch(1000)
+    expect(over(2500, false, 900)).toBe(false)
+    expect(over(2600, true, 2550)).toBe(false)
+    // no answer at all: given up after three seconds
+    over = enterWatch(1000)
+    expect(over(3900, false, 900)).toBe(false)
+    expect(over(4000, false, 900)).toBe(false)
+    expect(over(4300, false, 900)).toBe(true)
   })
 })
 

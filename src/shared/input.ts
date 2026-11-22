@@ -52,3 +52,36 @@ export function screenState(lines: string[]): ScreenState {
   if (/… *\([0-9]|to interrupt/.test(text)) return 'busy'
   return hasInputBox(lines) ? 'input' : 'unknown'
 }
+
+/**
+ * A slash command is in Claude Code's input box (`/model`, `/config`, `/mod`
+ * with the list of commands under it): Enter on it may open a panel instead
+ * of sending anything. The input box is the prompt line right under a rule;
+ * one further up, in the conversation, is a command that already ran.
+ */
+export function slashTyped(lines: string[]): boolean {
+  const shown = lines.filter((l) => l.trim())
+  return shown.some((l, i) => i > 0 && /─{20,}/.test(shown[i - 1]) && /^\s*(?:│\s*)?[❯>]\s+\/\S/.test(l))
+}
+
+/** A panel is drawn with the screen's answer to the Enter or right after it; one that isn't there by then isn't coming. */
+const PANEL_GRACE_MS = 300
+/** A screen that hasn't answered the Enter by now (a far host) is taken as it is. */
+const ANSWER_MS = 3000
+
+/**
+ * Was an Enter the whole story? After one that may have opened a panel (on a
+ * slash command) or brought the next question (in a panel, on a question),
+ * call the returned function now and then with the time, whether a panel or
+ * question is on the agent's screen, and when the screen last drew. It says
+ * true once the screen has answered the Enter and shown neither for a moment:
+ * the keyboard is no longer the agent's. While one is on screen it never is.
+ */
+export function enterWatch(pressed: number): (now: number, panel: boolean, lastOutput: number) => boolean {
+  let clear = 0 // since when the screen, having answered, shows no panel
+  return (now, panel, lastOutput) => {
+    if (panel) clear = 0
+    else if (!clear && (lastOutput > pressed || now - pressed >= ANSWER_MS)) clear = now
+    return clear > 0 && now - clear >= PANEL_GRACE_MS
+  }
+}

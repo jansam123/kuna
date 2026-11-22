@@ -6,7 +6,7 @@ import { MEDIA_GROUPS, WEB_PARTITION, figureClass, mediaGroup, mediaPlace, viewe
 import type { MediaItem, MediaPage } from '@shared/types'
 import { discardTyped, leaveScroll, sendEsc } from '../actions'
 import { agentTitle, ago, bytes, doingText } from '../format'
-import { escPressed, escToAgent, panelOnScreen, typeToAgent } from '../keys'
+import { enterToAgent, escPressed, escToAgent, panelOnScreen, typeToAgent } from '../keys'
 import { loadMarkdownImages, renderDiagrams, renderMarkdown } from '../markdown'
 import { get, updateSettings, useKuna } from '../store'
 import { copyTerminalSelection, disposeTerminal, fitTerminal, getTerminal, redrawAfterMove, terminalEntry, writeToAgent } from '../terminals'
@@ -1106,12 +1106,13 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
       writeToAgent(key, '\x1b\r')
       return
     }
-    const answering = panelOnScreen(key)
-    writeToAgent(key, '\r')
     const e = terminalEntry(key)
-    if (e) e.typed = 0
-    // sent: the keyboard is the files' again, as a pane leaves typing (an answer to a question stays for the next one)
-    if (!answering) e?.term.blur()
+    // sent: the keyboard is the files' again, as a pane leaves typing (a slash command's panel and a run of questions keep it)
+    enterToAgent(
+      key,
+      () => !!e && e.el.contains(document.activeElement),
+      () => e?.term.blur()
+    )
   }
 
   /** Into the agent's input box, out of tmux's scroll mode first. */

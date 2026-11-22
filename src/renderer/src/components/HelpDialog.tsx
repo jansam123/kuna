@@ -25,7 +25,7 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
       ['type, Enter', 'in the sidebar: start an agent in the selected folder (↑ ↓ pick it, ← → move in the text)'],
       ['Enter', 'nothing typed: roll a project/folder out or in · on an agent: open it'],
       ['type', 'on a tab: write to the agent (arrows edit the text)'],
-      ['Enter', 'send and return to navigation'],
+      ['Enter', 'send and return to navigation (after /model, /config…: once its panel is closed)'],
       ['⇧Enter', 'new line in the message'],
       ['Esc', "for the agent: closes Claude Code's menus, /usage (not while it works)"],
       ['Esc Esc', 'stop typing and clear what you typed'],

@@ -1,4 +1,4 @@
-import { screenState } from '@shared/input'
+import { enterWatch, screenState, slashTyped } from '@shared/input'
 import { texToText } from '@shared/tex'
 import { isShell } from '@shared/types'
 import {
@@ -529,10 +529,11 @@ function insertEnter(key: string, shift: boolean): void {
     writeToAgent(key, '\r')
     return
   }
-  const answering = panelOnScreen(key)
-  writeToAgent(key, '\r')
-  if (answering) stayWhileAsked(key)
-  else leaveInsert(false)
+  enterToAgent(
+    key,
+    () => get().mode === 'insert' && focusedKey() === key,
+    () => leaveInsert(false)
+  )
 }
 
 /** PageUp / PageDown: a page of the agent's history, as the mouse wheel scrolls it. */
@@ -541,27 +542,36 @@ function pageKey(key: string | undefined, ev: KeyboardEvent): void {
   pageAgent(key, ev.key === 'PageUp' ? -1 : 1, Boolean(get().agents[key]?.inCopyMode || terminalEntry(key)?.paged))
 }
 
+let lastEnter = 0
+
 /**
- * Enter answered a question or picked in a panel (/config): Claude Code may
- * ask the next one right away (several in a row, then "Submit answers"), and a
- * panel stays open, so typing mode stays while one is on screen and ends once
- * none is, unless the user has started typing again.
+ * Enter for an agent, which is not always the whole story. A prompt is sent
+ * and that is that: `sent` runs at once. But Enter on a slash command may open
+ * a panel (/model, /config, /resume), and Enter in a panel or on a question
+ * may bring the next one (several in a row, then "Submit answers"). Then the
+ * agent keeps the keyboard while one is on its screen, and `sent` runs once
+ * none is (picked, or closed with Esc), unless the user has started typing
+ * again. `typing` says whether the keyboard is still this agent's; once it
+ * isn't, nothing more happens.
  */
-function stayWhileAsked(key: string): void {
+export function enterToAgent(key: string, typing: () => boolean, sent: () => void): void {
   const e = terminalEntry(key)
+  const mayAsk = panelOnScreen(key) || slashTyped(screenLines(key))
+  writeToAgent(key, '\r')
   if (e) e.typed = 0
-  const started = Date.now()
+  if (!e || !mayAsk) return sent()
+  const mine = ++lastEnter
+  const over = enterWatch(Date.now())
   const check = (): void => {
-    const s = get()
-    if (s.mode !== 'insert' || focusedKey() !== key) return
-    if (!panelOnScreen(key)) {
-      if (!terminalEntry(key)?.typed) leaveInsert(false)
+    // a later Enter watches from there on
+    if (mine !== lastEnter || e.disposed || !typing()) return
+    if (!over(Date.now(), panelOnScreen(key), e.lastData ?? 0)) {
+      setTimeout(check, 100)
       return
     }
-    // still a question: the next one, or the screen hasn't caught up yet (slow host)
-    if (Date.now() - started < 3000) setTimeout(check, 300)
+    if (!e.typed) sent()
   }
-  setTimeout(check, 300)
+  setTimeout(check, 100)
 }
 
 /**

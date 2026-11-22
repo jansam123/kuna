@@ -50,7 +50,7 @@ The status bar shows which window you are in ("2/3") when there are several, and
 | ⌫ | sidebar or launch box | delete from the launch box (⌥⌫ a word, ⌘⌫ the line) |
 | *type* | pane | typing mode: the keys go to the agent; arrows edit the text |
 | Enter | pane, navigate | typing mode without typing anything (e.g. to use the agent's menus) |
-| Enter | typing | send, and return to navigate; answering one of several questions in a row, typing mode stays until none is left on screen |
+| Enter | typing | send, and return to navigate. When Enter is not the whole story, typing mode stays: a slash command that opens a panel (`/model`, `/config`, `/resume`) keeps it while the panel is open, so ↑ ↓ and Enter pick in it, and so do several questions in a row, until none is left on screen. Picking or closing the panel (Esc) returns to navigate |
 | ⇧Enter | typing / launch box | new line |
 | Esc | panes, typing | Esc for the agent: closes Claude Code's menus and panels such as `/usage` (kept while it is working, where it would interrupt) |
 | Esc Esc | typing | leave typing mode and erase what you typed this time |
@@ -82,7 +82,7 @@ A single **Esc** goes to the agent, on a pane or while typing, as in a terminal:
 | ↑ ↓, PgUp PgDn | scroll the file (PDF pages, zoomed plots); the wheel over the agent scrolls its conversation |
 | Tab, *a click on the list* | ↑ ↓ are the list's: the file above / below. Tab again, or a click on a file, and they scroll the file. The blue edge is around whichever has them |
 | Enter | give the keyboard to the agent (a click on it does too): what you type goes into its own input box. On a stopped background session Enter brings it back first |
-| Enter, *writing to the agent* | send it (Claude Code queues it if the agent is mid-turn) and the keyboard is the files' again; ⇧Enter new line |
+| Enter, *writing to the agent* | send it (Claude Code queues it if the agent is mid-turn) and the keyboard is the files' again (after a slash command that opens a panel, such as `/model`, once the panel is closed, as on a pane); ⇧Enter new line |
 | Esc Esc, *writing to the agent* | back to the files, and what you typed is taken out. A single Esc goes to the agent, as on a pane; while it shows a question, a permission prompt or a panel (`/config`, `/usage`, `/model`) every Esc goes to it |
 | ⌘P | the path of the file that has the keys, into what you are writing (so does dragging a file onto the agent) |
 | ⇧⌘C | copy the file's full path (also: a click on the path in the file's header, a right-click in the list) |
