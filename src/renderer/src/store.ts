@@ -486,6 +486,12 @@ export function toggleCollapsed(projectId: string, collapsed?: boolean): void {
   persist()
 }
 
+/** Every project and folder rolled in, or all of them out. */
+export function rollAll(collapsed: boolean): void {
+  set((s) => ({ projects: s.projects.map((p) => ({ ...p, collapsed, otherCollapsed: collapsed, folders: p.folders.map((f) => ({ ...f, collapsed })) })) }))
+  persist()
+}
+
 export function toggleFolder(projectId: string, folderId: string, collapsed?: boolean): void {
   set((s) => ({
     projects: s.projects.map((p) => {

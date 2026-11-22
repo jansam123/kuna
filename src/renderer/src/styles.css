@@ -270,14 +270,16 @@ body.resizing .main {
   width: 28px;
   height: 28px;
   padding: 5px;
-  margin-left: 10px;
-  color: var(--text);
+  margin-left: 5px;
+  color: var(--dim);
   -webkit-app-region: no-drag;
 }
-.brand-mark {
-  font: 600 var(--fs) var(--mono);
-  letter-spacing: 0.08em;
-  color: var(--faint);
+.brand-btn:hover,
+.brand-btn.on {
+  color: var(--text);
+}
+.brand-btn.on {
+  border-color: var(--faint);
 }
 
 .tree {

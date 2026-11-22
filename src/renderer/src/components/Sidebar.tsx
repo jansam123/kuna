@@ -4,7 +4,7 @@ import { LOCAL_HOST, type AgentRuntime, type HostState } from '@shared/types'
 import { texToText } from '@shared/tex'
 import { activateSelection } from '../actions'
 import { agentTitle, ago, contextOf, doingText, needsText, shortPath, tokens } from '../format'
-import { arrange, get, isUnread, set, toggleCollapsed, toggleFolder, useKuna } from '../store'
+import { arrange, get, isUnread, rollAll, set, toggleCollapsed, toggleFolder, updateSettings, useKuna } from '../store'
 import { OTHER_FOLDER_ID, agentCounts, agentsByProject, assignAgents, buildTree, folderOfAgent, type TreeNode } from '@shared/tree'
 import { ProjectIcon } from './ProjectIcon'
 import { StatusDot } from './StatusDot'
@@ -55,6 +55,44 @@ function Rollup({ agents }: { agents: AgentRuntime[] }): React.JSX.Element {
         ) : null
       )}
     </span>
+  )
+}
+
+/** The drawings of the buttons above the list, in the icons' style. */
+const TOP: Record<string, string> = {
+  new: 'M12 5v14M5 12h14',
+  in: 'M8 4l4 4 4-4M8 20l4-4 4 4',
+  out: 'M8 9l4-4 4 4M8 15l4 4 4-4',
+  details: 'M4 5h16v14H4zM15 5v14',
+  help: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM9.6 9.5a2.5 2.5 0 1 1 3.6 2.2c-.8.5-1.2 1-1.2 1.8M12 16.8v.2'
+}
+
+/** What the keys do, for the mouse: the buttons above the list. */
+function TopButtons(): React.JSX.Element {
+  const allIn = useKuna((s) => s.projects.every((p) => p.collapsed))
+  const details = useKuna((s) => s.settings.inspector || s.inspectorPeek)
+  const overlay = (kind: 'project' | 'help' | 'settings') => () => set({ overlay: { kind }, mode: 'nav' })
+  const buttons: [icon: string, title: string, run: () => void, on?: boolean][] = [
+    ['new', 'New project (⌘N)', overlay('project')],
+    allIn ? ['out', 'Roll all projects and folders out', () => rollAll(false)] : ['in', 'Roll all projects and folders in', () => rollAll(true)],
+    ['details', 'Details panel (⌘B)', () => (updateSettings({ inspector: !details }), set({ inspectorPeek: false })), details],
+    ['help', 'Keys and help (⌘/)', overlay('help')],
+    ['gear', 'Settings (⌘,)', overlay('settings')]
+  ]
+  return (
+    <>
+      {buttons.map(([icon, title, run, on]) => (
+        <button key={title} className={`brand-btn ${on ? 'on' : ''}`} title={title} aria-label={title} aria-pressed={on} onClick={run}>
+          {icon === 'gear' ? (
+            <ProjectIcon icon="gear" name="" />
+          ) : (
+            <svg className="proj-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d={TOP[icon]} />
+            </svg>
+          )}
+        </button>
+      ))}
+    </>
   )
 }
 
@@ -337,10 +375,7 @@ export function Sidebar(): React.JSX.Element {
   return (
     <div className={`sidebar ${strip ? 'with-strip' : ''}`}>
       <div className="brand">
-        <span className="brand-mark">kuna</span>
-        <button className="brand-btn" title="Settings (⌘,)" aria-label="Settings" onClick={() => set({ overlay: { kind: 'settings' }, mode: 'nav' })}>
-          <ProjectIcon icon="gear" name="" />
-        </button>
+        <TopButtons />
       </div>
       {strip && <ProjectStrip byProject={byProject} current={nodes.find((n) => n.id === sel)?.project.id} />}
       <div className="tree" role="tree">

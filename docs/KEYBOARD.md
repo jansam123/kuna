@@ -100,7 +100,7 @@ A single **Esc** goes to the agent, on a pane or while typing, as in a terminal:
 | ⌘G | review the agent's changes, as a pull request would show them (below) |
 | ⇧⌘E | browse the files of the agent's folder, or of the folder selected in the sidebar (no agent needed; the **files** button on a folder's row does the same): the review view with only its Folder list, so the same tree, editor, colours and keys as below, and no git is asked of the host. Text files are coloured by VS Code's own grammars in your VS Code theme, images are shown, and C comments on lines for the agent |
 | ⌘K | browse `.claude`: skills, agents, commands, `CLAUDE.md`, settings (Tab switches host) |
-| ⌘, | settings (also the gear at the top of the sidebar): colour scheme, fonts, the project strip, the details panel, text sizes, how diffs are shown, notifications. ↑ ↓ pick a setting, ← → change it (on the colour scheme: the previous or next one, applied at once); Enter or Esc closes |
+| ⌘, | settings: colour scheme, fonts, the project strip, the details panel, text sizes, how diffs are shown, notifications. ↑ ↓ pick a setting, ← → change it (on the colour scheme: the previous or next one, applied at once); Enter or Esc closes |
 | ⌘+ / ⌘− | agent font size (starts from your iTerm2 profile's) |
 | ⌘/ | this list, in the app |
 
@@ -153,6 +153,7 @@ The left side has five lists:
 
 Click selects; a click on a project or folder rolls it out or in, its ⋯ button renames it. Double-click opens an agent. The mouse wheel (or PageUp / PageDown) scrolls the agent's history (tmux scrollback); typing returns to the bottom first, so the keys reach the agent; dragging selects text there and copies it to the clipboard. Hold **Option** while dragging to select in the terminal itself: the selection is copied when you let go (as in iTerm), and ⌘C copies it again.
 
+- The buttons above the sidebar's list, left to right: a new project (⌘N), roll every project and folder in, or all of them out once all are in, the details panel (⌘B), keys and help (⌘/), settings (⌘,).
 - Drag rows in the sidebar to rearrange it: projects above or below each other, folders within a project or into another project on the same host, agents within a folder or into another folder (also out of "Other agents"). A line shows where a row lands; a lit-up row means into it. Kuna remembers where you put agents.
 - Drag a pane's header onto another pane to swap the two (⌥ arrows do the same from the keyboard).
 - Drag the inner edge of the sidebar or the inspector to resize it; double-click the edge for the default width. Widths are remembered.
