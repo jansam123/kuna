@@ -100,7 +100,7 @@ A single **Esc** goes to the agent, on a pane or while typing, as in a terminal:
 | ⌘G | review the agent's changes, as a pull request would show them (below) |
 | ⇧⌘E | browse the files of the agent's folder, or of the folder selected in the sidebar (no agent needed; the **files** button on a folder's row does the same): the review view with only its Folder list, so the same tree, editor, colours and keys as below, and no git is asked of the host. Text files are coloured by VS Code's own grammars in your VS Code theme, images are shown, and C comments on lines for the agent |
 | ⌘K | browse `.claude`: skills, agents, commands, `CLAUDE.md`, settings (Tab switches host) |
-| ⌘, | settings: colour scheme, fonts, the project strip, the details panel, text sizes, how diffs are shown, notifications. ↑ ↓ pick a setting, ← → change it (on the colour scheme: the previous or next one, applied at once); Enter or Esc closes |
+| ⌘, | settings (also the gear at the top of the sidebar): colour scheme, fonts, the project strip, the details panel, text sizes, how diffs are shown, notifications. ↑ ↓ pick a setting, ← → change it (on the colour scheme: the previous or next one, applied at once); Enter or Esc closes |
 | ⌘+ / ⌘− | agent font size (starts from your iTerm2 profile's) |
 | ⌘/ | this list, in the app |
 
@@ -167,7 +167,7 @@ Click selects; a click on a project or folder rolls it out or in, its ⋯ button
 | In the sidebar | Means |
 | --- | --- |
 | a block of one colour | a project: its icon and header in its colour, an edge of that colour down its folders and agents, which sit on a faint tint of it. The header stays at the top while you scroll inside the project |
-| numbers on a project's row | its agents, rolled in or not: amber waiting for you, blue working, red failed |
+| numbers on a project's row | its agents, rolled in or not: amber waiting for you, blue working, red failed; the number in the project's colour is how many run in all |
 | host after a project's name | where it runs. This Mac is named only while something is wrong with it |
 | blue dot | working: mid-turn. The right column says what on ("running", "editing", "subagent") |
 | hollow blue dot | between turns with work of its own: a scheduled check ("next 12:05") or jobs running ("2 jobs") |

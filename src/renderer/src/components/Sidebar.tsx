@@ -159,6 +159,7 @@ function Row({
 
   if (node.kind === 'project') {
     const h = hosts[node.project.host]
+    const running = (mine ?? []).filter((a) => a.status !== 'exited' && a.status !== 'failed').length
     return (
       <div ref={ref} className={cls} style={tint} onClick={onClick} {...dnd}>
         <span className="proj-tile">
@@ -170,6 +171,11 @@ function Row({
         <HostBadge host={node.project.host} state={h} />
         <span className="proj-right">
           <Rollup agents={mine ?? []} />
+          {running ? (
+            <span className="proj-count" title={`${running} agent${running > 1 ? 's' : ''} running`}>
+              {running}
+            </span>
+          ) : null}
           {h?.status === 'auth' && (
             <button className="mini" onClick={(e) => (e.stopPropagation(), set({ overlay: { kind: 'login', host: node.project.host } }))}>
               Sign in
@@ -331,6 +337,9 @@ export function Sidebar(): React.JSX.Element {
   return (
     <div className={`sidebar ${strip ? 'with-strip' : ''}`}>
       <div className="brand">
+        <button className="brand-btn" title="Settings (⌘,)" aria-label="Settings" onClick={() => set({ overlay: { kind: 'settings' }, mode: 'nav' })}>
+          <ProjectIcon icon="gear" name="" />
+        </button>
         <span className="brand-mark">kuna</span>
       </div>
       {strip && <ProjectStrip byProject={byProject} current={nodes.find((n) => n.id === sel)?.project.id} />}

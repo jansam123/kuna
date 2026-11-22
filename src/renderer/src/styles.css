@@ -266,6 +266,19 @@ body.resizing .main {
   padding: 0 14px;
   -webkit-app-region: drag;
 }
+.brand-btn {
+  width: 22px;
+  height: 22px;
+  padding: 3px;
+  margin-right: 8px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--faint);
+  -webkit-app-region: no-drag;
+}
+.brand-btn:hover {
+  color: var(--text);
+}
 .brand-mark {
   font: 600 var(--fs) var(--mono);
   letter-spacing: 0.08em;
@@ -420,6 +433,16 @@ body.resizing .main {
   align-items: center;
   gap: 7px;
   font: var(--fs-mono) var(--mono);
+}
+/* how many of the project's agents run, in the same place on every project's row */
+.proj-count {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font: var(--fs-mono)/16px var(--mono);
+  text-align: center;
+  color: var(--text);
+  background: color-mix(in srgb, var(--proj) 30%, transparent);
 }
 .rollup:empty {
   display: none;
@@ -767,7 +790,7 @@ button.mini {
 .promptbar {
   flex: none;
   border-top: 1px solid var(--line);
-  padding: 10px 12px 10px;
+  padding: 7px 12px 8px;
   background: var(--panel);
 }
 .prompt-target {
@@ -775,7 +798,7 @@ button.mini {
   align-items: center;
   gap: 6px;
   font-size: var(--fs-small);
-  margin-bottom: 6px;
+  margin-bottom: 5px;
   min-height: 16px;
 }
 .pt-folder {
@@ -789,8 +812,8 @@ button.mini {
   color: var(--faint);
 }
 .promptbar textarea {
+  display: block;
   resize: none;
-  min-height: 52px;
   font: var(--fs-mono)/1.45 var(--mono);
   border-color: var(--line);
 }
@@ -800,14 +823,6 @@ button.mini {
 .promptbar.active textarea {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
-}
-.prompt-hint {
-  margin-top: 5px;
-  font-size: var(--fs-tiny);
-  color: var(--faint);
-}
-.promptbar.active .prompt-hint {
-  color: var(--dim);
 }
 
 /* -------------------------------------------------------------- panes -- */

@@ -12,7 +12,6 @@ export function PromptBar(): React.JSX.Element {
   const projects = useKuna((s) => s.projects)
   const agents = useKuna((s) => s.agents)
   const hosts = useKuna((s) => s.hosts)
-  const escHint = useKuna((s) => s.escHint)
   const ref = useRef<HTMLTextAreaElement>(null)
   const active = zone === 'prompt'
 
@@ -39,7 +38,8 @@ export function PromptBar(): React.JSX.Element {
     const el = ref.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${Math.min(220, el.scrollHeight)}px`
+    // + 2: the box is measured with its border, scrollHeight without
+    el.style.height = `${Math.min(220, el.scrollHeight + 2)}px`
   }, [prompt])
 
   return (
@@ -59,7 +59,7 @@ export function PromptBar(): React.JSX.Element {
       </div>
       <textarea
         ref={ref}
-        rows={2}
+        rows={1}
         value={prompt}
         spellCheck={false}
         placeholder={target ? 'Type to start a new agent here…' : ''}
@@ -68,13 +68,6 @@ export function PromptBar(): React.JSX.Element {
           if (zone !== 'prompt') set({ zone: 'prompt', mode: 'insert' })
         }}
       />
-      <div className="prompt-hint">
-        {escHint
-          ? 'Esc again to discard'
-          : prompt
-            ? 'Enter starts it · ← → move in the text · ↑ ↓ pick the folder · ⇧Enter new line · Esc Esc discards'
-            : 'Start typing with a folder selected'}
-      </div>
     </div>
   )
 }
