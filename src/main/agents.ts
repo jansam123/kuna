@@ -148,7 +148,9 @@ export class AgentService extends EventEmitter {
   async spawn(req: SpawnRequest): Promise<{ key: string } | { error: string }> {
     const project = this.projects().find((p) => p.id === req.projectId)
     const folder = project?.folders.find((f) => f.id === req.folderId)
-    if (!project || !folder) return { error: 'That folder no longer exists.' }
+    // a terminal can start in an agent's directory, which needs no folder of the project
+    const cwd = (req.shell && typeof req.cwd === 'string' && req.cwd) || folder?.path
+    if (!project || !cwd) return { error: 'That folder no longer exists.' }
     const host = this.host(project.host)
     if (host.state.status !== 'ready') {
       await host.connect()
@@ -159,7 +161,7 @@ export class AgentService extends EventEmitter {
     const isClaude = /(^|\/)claude(\s|$)/.test(base)
     const prompt = req.shell ? '' : req.prompt.trim()
     if (isClaude && (project.launch ?? 'background') === 'background' && !req.resumeSessionId) {
-      return this.spawnBackground(host, base, folder.path, prompt, project.id, folder.id)
+      return this.spawnBackground(host, base, cwd, prompt, project.id, folder?.id)
     }
 
     const id = randomBytes(4).toString('hex')
@@ -172,16 +174,16 @@ export class AgentService extends EventEmitter {
     const createdAt = Math.floor(Date.now() / 1000)
     const meta = {
       id,
-      cwd: folder.path,
+      cwd,
       projectId: project.id,
-      folderId: folder.id,
+      folderId: folder?.id,
       createdAt: createdAt + host.clockOffset,
       prompt: prompt.slice(0, 300),
       sessionId: isClaude ? (resume ?? sessionId) : undefined,
       command: base
     }
     const res = await host.exec(
-      ['spawn', id, b64(folder.path), b64(cmd), String(Math.max(40, req.cols)), String(Math.max(10, req.rows)), b64(JSON.stringify(meta)), b64(prompt)],
+      ['spawn', id, b64(cwd), b64(cmd), String(Math.max(40, req.cols)), String(Math.max(10, req.rows)), b64(JSON.stringify(meta)), b64(prompt)],
       { timeoutMs: 30_000 }
     )
     if (res.code !== 0) return { error: res.stderr.trim() || `spawn failed (${res.code})` }
@@ -192,9 +194,9 @@ export class AgentService extends EventEmitter {
       id,
       kind: 'tmux',
       host: project.host,
-      cwd: folder.path,
+      cwd,
       projectId: project.id,
-      folderId: folder.id,
+      folderId: folder?.id,
       createdAt,
       prompt: meta.prompt,
       sessionId: meta.sessionId,
@@ -220,7 +222,7 @@ export class AgentService extends EventEmitter {
     cwd: string,
     prompt: string,
     projectId: string,
-    folderId: string
+    folderId: string | undefined
   ): Promise<{ key: string } | { error: string }> {
     // the helper adds the prompt as the last argument
     const cmd = `${base} --bg --settings "$HOME/.kuna/claude-hooks.json"`

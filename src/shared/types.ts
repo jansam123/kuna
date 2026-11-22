@@ -375,6 +375,8 @@ export interface SpawnRequest {
   resumeSessionId?: string
   /** a terminal in the folder instead of an agent */
   shell?: boolean
+  /** a terminal: start here instead (an agent's directory), on the project's host */
+  cwd?: string
 }
 
 /** A terminal's command: the user's shell in place of the login shell agents start through (same environment). */

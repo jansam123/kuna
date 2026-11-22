@@ -264,7 +264,7 @@ export function discardTyped(e: TermEntry): void {
 
 // ---------------------------------------------------------------- agents --
 
-export async function spawnAgent(projectId: string, folderId: string, prompt: string, resumeSessionId?: string, shell?: boolean): Promise<string | undefined> {
+export async function spawnAgent(projectId: string, folderId: string, prompt: string, resumeSessionId?: string, shell?: boolean, cwd?: string): Promise<string | undefined> {
   // size the tmux window like the pane it will most likely land in
   const s = get()
   const rows = gridRows(s.tabs.length + 1)
@@ -275,7 +275,7 @@ export async function spawnAgent(projectId: string, folderId: string, prompt: st
   const lines = Math.floor(h / rows.length / 17) - 2
   let res: Awaited<ReturnType<typeof window.kuna.agents.spawn>>
   try {
-    res = await window.kuna.agents.spawn({ projectId, folderId, prompt, cols, rows: lines, resumeSessionId, shell })
+    res = await window.kuna.agents.spawn({ projectId, folderId, prompt, cols, rows: lines, resumeSessionId, shell, cwd })
   } catch (err) {
     res = { error: String(err) }
   }
@@ -294,8 +294,17 @@ export async function spawnAgent(projectId: string, folderId: string, prompt: st
   return res.key
 }
 
-/** ⌘T: a terminal (your login shell, in Kuna's tmux like an agent) in the selected row's folder. */
+/**
+ * ⌘T: a terminal (your login shell, in Kuna's tmux like an agent). On an agent
+ * (its pane, or its row in the sidebar) it starts in that agent's directory;
+ * on a folder or project row, in the folder.
+ */
 export function openTerminal(): void {
+  const s = get()
+  const key = activeAgentKey()
+  const a = key ? s.agents[key] : undefined
+  const where = a && folderOfAgent(s.projects, Object.values(s.agents), s.hosts).get(a.key)
+  if (a && where) return void spawnAgent(where.project.id, where.folder.id, '', undefined, true, a.worktree || a.cwd)
   const t = targetFolder()
   if (!t) return toast('Select a folder to open a terminal in (arrows), then press ⌘T.', 'warn')
   void spawnAgent(t.projectId, t.folderId, '', undefined, true)
