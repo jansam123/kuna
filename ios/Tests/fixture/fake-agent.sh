@@ -10,7 +10,7 @@ n=0
 line() { n=$((n + 1)); printf '%s\n' "$1" >> "$t"; }
 hook() { printf '{"hook_event_name":"%s","transcript_path":"%s"}' "$1" "$t" | sh "$HOME/.kuna/bin/kuna" hook; }
 say() { # say <text as a JSON string body>
-  line "{\"type\":\"assistant\",\"uuid\":\"a$n\",\"timestamp\":\"$(now)\",\"message\":{\"model\":\"claude-opus-4-5\",\"usage\":{\"input_tokens\":41000,\"output_tokens\":900},\"content\":[{\"type\":\"text\",\"text\":\"$1\"}]}}"
+  line "{\"type\":\"assistant\",\"effort\":\"high\",\"uuid\":\"a$n\",\"timestamp\":\"$(now)\",\"message\":{\"model\":\"claude-opus-4-5\",\"usage\":{\"input_tokens\":41000,\"output_tokens\":900},\"content\":[{\"type\":\"text\",\"text\":\"$1\"}]}}"
 }
 : > "$t"
 line "{\"type\":\"ai-title\",\"aiTitle\":\"Fit the signal region\"}"

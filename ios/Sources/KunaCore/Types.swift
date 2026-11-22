@@ -137,6 +137,8 @@ public struct Agent: Codable, Identifiable, Hashable, Sendable {
   public var lastReply: String?
   public var questions: [Question]?
   public var permissionMode: String?
+  /// tmux's scroll mode is on in its pane: keys go to tmux, not to the agent
+  public var inCopyMode: Bool?
   /// what to call it, as the Mac does (`titleOf`), before a name given by hand
   public var title: String
   /// a terminal (the user's shell) instead of an agent

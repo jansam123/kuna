@@ -345,7 +345,8 @@ struct ReviewScreen: View {
   }
 
   var body: some View {
-    let draft = open.get(key, model).review
+    let here = open.get(key, model)
+    let draft = here.review
     Group {
       if let store {
         content(store, draft)
@@ -358,6 +359,7 @@ struct ReviewScreen: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       if let store {
+        PromptButton(here: here)
         // the agent's folder itself, git or not (the Mac's Folder list)
         Button("Folder", systemImage: "folder") { path.append(.files(store.host, store.dir)) }.accessibilityIdentifier("review-folder")
       }
@@ -382,7 +384,7 @@ struct ReviewScreen: View {
       }
     }
     .fullScreenCover(item: $diff) { list in
-      if let store { DiffScreen(model: model, store: store, draft: draft, targets: list.targets, start: list.start).environment(\.look, look) }
+      if let store { DiffScreen(model: model, store: store, draft: draft, targets: list.targets, start: list.start, agent: here).environment(\.look, look) }
     }
     .sheet(item: $commit) { shown in
       NavigationStack {
@@ -441,13 +443,14 @@ struct ReviewScreen: View {
           case "changes": changes(store, overview)
           case "local": local(store, overview)
           case "commits": commits(store)
-          default: FileTree(model: model, store: store)
+          default: FileTree(model: model, store: store, agent: open.get(key, model))
           }
         }
       }
       .scrollContentBackground(.hidden)
       .refreshable { await store.load() }
       if !draft.comments.isEmpty { outbox(draft) }
+      PromptDrawer(model: model, here: open.get(key, model))
     }
     .onChange(of: tab) { if tab == "files" { Task { await store.loadFiles() } } }
   }
@@ -589,9 +592,13 @@ struct ReviewScreen: View {
         sending = true
         Task {
           do {
-            let message = try Shared.main.call("reviewMessage", [json(draft.comments)])
-            try await open.get(key, model).session.send(message)
+            // the comments, then what is written in the prompt: one message, as the Mac pastes the review into the prompt
+            let here = open.get(key, model)
+            let written = here.prompt.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let message = try Shared.main.call("reviewMessage", [json(draft.comments)]) + (written.isEmpty ? "" : "\n\n" + written)
+            try await here.session.send(message)
             draft.comments = []
+            here.prompt.text = ""
             // back to the conversation, where the answer will come
             hideKeyboard()
             path.removeAll { $0 == .review(key) }
@@ -715,6 +722,7 @@ struct ChangeRow: View {
 private struct FileTree: View {
   let model: AppModel
   let store: ReviewStore
+  let agent: OpenAgents.Open
   @Environment(\.look) private var look
   @State private var at = ""
   @State private var file: String?
@@ -748,7 +756,7 @@ private struct FileTree: View {
       let side: GitSide = store.filesRev.map { .rev($0, one.path) } ?? .worktree(one.path)
       DiffScreen(
         model: model, store: store, draft: ReviewDraft(),
-        targets: [DiffTarget(change: change, old: side, new: side, anchor: "file", context: "the file as it is now")], start: "file" + change.id, whole: true
+        targets: [DiffTarget(change: change, old: side, new: side, anchor: "file", context: "the file as it is now")], start: "file" + change.id, whole: true, agent: agent
       )
       .environment(\.look, look)
     }
@@ -778,6 +786,8 @@ struct DiffScreen: View {
   let store: ReviewStore
   let draft: ReviewDraft
   let targets: [DiffTarget]
+  /// the agent whose changes these are, to write to while reading them
+  var agent: OpenAgents.Open?
   @State var current: String
   /// the whole file as it is, not a diff (the Files tab)
   var whole = false
@@ -802,7 +812,8 @@ struct DiffScreen: View {
     var text = ""
   }
 
-  init(model: AppModel, store: ReviewStore, draft: ReviewDraft, targets: [DiffTarget], start: String, whole: Bool = false) {
+  init(model: AppModel, store: ReviewStore, draft: ReviewDraft, targets: [DiffTarget], start: String, whole: Bool = false, agent: OpenAgents.Open? = nil) {
+    self.agent = agent
     self.model = model
     self.store = store
     self.draft = draft
@@ -822,6 +833,7 @@ struct DiffScreen: View {
           Text(whole ? target.change.folder : "\(index + 1) of \(targets.count)" + (target.change.folder.isEmpty ? "" : " · \(target.change.folder)")).font(.caption2).foregroundStyle(look.dim).lineLimit(1).truncationMode(.head)
         }
         Spacer(minLength: 0)
+        if let agent { PromptButton(here: agent) }
         Button("Long lines", systemImage: scroll ? "arrow.left.and.right.text.vertical" : "text.word.spacing") { scroll.toggle() }.labelStyle(.iconOnly)
           .accessibilityLabel(scroll ? "Wrap long lines" : "Scroll long lines sideways")
         if targets.count > 1 {
@@ -850,6 +862,7 @@ struct DiffScreen: View {
         case nil: ProgressView()
         }
       }
+      if let agent { PromptDrawer(model: model, here: agent) }
     }
     .background(look.panel.ignoresSafeArea())
     .preferredColorScheme(.dark)

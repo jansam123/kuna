@@ -153,17 +153,35 @@ struct PlotsScreen: View {
   @Environment(\.look) private var look
   @State private var store = MediaStore()
   @State private var showing: MediaItem?
-  /// the groups rolled in
-  @State private var shut: Set<String> = []
+  /// the groups rolled out: each starts rolled up
+  @State private var unrolled: Set<String> = []
 
   var body: some View {
     let agent = model.agent(key)
+    let here = open.get(key, model)
+    VStack(spacing: 0) {
+      list(agent)
+      PromptDrawer(model: model, here: here)
+    }
+    .background(look.ground)
+    .navigationTitle("Plots and files")
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbar { PromptButton(here: here) }
+    .task { await reload() }
+    .fullScreenCover(item: $showing) { item in
+      if let agent {
+        ViewerScreen(model: model, store: store, host: agent.host, items: store.groups.flatMap(\.items), start: item, agent: here).environment(\.look, look)
+      }
+    }
+  }
+
+  private func list(_ agent: Agent?) -> some View {
     List {
       if let problem = store.problem { Text(problem).foregroundStyle(look.danger).listRowBackground(look.panel) }
       ForEach(store.groups) { group in
-        let open = !shut.contains(group.id)
+        let unfolded = unrolled.contains(group.id)
         Section {
-          if open {
+          if unfolded {
             ForEach(group.items) { item in
               Button { showing = item } label: { MediaRow(item: item, base: agent?.base ?? "") }
                 .listRowBackground(look.panel)
@@ -171,13 +189,13 @@ struct PlotsScreen: View {
             }
           }
         } header: {
-          Button { shut.formSymmetricDifference([group.id]) } label: {
+          Button { unrolled.formSymmetricDifference([group.id]) } label: {
             HStack(spacing: 8) {
               Image(systemName: group.symbol).foregroundStyle(group.color.map { Color(hex: $0) } ?? look.dim).frame(width: 22)
               Text(group.label).foregroundStyle(look.text)
               Text("\(group.items.count)").monospacedDigit().foregroundStyle(look.dim)
               Spacer()
-              Image(systemName: "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(look.faint).rotationEffect(.degrees(open ? 90 : 0))
+              Image(systemName: "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(look.faint).rotationEffect(.degrees(unfolded ? 90 : 0))
             }
             .font(.subheadline.weight(.semibold))
             .textCase(nil)
@@ -197,14 +215,7 @@ struct PlotsScreen: View {
       if store.loading { HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear) }
     }
     .scrollContentBackground(.hidden)
-    .background(look.ground)
-    .navigationTitle("Plots and files")
-    .navigationBarTitleDisplayMode(.inline)
     .refreshable { await reload() }
-    .task { await reload() }
-    .fullScreenCover(item: $showing) { item in
-      if let agent { ViewerScreen(model: model, store: store, host: agent.host, items: store.groups.flatMap(\.items), start: item).environment(\.look, look) }
-    }
   }
 
   private func reload() async {
@@ -267,6 +278,8 @@ struct ViewerScreen: View {
   let store: MediaStore
   let host: String
   let items: [MediaItem]
+  /// the agent whose files these are, to write to while looking at them
+  var agent: OpenAgents.Open?
   @State var current: String
   @Environment(\.look) private var look
   @Environment(\.dismiss) private var dismiss
@@ -274,7 +287,8 @@ struct ViewerScreen: View {
   @State private var saving: URL?
   @State private var failure: Notice?
 
-  init(model: AppModel, store: MediaStore, host: String, items: [MediaItem], start: MediaItem) {
+  init(model: AppModel, store: MediaStore, host: String, items: [MediaItem], start: MediaItem, agent: OpenAgents.Open? = nil) {
+    self.agent = agent
     self.model = model
     self.store = store
     self.host = host
@@ -296,6 +310,7 @@ struct ViewerScreen: View {
         }
         if let place = items[index].place { PlaceChip(place: place) }
         Spacer(minLength: 0)
+        if let agent { PromptButton(here: agent) }
         Button("Download", systemImage: "arrow.down.to.line") {
           let item = items[index]
           Task {
@@ -317,6 +332,7 @@ struct ViewerScreen: View {
       }
       .tabViewStyle(.page(indexDisplayMode: .never))
       .background(look.ground)
+      if let agent { PromptDrawer(model: model, here: agent) }
     }
     .background(look.panel.ignoresSafeArea())
     .preferredColorScheme(.dark)

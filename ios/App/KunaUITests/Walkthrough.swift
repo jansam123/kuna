@@ -60,12 +60,19 @@ final class Walkthrough: XCTestCase {
     }
 
     // its terminal
+    // in place of the conversation; a drag is tmux's wheel; Ctrl goes with the next key
     app.buttons["open-terminal"].tap()
-    wait(app.buttons["terminal-done"], 10, "the terminal")
+    wait(app.buttons["key-Control"], 10, "the terminal")
     sleep(4)
     shot("terminal")
-    app.buttons["terminal-done"].tap()
-    sleep(1)
+    let screen = app.windows.firstMatch
+    screen.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).press(forDuration: 0.05, thenDragTo: screen.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)))
+    sleep(2)
+    shot("terminal-scrolled")
+    app.buttons["key-Control"].tap()
+    shot("terminal-ctrl")
+    app.buttons["open-terminal"].tap()
+    wait(app.buttons["send"], 10, "the conversation, back from the terminal")
 
     // plots and files
     app.buttons["agent-more"].tap()
@@ -73,11 +80,30 @@ final class Walkthrough: XCTestCase {
       app.buttons["Plots and files"].tap()
       sleep(5)
       shot("plots")
+      // every group starts rolled up
+      for group in app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'group-'")).allElementsBoundByIndex { group.tap() }
+      shot("plots-unrolled")
       let first = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'media-'")).firstMatch
       if first.waitForExistence(timeout: 10) {
         first.tap()
         sleep(4)
         shot("viewer")
+        // a prompt written while looking, hidden and still there in the conversation
+        // (the list under the viewer has the same button: the one that can be tapped is the viewer's)
+        let toggle = app.buttons.matching(identifier: "prompt-toggle").allElementsBoundByIndex.last(where: \.isHittable) ?? app.buttons["prompt-toggle"].firstMatch
+        toggle.tap()
+        sleep(2)
+        // (and the conversation under both has the same box)
+        let boxes = app.textFields.matching(identifier: "message").allElementsBoundByIndex + app.textViews.matching(identifier: "message").allElementsBoundByIndex
+        let prompt = boxes.last(where: \.isHittable) ?? app.textFields["message"].firstMatch
+        if wait(prompt, 10, "the prompt over the viewer") {
+          shot("viewer-prompt-open")
+          prompt.tap()
+          prompt.typeText("The pulls look off in the last bin")
+          shot("viewer-prompt")
+          toggle.tap()
+          sleep(1)
+        }
         for i in 2...4 {
           app.swipeLeft()
           sleep(4)
@@ -204,7 +230,7 @@ final class Walkthrough: XCTestCase {
         app.buttons["new-agent-start"].tap()
         sleep(6)
         shot("new-agent-started")
-        if app.buttons["terminal-done"].exists { app.buttons["terminal-done"].tap() }
+        if app.buttons["key-Control"].exists { app.buttons["open-terminal"].tap() }
         sleep(2)
         shot("new-agent-chat")
         app.navigationBars.buttons.element(boundBy: 0).tap()
@@ -214,10 +240,9 @@ final class Walkthrough: XCTestCase {
     if wait(add, 10, "the folder's + button, back home") {
       add.tap()
       app.buttons["New terminal"].tap()
-      if wait(app.buttons["terminal-done"], 15, "the new terminal") {
+      if wait(app.buttons["key-Control"], 15, "the new terminal") {
         sleep(2)
         shot("new-terminal")
-        app.buttons["terminal-done"].tap()
         app.navigationBars.buttons.element(boundBy: 0).tap()
       }
     }

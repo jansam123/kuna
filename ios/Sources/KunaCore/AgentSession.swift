@@ -42,6 +42,9 @@ public final class AgentSession {
   @ObservationIgnored private var replay = Data()
   @ObservationIgnored private var lastOutput = Date.distantPast
   @ObservationIgnored private var gotOutput = false
+  /// the terminal was scrolled back with the wheel since the last key
+  @ObservationIgnored public var scrolledBack = false
+  @ObservationIgnored private var held: Data?
 
   /// the most of a transcript read at first, and in one go after that
   private static let firstRead = 1_500_000
@@ -168,6 +171,8 @@ public final class AgentSession {
       terminal.write("\r")
     } else {
       guard agent.alive else { throw KunaError("The agent has exited. Start a new one in its folder.") }
+      // scrolled back, here or on the Mac: tmux would take the message's keys as its own
+      if scrolledBack || agent.inCopyMode == true { await leaveScroll(agent) }
       try await model.type(agent, text)
     }
     outbox.append(Outgoing(text: text, had: had))
@@ -248,6 +253,31 @@ public final class AgentSession {
 
   public func write(_ text: String) { terminal?.write(text) }
   public func write(_ data: Data) { terminal?.write(data) }
+
+  /// Keys meant for the agent. After the terminal was scrolled back, tmux's scroll mode would take
+  /// them as its own: it is left first, and what is typed meanwhile waits its turn (`leaveScroll` on the Mac).
+  public func key(_ data: Data) {
+    if held != nil {
+      held?.append(data)
+      return
+    }
+    guard scrolledBack, let agent = model.agent(key), !agent.isBackground else {
+      terminal?.write(data)
+      return
+    }
+    held = data
+    Task {
+      await leaveScroll(agent)
+      if let held { terminal?.write(held) }
+      held = nil
+    }
+  }
+
+  /// Not in scroll mode any more (scrolled back down to the end): tmux says so, and nothing is lost.
+  private func leaveScroll(_ agent: Agent) async {
+    scrolledBack = false
+    _ = try? await model.run(agent.host, ["key", agent.agentId, "-X", "cancel"], timeout: 10)
+  }
 
   /// Close the terminal; the agent itself keeps running on the host.
   public func detach() {

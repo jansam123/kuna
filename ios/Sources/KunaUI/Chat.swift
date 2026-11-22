@@ -2,6 +2,15 @@
 import KunaCore
 import SwiftUI
 
+/// What is being written to an agent: one text for its conversation, its plots and its review,
+/// as the Mac's prompt is one under all of them.
+@MainActor @Observable
+final class PromptDraft {
+  var text = ""
+  /// shown over the plots and the review (the conversation always shows it)
+  var shown = false
+}
+
 /// The agents whose screens are open: each keeps its conversation and its terminal for as long
 /// as it is on the navigation path, also while its plots or its review are on top.
 @MainActor
@@ -11,6 +20,7 @@ final class OpenAgents {
     let terminal: TerminalHolder
     /// review comments written and not yet sent
     let review: ReviewDraft
+    let prompt: PromptDraft
   }
 
   private var open: [String: Open] = [:]
@@ -18,7 +28,7 @@ final class OpenAgents {
   func get(_ key: String, _ model: AppModel) -> Open {
     if let found = open[key] { return found }
     let session = AgentSession(key: key, model: model)
-    let made = Open(session: session, terminal: TerminalHolder(session: session), review: ReviewDraft())
+    let made = Open(session: session, terminal: TerminalHolder(session: session), review: ReviewDraft(), prompt: PromptDraft())
     open[key] = made
     return made
   }
@@ -38,11 +48,9 @@ struct AgentScreen: View {
   @Binding var path: [Route]
   let open: OpenAgents
   @Environment(\.look) private var look
-  @State private var draft = ""
+  /// its terminal in place of its conversation
   @State private var terminal = false
-  @State private var sending = false
   @State private var failure: Notice?
-  @State private var restart = false
   @State private var renaming = false
   @State private var name = ""
   @FocusState private var typing: Bool
@@ -53,9 +61,13 @@ struct AgentScreen: View {
     let session = here.session
     VStack(spacing: 0) {
       if let agent = model.agent(key) {
-        conversation(agent, session)
-        StatusLine(agent: agent, details: session.details, terminal: { terminal = true })
-        composer(agent, session)
+        if terminal {
+          TerminalScreen(model: model, session: session, holder: here.terminal)
+        } else {
+          conversation(agent, session)
+          StatusLine(agent: agent, details: session.details, terminal: { terminal = true })
+          PromptBox(model: model, here: here, typing: $typing)
+        }
       } else {
         ContentUnavailableView("This agent is gone", systemImage: "moon.zzz", description: Text("It is no longer on its host, or its host is not connected."))
       }
@@ -71,7 +83,14 @@ struct AgentScreen: View {
           }
         }
         ToolbarItemGroup(placement: .primaryAction) {
-          Button("Terminal", systemImage: "apple.terminal") { terminal = true }.accessibilityIdentifier("open-terminal")
+          // a terminal of its own has no conversation to go back to
+          if agent.shell != true {
+            Button(terminal ? "Conversation" : "Terminal", systemImage: terminal ? "text.bubble" : "apple.terminal") {
+              hideKeyboard()
+              terminal.toggle()
+            }
+            .accessibilityIdentifier("open-terminal")
+          }
           Menu("More", systemImage: "ellipsis.circle") {
             Button("Plots and files", systemImage: "photo.on.rectangle.angled") { path.append(.plots(key)) }
             Button("Review changes", systemImage: "plus.forwardslash.minus") { path.append(.review(key)) }
@@ -90,9 +109,6 @@ struct AgentScreen: View {
         }
       }
     }
-    .fullScreenCover(isPresented: $terminal) {
-      TerminalScreen(model: model, session: session, holder: here.terminal, title: model.agent(key).map { model.name(of: $0) } ?? "").environment(\.look, look)
-    }
     .alert("Name this agent", isPresented: $renaming) {
       TextField("Name", text: $name)
       Button("Save") { model.rename(key, to: name) }
@@ -101,11 +117,6 @@ struct AgentScreen: View {
       Text("Only on this phone. Empty takes its own title back.")
     }
     .alert(item: $failure) { Alert(title: Text($0.title), message: Text($0.text)) }
-    .confirmationDialog("Start it again?", isPresented: $restart, titleVisibility: .visible) {
-      Button("Start it and send") { send(session) }
-    } message: {
-      Text("This session is stopped. Sending a message starts it again on its host.")
-    }
     .task(id: key) { await session.follow() }
     .onChange(of: model.agent(key)?.transcriptSize) { Task { await session.pull() } }
     .onAppear {
@@ -130,7 +141,7 @@ struct AgentScreen: View {
             Text(agent.transcriptPath == nil ? "Nothing to read yet. Its conversation shows up here once it has started; its terminal shows it as it is." : "No messages yet.")
               .font(.subheadline).foregroundStyle(look.dim).frame(maxWidth: .infinity).padding(.top, 40).padding(.horizontal, 24).multilineTextAlignment(.center)
           }
-          ForEach(session.items) { item in ChatRow(item: item, terminal: { terminal = true }).id(item.id) }
+          ForEach(session.items) { item in ChatRow(item: item, terminal: { terminal = true }, last: item.id == session.items.last?.id).id(item.id) }
           ForEach(session.outbox) { out in
             ChatRow(item: ChatItem(id: out.id.uuidString, kind: "user", text: out.text), terminal: {}, pending: true).id(out.id.uuidString)
           }
@@ -148,40 +159,85 @@ struct AgentScreen: View {
       .onChange(of: typing) { if typing { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } }
     }
   }
+}
 
-  @ViewBuilder
-  private func composer(_ agent: Agent, _ session: AgentSession) -> some View {
+/// The box a message to the agent is written in, and its send button. A stopped session is
+/// started again by what is sent to it.
+struct PromptBox: View {
+  let model: AppModel
+  let here: OpenAgents.Open
+  var typing: FocusState<Bool>.Binding
+  var sent: () -> Void = {}
+  @Environment(\.look) private var look
+  @State private var sending = false
+  @State private var failure: Notice?
+
+  var body: some View {
+    @Bindable var draft = here.prompt
     HStack(alignment: .bottom, spacing: 10) {
-      TextField(agent.status == "waiting" ? "It is waiting for you…" : "Message", text: $draft, axis: .vertical)
-        .lineLimit(1...7).focused($typing).padding(.horizontal, 14).padding(.vertical, 10)
+      TextField(model.agent(here.session.key)?.status == "waiting" ? "It is waiting for you…" : "Message", text: $draft.text, axis: .vertical)
+        .lineLimit(1...7).focused(typing).padding(.horizontal, 14).padding(.vertical, 10)
         .background(look.raised, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .accessibilityIdentifier("message")
-      Button {
-        if agent.isBackground, !agent.alive { restart = true } else { send(session) }
-      } label: {
+      Button(action: send) {
         if sending { ProgressView().frame(width: 34, height: 34) } else { Image(systemName: "arrow.up.circle.fill").font(.system(size: 34)) }
       }
-      .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      .disabled(sending || draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
       .accessibilityLabel("Send")
       .accessibilityIdentifier("send")
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 8)
     .background(look.panel)
+    .alert(item: $failure) { Alert(title: Text($0.title), message: Text($0.text)) }
   }
 
-  private func send(_ session: AgentSession) {
-    let text = draft
+  private func send() {
+    let text = here.prompt.text
     sending = true
     Task {
       do {
-        try await session.send(text)
-        if draft == text { draft = "" }
+        try await here.session.send(text)
+        if here.prompt.text == text { here.prompt.text = "" }
+        sent()
       } catch {
         failure = Notice(title: "Not sent", text: error.localizedDescription)
       }
       sending = false
     }
+  }
+}
+
+/// The prompt over an agent's plots or its review: shown and hidden by `PromptButton`, the text
+/// stays while it is hidden and is the same one as in the conversation.
+struct PromptDrawer: View {
+  let model: AppModel
+  let here: OpenAgents.Open
+  @FocusState private var typing: Bool
+
+  var body: some View {
+    if here.prompt.shown {
+      PromptBox(model: model, here: here, typing: $typing) { here.prompt.shown = false }
+        .overlay(alignment: .top) { Divider() }
+        // a moment later: a box is not focused in the same breath it is put on the screen
+        .task {
+          try? await Task.sleep(for: .milliseconds(80))
+          typing = true
+        }
+    }
+  }
+}
+
+/// Shows and hides the prompt; filled while something is written in it.
+struct PromptButton: View {
+  let here: OpenAgents.Open
+
+  var body: some View {
+    Button(here.prompt.shown ? "Hide the prompt" : "Write to the agent", systemImage: here.prompt.text.isEmpty ? "square.and.pencil" : "square.and.pencil.circle.fill") {
+      here.prompt.shown.toggle()
+    }
+    .labelStyle(.iconOnly)
+    .accessibilityIdentifier("prompt-toggle")
   }
 }
 
@@ -215,7 +271,8 @@ private struct StatusLine: View {
   private var words: String {
     if agent.status == "waiting" { return agent.needs ?? "waiting for you" }
     let doing = agent.doing == agent.status ? statusWord(agent) : agent.doing
-    return [doing, agent.modelName ?? details?.model].compactMap { $0 }.joined(separator: " · ")
+    // the model and how hard it thinks (the effort of its last reply), as the Mac's chip
+    return [doing, agent.modelName ?? details?.model, details?.effort].compactMap { $0 }.joined(separator: " · ")
   }
 }
 
@@ -226,10 +283,25 @@ private struct ChatRow: View {
   let item: ChatItem
   let terminal: () -> Void
   var pending = false
+  /// the conversation's last row
+  var last = false
   @Environment(\.look) private var look
   @State private var unfolded = false
 
   var body: some View {
+    let yours = item.kind == "user"
+    VStack(alignment: yours ? .trailing : .leading, spacing: 4) {
+      row
+      // when you wrote, and when the last thing in the conversation was said
+      if yours || last, let at = item.at {
+        Text(clock(at)).font(.caption2.monospacedDigit()).foregroundStyle(look.faint).padding(.horizontal, yours ? 6 : 0).accessibilityIdentifier("chat-time")
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: yours ? .trailing : .leading)
+  }
+
+  @ViewBuilder
+  private var row: some View {
     switch item.kind {
     case "user":
       HStack {

@@ -266,6 +266,12 @@ private func freePort() throws -> Int {
     try await until("the terminal to draw") { String(decoding: session.drawnSoFar, as: UTF8.self).contains("hello from the phone") }
     session.write("typed in the terminal\r")
     try await until("the terminal's echo") { String(decoding: session.drawnSoFar, as: UTF8.self).contains("typed in the terminal") }
+    // the wheel puts tmux in its scroll mode, which would take keys as its own: a key leaves it first
+    session.write("\u{1b}[<64;5;5M")
+    session.scrolledBack = true
+    session.key(Data("typed after ".utf8))
+    session.key(Data("scrolling back\r".utf8))
+    try await until("what was typed after scrolling back") { String(decoding: session.drawnSoFar, as: UTF8.self).contains("typed after scrolling back") }
     session.close()
 
     try await model.stop(agent)

@@ -108,6 +108,12 @@ func statusWord(_ agent: Agent) -> String {
   }
 }
 
+/// A time of today as its hour and minute; an older one with its day.
+func clock(_ epoch: Double) -> String {
+  let date = Date(timeIntervalSince1970: epoch)
+  return date.formatted(Calendar.current.isDateInToday(date) ? .dateTime.hour().minute() : .dateTime.day().month(.abbreviated).hour().minute())
+}
+
 /// "3m", "2h", "5d": how long ago, in the fewest letters.
 func ago(_ epoch: Double) -> String {
   guard epoch > 0 else { return "" }
