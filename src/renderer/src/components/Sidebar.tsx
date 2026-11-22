@@ -337,10 +337,10 @@ export function Sidebar(): React.JSX.Element {
   return (
     <div className={`sidebar ${strip ? 'with-strip' : ''}`}>
       <div className="brand">
+        <span className="brand-mark">kuna</span>
         <button className="brand-btn" title="Settings (⌘,)" aria-label="Settings" onClick={() => set({ overlay: { kind: 'settings' }, mode: 'nav' })}>
           <ProjectIcon icon="gear" name="" />
         </button>
-        <span className="brand-mark">kuna</span>
       </div>
       {strip && <ProjectStrip byProject={byProject} current={nodes.find((n) => n.id === sel)?.project.id} />}
       <div className="tree" role="tree">

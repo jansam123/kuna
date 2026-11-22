@@ -267,17 +267,12 @@ body.resizing .main {
   -webkit-app-region: drag;
 }
 .brand-btn {
-  width: 22px;
-  height: 22px;
-  padding: 3px;
-  margin-right: 8px;
-  border-color: transparent;
-  background: transparent;
-  color: var(--faint);
-  -webkit-app-region: no-drag;
-}
-.brand-btn:hover {
+  width: 28px;
+  height: 28px;
+  padding: 5px;
+  margin-left: 10px;
   color: var(--text);
+  -webkit-app-region: no-drag;
 }
 .brand-mark {
   font: 600 var(--fs) var(--mono);
