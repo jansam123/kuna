@@ -426,7 +426,7 @@ private struct StatusLine: View {
       Text(words).font(.footnote).foregroundStyle(agent.status == "waiting" ? look.waiting : look.dim).lineLimit(1)
       Spacer(minLength: 4)
       if agent.status == "waiting", let terminal {
-        Button("Terminal", action: terminal).font(.footnote.weight(.semibold)).buttonStyle(.bordered).controlSize(.small).tint(look.waiting).accessibilityIdentifier("answer-terminal")
+        Button("Terminal", action: terminal).font(.footnote.weight(.semibold)).lineLimit(1).fixedSize().buttonStyle(.bordered).controlSize(.small).tint(look.waiting).accessibilityIdentifier("answer-terminal")
       }
       if let model = agent.modelName ?? details?.model {
         Button {
