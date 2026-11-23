@@ -179,7 +179,7 @@ Click selects; a click on a project or folder rolls it out or in, its ⋯ button
 | bright name | an agent that is running. Folder names, and agents that exited or were stopped, are dimmer |
 | diamond, bold name | finished or asked something since you last looked |
 | small square | open in a pane: filled in this window, hollow in another window |
-| amber or red gauge, `420k / 1M` | its context is getting long (half the window, or 300k tokens) or almost full (80%; Claude Code will compact it soon) |
+| amber or red gauge, `420k` | its context is getting long (half the window, or 300k tokens; the bar shows how much of the window, hover for both numbers) or almost full (80%; Claude Code will compact it soon) |
 
 A pane's header shows the folder, the agent's name, how many PDFs and images Space would show, its context, model with its thinking effort ("opus 5.5 · xhigh") and status in a word ("running", "editing", "2 jobs"). What it is doing in full is in the status's tooltip and in the inspector.
 

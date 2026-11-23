@@ -4,6 +4,7 @@ import { LOCAL_HOST, type AgentRuntime, type HostState } from '@shared/types'
 import { texToText } from '@shared/tex'
 import { activateSelection } from '../actions'
 import { agentTitle, ago, contextOf, doingText, needsText, shortPath, tokens } from '../format'
+import { shortTokens } from '@shared/context'
 import { arrange, get, isUnread, rollAll, set, toggleCollapsed, toggleFolder, updateSettings, useKuna } from '../store'
 import { OTHER_FOLDER_ID, agentCounts, agentsByProject, assignAgents, buildTree, folderOfAgent, type TreeNode } from '@shared/tree'
 import { ProjectIcon } from './ProjectIcon'
@@ -295,7 +296,8 @@ function Row({
             <i>
               <b style={{ width: `${ctx.pct}%` }} />
             </i>
-            {ctx.length}
+            {/* the bar says how full; the length alone leaves the name its room */}
+            {shortTokens(ctx.tokens)}
           </span>
         )}
         <span className="agent-age">
