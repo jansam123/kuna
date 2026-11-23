@@ -1,0 +1,25 @@
+✻ Sautéed for 24s · done 09:35
+
+❯ /compact
+  ⎿  Compacted (ctrl+o to see full summary)
+     PostCompact [command hook] completed successfully: {}
+
+❯ Reply with exactly this sentence and nothing else: Done.
+  Do you want to keep going with the plots?
+  ⎿  13 skills available
+
+⏺ Done. Do you want to keep going with the plots?
+
+✻ Churned for 2s · done 09:37
+
+❯ /compact
+
+✶ Compacting conversation… (2s · ↓ 251 tokens)
+  ⎿  Tip: Use ctrl+v to paste images from your clipboard
+● full  $0.  last   48    Review  Audit  Board  Details [-]
+        02   $0.01  s
+
+──────────────────────────────────────── Kuna content view ─
+❯ 
+────────────────────────────────────────────────────────────
+  ⏸ manual mode on · esc to interrupt                  /rc

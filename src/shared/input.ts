@@ -37,6 +37,26 @@ export function hasInputBox(lines: string[]): boolean {
   return tail.some((l) => /^\s*(?:│\s*)?[❯>]\s/.test(l)) && tail.some((l) => /─{20,}/.test(l))
 }
 
+const RULE = /─{20,}/
+// (an empty prompt may have lost its trailing space to whoever read the screen)
+const PROMPT = /^\s*(?:│\s*)?[❯>](?:\s|$)/
+
+/**
+ * Claude Code's own input box is at the bottom: a prompt line right under a
+ * rule (not under a box's bottom edge, as /config's search box has), and a
+ * rule under it. A question, a permission or a panel takes its place, so with
+ * it there a "Do you want to" is in a reply, not a question (a reply that asks
+ * is drawn again right above the box after /compact).
+ */
+function inputAtBottom(tail: string[]): boolean {
+  return tail.some((l, i) => i > 0 && PROMPT.test(l) && RULE.test(tail[i - 1]) && !/^\s*╰/.test(tail[i - 1]) && tail.slice(i + 1).some((r) => RULE.test(r)))
+}
+
+/** The questions of a set as tabs over them (`←  ☐ Size  ☒ Toppings  ✔ Submit  →`), or one question's header (` ☐ Colour`). */
+const TABS = /^\s*(?:←\s+)?[☐☒✔]\s\S/
+/** What Claude Code says on a question: its hints, a permission's question, and the review of a set's answers (which has no hint). */
+const QUESTION = /Enter to confirm|Esc to cancel|Do you want to|Review your answers/
+
 /**
  * What the bottom of a Claude Code screen shows: a question, a panel that Esc
  * closes (even one opened mid-turn), the spinner of a running turn, or the
@@ -48,7 +68,7 @@ export function screenState(lines: string[]): ScreenState {
   const tail = lines.filter((l) => l.trim()).slice(-12)
   // on a narrow screen (a phone's) a hint is wrapped: "· Esc to" and "cancel" on the next line
   const text = tail.map((l) => l.trim()).join(' ')
-  if (/Enter to confirm|Esc to cancel|Do you want to/.test(text)) return 'question'
+  if (!inputAtBottom(tail) && QUESTION.test(text)) return 'question'
   if (tail.slice(-6).some((l) => MENU_HINT.test(l.trim()))) return 'menu'
   if (/… *\([0-9]|to interrupt/.test(text)) return 'busy'
   return hasInputBox(lines) ? 'input' : 'unknown'
@@ -95,8 +115,25 @@ export interface PanelOption {
   keys: string
   /** the one the screen's `❯` is on */
   current: boolean
-  /** marked with a `✔`: the one in use */
+  /** marked with a `✔`: the one in use, or a checkbox that is ticked */
   checked: boolean
+  /** a checkbox of a question that takes several answers (`[ ]`, `[✔]`): its number ticks it and leaves the `❯` where it is */
+  box?: boolean
+  /**
+   * Set on the row an answer of one's own is typed into ("Type something."):
+   * `keys` walk the `❯` to it and empty it, the text is typed after them, and
+   * then these keys: Enter, or none in a list of checkboxes (typing ticks the
+   * row; Enter would untick it). `label` is what is typed there so far.
+   */
+  answer?: string
+  /** it sends what was picked: "Submit" under checkboxes, "Submit answers" on a set's review */
+  send?: boolean
+}
+
+/** One question of a set, as the tab over it says: its header, and whether it has an answer. */
+export interface PanelTab {
+  label: string
+  done: boolean
 }
 
 /** A question or a panel on a Claude Code screen, as something to read and tap. */
@@ -109,6 +146,10 @@ export interface Panel {
   hint: string[]
   /** it is /model's list: a row's keys pick it for this session only (where Claude Code offers that); `effort` is its effort line, changed with ← and → */
   model?: { effort: string | null }
+  /** a question of the agent's: its header, or the questions of a set as tabs (the last, "Submit", is the review); ← and → go from one to the next */
+  tabs?: PanelTab[]
+  /** the review of a set's answers before they are sent: each question with what was picked or typed */
+  review?: { question: string; answer: string }[]
 }
 
 const firstCol = (l: string): number => l.search(/\S/)
@@ -139,10 +180,10 @@ export function screenPanel(lines: string[]): Panel | null {
     for (let i = from; i >= Math.max(0, from - 25); i--) if (edge(i)) return i + 1
     return Math.max(0, from - 8)
   }
-  /** the lines that say something, without the list's own rows (`skip`) */
+  /** the lines that say something, without the list's own rows (`skip`); not rules, dashed ones and labelled ones too */
   const said = (from: number, to: number, skip?: Set<number>): string[] => {
     const out: string[] = []
-    for (let i = from; i < to; i++) if (!skip?.has(i) && rows[i].trim() && !/^[\s─╭╮╰╯]+$/.test(rows[i])) out.push(rows[i].trim())
+    for (let i = from; i < to; i++) if (!skip?.has(i) && rows[i].trim() && !/^[\s─╭╮╰╯╌]+$|^\s*─{4,}/.test(rows[i])) out.push(rows[i].trim())
     return out
   }
   if (at < 0) return { state, text: said(top(end - 1), end), options: [], hint: [] }
@@ -153,10 +194,15 @@ export function screenPanel(lines: string[]): Panel | null {
   // a row that unfolds more rows ("▸ More models")
   const FOLD = /^[▸▾]\s/
   const MORE = /^([↑↓])\s*(\d+) more/
-  const numbered = NUM.test(label(at)) || FOLD.test(label(at))
-  const isOption = (i: number): boolean =>
-    i === at || (firstCol(rows[i]) === col && !MORE.test(label(i)) && (!numbered || NUM.test(label(i)) || FOLD.test(label(i))))
   const start = top(at)
+  // a question that takes several answers: checkboxes, and under them a row without a number that sends them
+  const boxes = rows.slice(start, end).some((r) => /\d+\.\s+\[[ ✔✓]\]\s/.test(r))
+  const SUBMIT = /^(?:Submit|Next)$/
+  const numbered = NUM.test(label(at)) || FOLD.test(label(at)) || (boxes && SUBMIT.test(label(at)))
+  const isOption = (i: number): boolean =>
+    i === at ||
+    (firstCol(rows[i]) === col && !MORE.test(label(i)) && (!numbered || NUM.test(label(i)) || FOLD.test(label(i)))) ||
+    (boxes && firstCol(rows[i]) > col && SUBMIT.test(rows[i].trim()))
   let picks: number[] = []
   if (numbered) {
     // a numbered list may have a gap in it (its last choices under a rule)
@@ -171,7 +217,31 @@ export function screenPanel(lines: string[]): Panel | null {
   picks = picks.sort((a, b) => a - b)
   const cursor = picks.indexOf(at)
   const taken = new Set<number>(picks)
-  const text = said(start, picks[0])
+  let text = said(start, picks[0])
+  // the questions of a set as tabs over them, or one question's header
+  let tabs: PanelTab[] | undefined
+  if (TABS.test(text[0] ?? '')) {
+    tabs = text[0]
+      .replace(/^←\s*|\s*→$/g, '')
+      .split(/\s{2,}/)
+      .map((t) => ({ label: t.replace(/^[☐☒✔]\s*/, ''), done: t.startsWith('☒') }))
+    text = text.slice(1)
+  }
+  // a set's answers to look over: "● the question" and "→ its answer" under it, either wrapped
+  let review: { question: string; answer: string }[] | undefined
+  if (text.includes('Review your answers')) {
+    review = []
+    let into: 'question' | 'answer' | null = null
+    text = text.filter((l) => {
+      const last = review![review!.length - 1]
+      if (l.startsWith('● ')) review!.push({ question: l.slice(2), answer: '' })
+      else if (l.startsWith('→ ') && last) last.answer = l.slice(2)
+      else if (into && last) last[into] += ' ' + l
+      else return true
+      into = l.startsWith('● ') ? 'question' : l.startsWith('→ ') ? 'answer' : into
+      return false
+    })
+  }
   const isModel = /^select model/i.test(text[0] ?? '')
   // Enter in /model makes the pick the default of every new session; `s` keeps it to this one
   const here = isModel && /session only|default for new sessions/i.test(rows.slice(start, end).join(' '))
@@ -187,8 +257,22 @@ export function screenPanel(lines: string[]): Panel | null {
       taken.add(j)
     }
     const keys = isModel ? walk(n - cursor) + (here && !fold ? 's' : '\r') : number >= 1 && number <= 9 ? String(number) : walk(n - cursor) + '\r'
+    const box = /^\[([ ✔✓])\]\s*/.exec(name)
+    if (box) return { label: name.slice(box[0].length), detail: detail.join(' '), keys, current: i === at, checked: box[1] !== ' ', box: true }
     return { label: name.replace(/\s*[✔✓]$/, ''), detail: detail.join(' '), keys, current: i === at, checked: /[✔✓]$/.test(name) }
   })
+  // a question of the agent's: the row above "Submit" (several answers) or above "Chat about this" takes an answer typed in
+  const chat = options.findIndex((o) => o.label === 'Chat about this')
+  const submit = options.findIndex((o) => SUBMIT.test(o.label))
+  const free = chat < 0 ? -1 : (submit >= 0 ? submit : chat) - 1
+  if (free >= 0 && NUM.test(label(picks[free]))) {
+    const o = options[free]
+    // the number would tick it (several answers) or pick it: the arrows only bring the ❯ there, and Ctrl+U empties it
+    o.keys = walk(free - cursor) + '\x15'
+    o.answer = boxes ? '' : '\r'
+    if (/^Type something\.?$/.test(o.label)) o.label = ''
+  }
+  for (const o of options) if ((boxes && SUBMIT.test(o.label)) || (review && o.label === 'Submit answers')) o.send = true
   // "↓ 4 more": rows the screen has no room for; the `❯` walked past the list's end brings them
   for (let i = start; i < end; i++) {
     const more = MORE.exec(rows[i].trim())
@@ -201,7 +285,7 @@ export function screenPanel(lines: string[]): Panel | null {
     else options.unshift({ ...option, keys: walk(-cursor - far) })
   }
   const hint = said(picks[0], end, taken)
-  if (!isModel) return { state, text, options, hint }
+  if (!isModel) return { state, text, options, hint, ...(tabs && { tabs }), ...(review && { review }) }
   const effort = hint.map((l) => /^\W*(\S.*?effort.*?)\s*←/.exec(l)?.[1]).find(Boolean) ?? null
   return { state, text, options, hint, model: { effort } }
 }

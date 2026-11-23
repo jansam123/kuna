@@ -211,8 +211,26 @@ public struct PanelOption: Codable, Hashable, Sendable {
   /// the keys that pick it
   public var keys: String
   public var current: Bool
-  /// marked as the one in use
+  /// marked as the one in use, or a ticked checkbox
   public var checked: Bool
+  /// a checkbox of a question that takes several answers
+  public var box: Bool?
+  /// the row an answer of one's own is typed into: `keys`, then the text, then these keys
+  public var answer: String?
+  /// it sends what was picked ("Submit", "Submit answers")
+  public var send: Bool?
+}
+
+/// One question of a set, as its tab says (`PanelTab` in src/shared/input.ts).
+public struct PanelTab: Codable, Hashable, Sendable {
+  public var label: String
+  public var done: Bool
+}
+
+/// A question of a set with what was answered, on the review before it is sent.
+public struct PanelAnswer: Codable, Hashable, Sendable {
+  public var question: String
+  public var answer: String
 }
 
 /// What /model's list has besides its rows (`Panel.model` in src/shared/input.ts).
@@ -229,6 +247,10 @@ public struct Panel: Codable, Hashable, Sendable {
   public var hint: [String]
   /// set when it is /model's list: its rows pick a model for this session
   public var model: ModelPanel?
+  /// a question's header, or the questions of a set (the last, "Submit", is the review)
+  public var tabs: [PanelTab]?
+  /// the review of a set's answers before they are sent
+  public var review: [PanelAnswer]?
 }
 
 /// How a run of an agent's scrolled-past output looks (`BackStyle` in src/shared/scrollback.ts).

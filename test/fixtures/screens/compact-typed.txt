@@ -1,0 +1,25 @@
+  true, options Cat, Dog. Nothing else.
+
+⏺ Declined to answer Claude's questions:
+  ⎿  · Which pets? (Cat / Dog)
+
+❯ Run this exact bash command with the Bash
+  tool: touch kuna-qa-marker && ls
+
+⏺ Bash(touch kuna-qa-marker && ls)
+  ⎿         kuna-qa-marker
+
+✳ Meandering… (23s · ↓ 149 tokens)
+  ⎿  Tip: Share Claude Code and earn €10 in
+     usage credits · /passes
+● full  $0la20s$Review  Audit  Board  Deta[-]
+
+────────────────────────── Kuna content view ─
+❯ /compact
+──────────────────────────────────────────────
+  ❯ /compact          Free up context by
+                      summarizing the conve…
+    /autocompact      Set how full the
+                      context gets before a…
+    …-skills:handoff  (mattpocock-skills)
+                      Compact the current c…

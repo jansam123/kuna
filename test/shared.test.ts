@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { describeActivity, shortActivity } from '@shared/activity'
 import { baseModelId, contextInfo, contextLength, contextLevel, contextWindowSize, modelFlag, shortModel, shortTokens } from '@shared/context'
@@ -564,8 +566,9 @@ describe('typing /compact', () => {
     expect(ask.hint).toEqual(['Esc to cancel'])
     // a question of the agent's, its last choice under a rule of its own
     const q = screenPanel([rule, ' ☐ Library', '', ' Which library should format the dates?', '', '   1. date-fns', '      Modern and modular', ' ❯ 2. dayjs', '   3. Type something.', ' ──────────────', '   4. Chat about this', '', ' Enter to select · ↑/↓ to navigate · Esc to cancel'])!
-    expect(q.text).toEqual(['☐ Library', 'Which library should format the dates?'])
-    expect(q.options.map((o) => o.keys)).toEqual(['1', '2', '3', '4'])
+    expect(q.text).toEqual(['Which library should format the dates?'])
+    expect(q.tabs).toEqual([{ label: 'Library', done: false }])
+    expect(q.options.map((o) => o.keys)).toEqual(['1', '2', '\x1b[B\x15', '4'])
     expect(q.options[0].detail).toBe('Modern and modular')
     expect(q.options[1].current).toBe(true)
     // /config: no numbers, so the ❯ is walked to the row; the "more" line is not a row
@@ -655,6 +658,145 @@ describe('typing /compact', () => {
     ])
     expect(open.options[2].detail).toBe('Most capable for your hardest and longest-running tasks')
     expect(open.model).toEqual({ effort: null })
+  })
+})
+
+// Claude Code 2.1.330's own screens, captured with tmux capture-pane at 46 and 60 columns
+describe("Claude Code's questions as its screens show them", () => {
+  const screen = (name: string): string[] => readFileSync(join(__dirname, 'fixtures/screens', `${name}.txt`), 'utf8').split('\n')
+  const panel = (name: string) => screenPanel(screen(name))!
+  const D = '\x1b[B'
+  const U = '\x1b[A'
+
+  it('is no question once the input box is back, whatever a reply above it says', () => {
+    // after /compact the last reply is drawn again above the box: its "Do you want to" is no question
+    for (const name of ['compacting', 'compacting-60', 'compacted', 'compacted-60', 'reply-asks-60', 'compact-typed', 'idle', 'ask-answered', 'working']) {
+      expect(screenPanel(screen(name)), name).toBeNull()
+      expect(screenState(screen(name)), name).not.toBe('question')
+    }
+    expect(screenState(screen('compacting'))).toBe('busy')
+    expect(screenState(screen('compacted-60'))).toBe('input')
+    expect(screenState(screen('reply-asks-60'))).toBe('input')
+    for (const name of ['ask', 'multi', 'set', 'set-review', 'set-review-unanswered', 'multi-review', 'permission', 'trust']) expect(screenState(screen(name)), name).toBe('question')
+  })
+
+  it('reads one question: its header, its rows, the row to type into', () => {
+    const p = panel('ask')
+    expect(p.tabs).toEqual([{ label: 'Colour', done: false }])
+    expect(p.text).toEqual(['Which colour do you prefer?'])
+    expect(p.options.map((o) => [o.label, o.detail, o.keys, o.current])).toEqual([
+      ['Red', 'Warm', '1', true],
+      ['Green', 'Calm', '2', false],
+      ['Blue', 'Cool', '3', false],
+      // "Type something.": the ❯ is walked there and the row emptied, then the text and Enter
+      ['', '', D + D + D + '\x15', false],
+      ['Chat about this', '', '5', false]
+    ])
+    expect(p.options[3].answer).toBe('\r')
+    expect(p.options.filter((o) => o.answer !== undefined)).toHaveLength(1)
+    // the labelled rule under it is no hint
+    expect(p.hint).toEqual(['Enter to select · ↑/↓ to navigate · Esc to', 'cancel'])
+    expect(panel('ask-down').options[1].current).toBe(true)
+    // what is typed there stands in its place
+    expect(panel('ask-type').options[3]).toMatchObject({ label: '', current: true, keys: '\x15' })
+    expect(panel('ask-typed').options[3]).toMatchObject({ label: 'Purple please', current: true, answer: '\r' })
+    expect(panel('ask-type-60').options.map((o) => o.label)).toEqual(['One', 'Two', '', 'Chat about this'])
+  })
+
+  it('reads checkboxes, the row that sends them, and what is ticked', () => {
+    const p = panel('multi')
+    expect(p.tabs).toEqual([
+      { label: 'Fruits', done: false },
+      { label: 'Submit', done: false }
+    ])
+    expect(p.options.map((o) => [o.label, o.keys, o.box ?? false, o.checked])).toEqual([
+      ['Apple', '1', true, false],
+      ['Banana', '2', true, false],
+      ['Cherry', '3', true, false],
+      // typing ticks it; Enter would untick it
+      ['', D + D + D + '\x15', true, false],
+      ['Submit', D + D + D + D + '\r', false, false],
+      ['Chat about this', '5', false, false]
+    ])
+    expect(p.options[3].answer).toBe('')
+    expect(p.options.map((o) => o.send ?? false)).toEqual([false, false, false, false, true, false])
+    expect(p.options[0].detail).toBe('Apple')
+    expect(panel('multi-checked').options.map((o) => o.checked)).toEqual([true, false, true, false, false, false])
+    expect(panel('multi-checked').tabs![0].done).toBe(true)
+    expect(panel('multi-typed').options[3]).toMatchObject({ label: 'Mango', checked: true, current: true })
+    // the ❯ on Submit: still the same rows
+    const s = panel('multi-submit')
+    expect(s.options.map((o) => [o.label, o.keys, o.current])).toEqual([
+      ['Apple', '1', false],
+      ['Banana', '2', false],
+      ['Cherry', '3', false],
+      ['Mango', U + '\x15', false],
+      ['Submit', '\r', true],
+      ['Chat about this', '5', false]
+    ])
+  })
+
+  it('reads a set of questions through to the review of its answers', () => {
+    const first = panel('set')
+    expect(first.tabs).toEqual([
+      { label: 'Size', done: false },
+      { label: 'Toppings', done: false },
+      { label: 'Submit', done: false }
+    ])
+    expect(first.text).toEqual(['Which size?'])
+    expect(first.options.map((o) => o.keys)).toEqual(['1', '2', D + D + '\x15', '4'])
+    const second = panel('set-second')
+    expect(second.tabs!.map((t) => t.done)).toEqual([true, false, false])
+    expect(second.options.map((o) => o.label)).toEqual(['Cheese', 'Olives', '', 'Submit', 'Chat about this'])
+    expect(panel('set-submit').options.filter((o) => o.checked).map((o) => o.label)).toEqual(['Cheese', 'Olives'])
+    expect(panel('set-type').options[2]).toMatchObject({ label: '', current: true, answer: '\r' })
+    const review = panel('set-review')
+    expect(review.text).toEqual(['Review your answers'])
+    expect(review.review).toEqual([
+      { question: 'Which size?', answer: 'Large' },
+      { question: 'Which toppings?', answer: 'Cheese, Olives' }
+    ])
+    expect(review.options.map((o) => [o.label, o.keys, o.send ?? false])).toEqual([
+      ['Submit answers', '1', true],
+      ['Cancel', '2', false]
+    ])
+    expect(panel('multi-review').review).toEqual([{ question: 'Which fruits do you want?', answer: 'Apple, Mango' }])
+    const unanswered = panel('set-review-unanswered')
+    expect(unanswered.text).toEqual(['Review your answers', '⚠ Some questions are unanswered'])
+    expect(unanswered.review).toEqual([])
+  })
+
+  it('reads a permission without its dashed rules, and nothing to type into', () => {
+    const p = panel('permission')
+    expect(p.text[0]).toBe('Bash command')
+    expect(p.text).toContain('touch kuna-qa-marker && ls')
+    expect(p.text.at(-1)).toBe('Do you want to proceed?')
+    expect(p.text.some((l) => l.includes('╌'))).toBe(false)
+    expect(p.options.map((o) => o.keys)).toEqual(['1', '2', '3', '4'])
+    expect(p.options.some((o) => o.answer !== undefined || o.box || o.send)).toBe(false)
+    expect(p.tabs).toBeUndefined()
+    expect(p.hint).toEqual(['Esc to cancel · Tab to amend'])
+  })
+
+  it('shows in the conversation what each question was answered', () => {
+    const log = new ChatLog()
+    const line = (o: object): string => `${JSON.stringify(o)}\n`
+    const questions = [
+      { question: 'Which size?', header: 'Size', options: [{ label: 'Small' }, { label: 'Large' }] },
+      { question: 'Which "toppings"?', header: 'Toppings', multiSelect: true, options: [{ label: 'Cheese' }, { label: 'Olives' }] }
+    ]
+    log.feed(line({ type: 'assistant', uuid: 'a', message: { content: [{ type: 'tool_use', id: 't', name: 'AskUserQuestion', input: { questions } }] } }))
+    log.feed(
+      line({
+        type: 'user',
+        uuid: 'u',
+        message: { content: [{ type: 'tool_result', tool_use_id: 't', content: 'Your questions have been answered: "Which size?"="Large", "Which "toppings"?"="Cheese, Olives". You can now continue with these answers in mind.' }] }
+      })
+    )
+    expect(log.items().map((i) => [i.state, i.options])).toEqual([
+      ['done', ['Large']],
+      ['done', ['Cheese, Olives']]
+    ])
   })
 })
 

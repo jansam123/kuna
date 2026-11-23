@@ -46,7 +46,7 @@ Opening a pane runs `ssh -tt <host> sh .kuna/bin/kuna attach <id>` inside a loca
 
 ## State: two sources, merged
 
-**Watch frames** (cheap, every second when something changes). For each tmux pane: dead or alive, last activity, whether Claude's spinner (`✳ Thinking… (12s · ↓ 1.2k tokens)`) or a question (`Enter to confirm`, `Do you want to…`) is on screen, tmux copy mode, pane title. For each agent directory: the last hook event, the last "attention" time and the transcript size. `src/shared/watch.ts` turns a frame into `AgentRuntime` records and derives the status:
+**Watch frames** (cheap, every second when something changes). For each tmux pane: dead or alive, last activity, whether Claude's spinner (`✳ Thinking… (12s · ↓ 1.2k tokens)`) or a question (`Enter to confirm`, `Do you want to…`, a set's `Review your answers`) is on screen (never while Claude Code's input box is at the bottom: a question takes its place, so the words are then in a reply, as after `/compact`, which draws the last reply again), tmux copy mode, pane title. For each agent directory: the last hook event, the last "attention" time and the transcript size. `src/shared/watch.ts` turns a frame into `AgentRuntime` records and derives the status:
 
 1. pane gone or dead → **exited**
 2. a question on screen → **needs you**

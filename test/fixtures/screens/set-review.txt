@@ -1,0 +1,39 @@
+✻ Churned for 4s · done 08:49
+
+❯ Now call AskUserQuestion with one question
+  "Which fruits do you want?" header
+  "Fruits", multiSelect true, options Apple,
+  Banana, Cherry. Do nothing else.
+
+⏺ Answered Claude's questions:
+  ⎿  · Which fruits do you want? → Apple,
+     Mango
+
+⏺ You want Apple and Mango. Mango wasn't one
+  of the listed options, so I've recorded it
+  as a custom answer.
+
+✻ Brewed for 5s · done 09:31
+
+❯ Now call AskUserQuestion with two questions
+  at once: 1) "Which size?" header "Size",
+  options Small, Large; 2) "Which toppings?"
+  header "Toppings", multiSelect true,
+  options Cheese, Olives. Do nothing else.
+
+──────────────────────────────────────────────
+←  ☒ Size  ☒ Toppings  ✔ Submit  →
+
+Review your answers
+
+ ● Which size?
+   → Large
+ ● Which toppings?
+   → Cheese, Olives
+
+❯ 1. Submit answers
+  2. Cancel
+
+
+
+────────────────────────── Kuna content view ─

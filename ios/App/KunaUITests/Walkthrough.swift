@@ -337,6 +337,122 @@ final class Walkthrough: XCTestCase {
     XCTAssertLessThan(warm.live, 5, "the list took long with the terminal open")
   }
 
+  /// Claude Code's questions as cards, against the fake's copies of Claude Code 2.1.330's screens:
+  /// one answer picked, one typed, boxes ticked and sent, a set through its review, a permission,
+  /// and /compact after a reply that asks, with no card.
+  func testQuestions() throws {
+    app.launchArguments = ["-lock", "NO", "-opensTerminal", "NO", "-kunaStill", "YES"]
+    if let file = ProcessInfo.processInfo.environment["KUNA_IMPORT"] { app.launchArguments += ["-kunaImport", file] }
+    app.launch()
+    let agent = app.buttons["agent-gggg7777"]
+    wait(agent, 40, "the agent that asks, on the home screen")
+    agent.tap()
+    wait(said("The fit converged."), 30, "its conversation")
+    let message = app.textFields["message"].exists ? app.textFields["message"] : app.textViews["message"]
+    let review = app.descendants(matching: .any)["panel-review"]
+    func send(_ text: String) {
+      message.tap()
+      message.typeText(text)
+      app.buttons["send"].tap()
+    }
+    func card(_ what: String) -> Bool {
+      let up = wait(app.buttons["panel-option-1"], 40, what)
+      sleep(1)
+      // a question puts the keyboard away, so the whole card shows
+      if up, app.keyboards.count > 0 { XCTFail("the keyboard stayed up over \(what)") }
+      return up
+    }
+
+    // one question: a tap picks, and the agent goes on with it
+    send("ask one")
+    if card("the question's rows") {
+      shot("q-one")
+      XCTAssertTrue(app.staticTexts["Which colour do you prefer?"].exists, "the question is not on its card")
+      app.buttons["panel-option-2"].tap()
+      wait(said("Answers: Green."), 30, "the agent going on with the pick")
+      sleep(1)
+      shot("q-one-answered")
+    }
+    // an answer of one's own: "Type something." hands the prompt box to the question
+    send("ask one")
+    if card("the question again") {
+      app.buttons["panel-option-4"].tap()
+      if wait(app.descendants(matching: .any)["answering"], 10, "the prompt box taking the answer") {
+        shot("q-type")
+        message.typeText("Purple please")
+        shot("q-typed")
+        app.buttons["send"].tap()
+      }
+      wait(said("Answers: Purple please."), 30, "the typed answer reaching the agent")
+      sleep(1)
+      shot("q-type-answered")
+    }
+    // several answers: two ticked, Submit, the review, sent
+    send("ask many")
+    if card("the boxes") {
+      app.buttons["panel-option-1"].tap()
+      sleep(1)
+      app.buttons["panel-option-3"].tap()
+      sleep(2)
+      shot("q-many-ticked")
+      XCTAssertEqual(app.buttons["panel-option-1"].value as? String, "ticked")
+      XCTAssertEqual(app.buttons["panel-option-2"].value as? String, "not ticked")
+      XCTAssertEqual(app.buttons["panel-option-3"].value as? String, "ticked")
+      app.buttons["panel-option-5"].tap()
+      if wait(review, 20, "the review of the ticks") {
+        sleep(1)
+        shot("q-many-review")
+        app.buttons["panel-option-1"].tap()
+      }
+      wait(said("Answers: Apple, Cherry."), 30, "the ticks reaching the agent")
+      sleep(1)
+      shot("q-many-answered")
+    }
+    // two questions at once: one picked, the next ticked, the review, sent
+    send("ask set")
+    if card("the first question of the set") {
+      shot("q-set-1")
+      app.buttons["panel-option-2"].tap()
+      if wait(app.staticTexts["Which toppings?"], 20, "the second question of the set") {
+        sleep(1)
+        shot("q-set-2")
+        app.buttons["panel-option-1"].tap()
+        sleep(1)
+        app.buttons["panel-option-2"].tap()
+        sleep(2)
+        shot("q-set-2-ticked")
+        app.buttons["panel-option-4"].tap()
+      }
+      if wait(review, 20, "the review of the set") {
+        sleep(1)
+        shot("q-set-review")
+        app.buttons["panel-option-1"].tap()
+      }
+      wait(said("Answers: Large; Cheese, Olives."), 30, "the set's answers reaching the agent")
+      sleep(1)
+      shot("q-set-answered")
+    }
+    // a permission
+    send("run it")
+    if card("the permission") {
+      shot("q-permission")
+      app.buttons["panel-option-1"].tap()
+      wait(said("Ran make plots"), 30, "the command run once allowed")
+      sleep(1)
+      shot("q-permission-answered")
+    }
+    // /compact after a reply that asks: the reply is drawn again over the input box, and is no question
+    send("Do you want to keep going?")
+    wait(said("You said: Do you want to keep going?"), 30, "the reply that asks")
+    send("/compact")
+    sleep(4)
+    shot("q-compacting")
+    sleep(6)
+    shot("q-compacted")
+    XCTAssertFalse(app.descendants(matching: .any)["panel"].exists, "a card came up after /compact")
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+  }
+
   func testWalkthrough() throws {
     let env = ProcessInfo.processInfo.environment
     app.launchArguments = ["-lock", "NO", "-kunaStill", "YES", "-opensTerminal", "NO"]
@@ -613,7 +729,13 @@ final class Walkthrough: XCTestCase {
         sleep(3)
         shot("question-2")
         app.buttons["panel-option-1"].tap()
-        wait(said("Comparing with choice 2, log scale choice 1."), 30, "the agent going on with both answers")
+        // a set of questions ends in the review of its answers, as Claude Code's does
+        if wait(app.descendants(matching: .any)["panel-review"], 20, "the review of both answers") {
+          sleep(1)
+          shot("question-review")
+          app.buttons["panel-option-1"].tap()
+        }
+        wait(said("Answers: Only the new one; Yes."), 30, "the agent going on with both answers")
         sleep(1)
         shot("question-answered")
       }

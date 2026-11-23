@@ -12,6 +12,8 @@ final class PromptDraft {
   var shown = false
   /// the list of models is up: the panel Claude Code drew for it is shown there, not as a card
   var picking = false
+  /// "Type something." was tapped on this question: what is sent goes to it as its answer
+  var answering: String?
 }
 
 /// The agents whose screens are open: each keeps its conversation and its terminal for as long
@@ -225,7 +227,10 @@ struct AgentScreen: View {
       .safeAreaInset(edge: .bottom, spacing: 0) {
         VStack(spacing: 8) {
           if let panel = session.panel, !(here.prompt.picking && panel.model != nil) {
-            PanelCard(panel: panel, press: { keys in Task { try? await session.press(keys) } }, terminal: { terminal = true })
+            PanelCard(panel: panel, answering: here.prompt.answering != nil, press: { keys in Task { try? await session.press(keys) } }, terminal: { terminal = true }) {
+              here.prompt.answering = panel.text.last ?? "the question"
+              typing = true
+            }
           }
           PromptBox(model: model, here: here, typing: $typing, terminal: { terminal = true })
         }
@@ -236,6 +241,10 @@ struct AgentScreen: View {
       .onChange(of: items.last.map { "\($0.id) \($0.items?.count ?? 0)" }) { if atEnd { proxy.scrollTo("end", anchor: .bottom) } }
       .onChange(of: session.outbox.count) { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
       .onChange(of: session.panel) { if atEnd { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } }
+      // the question that took a typed answer is gone: what is written is a message again
+      .onChange(of: session.panel?.options.contains { $0.answer != nil } ?? false) { _, open in if !open { here.prompt.answering = nil } }
+      // a question of the agent's that comes up puts the keyboard away, so all of it shows (not /model's list, which was asked for)
+      .onChange(of: session.panel?.state == "question" && session.panel?.model == nil) { _, up in if up, here.prompt.answering == nil { typing = false } }
       .onChange(of: typing) { if typing { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } }
     }
   }
@@ -298,10 +307,20 @@ struct PromptBox: View {
       if let agent {
         StatusLine(agent: agent, here: here, terminal: terminal)
       }
+      if let question = draft.answering {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+          Image(systemName: "arrowshape.turn.up.left.fill")
+          Text("Your answer to “\(question)”").lineLimit(2)
+          Spacer(minLength: 4)
+          Button("Not an answer", systemImage: "xmark.circle.fill") { draft.answering = nil }.labelStyle(.iconOnly).foregroundStyle(look.dim)
+        }
+        .font(.footnote.weight(.semibold)).foregroundStyle(look.waiting).padding(.horizontal, 6)
+        .accessibilityElement(children: .combine).accessibilityIdentifier("answering")
+      }
       HStack(alignment: .bottom, spacing: 8) {
         Button(typing.wrappedValue ? "Hide the keyboard" : "Show the keyboard", systemImage: typing.wrappedValue ? "keyboard.chevron.compact.down" : "keyboard") { typing.wrappedValue.toggle() }
           .labelStyle(.iconOnly).foregroundStyle(look.dim).frame(width: 34, height: 36).accessibilityIdentifier("keyboard")
-        TextField(agent?.status == "waiting" ? "It is waiting for you…" : "Message", text: $draft.text, axis: .vertical)
+        TextField(draft.answering != nil ? "Your answer…" : agent?.status == "waiting" ? "It is waiting for you…" : "Message", text: $draft.text, axis: .vertical)
           .lineLimit(1...7).focused(typing).padding(.vertical, 8)
           .accessibilityIdentifier("message")
         Button { send(here.prompt.text) } label: {
@@ -324,7 +343,13 @@ struct PromptBox: View {
     sending = true
     Task {
       do {
-        let now = try await here.session.send(text)
+        var now = true
+        if here.prompt.answering != nil {
+          try await here.session.answer(text)
+          here.prompt.answering = nil
+        } else {
+          now = try await here.session.send(text)
+        }
         Haptic.play(.sent)
         if here.prompt.text == text { here.prompt.text = "" }
         // queued, the box stays to show it (and take it back)
@@ -603,56 +628,165 @@ private struct ModelList: View {
 }
 
 /// A question or a panel of Claude Code's (a permission, the agent's own question, /model), read
-/// off its screen: what it says, and its rows to tap. One question after another shows as the
-/// screen brings them.
+/// off its screen: what it says, and its rows to tap. A question is set apart in the colour of
+/// waiting, the screen's `❯` row is outlined, ticked boxes are filled, and what a tap sent is said
+/// under the rows. The questions of a set show as tabs, answered or not, ending in the review.
 private struct PanelCard: View {
   let panel: Panel
+  /// its answer is being typed in the prompt box: only the question shows, over it
+  let answering: Bool
   let press: (String) -> Void
   let terminal: () -> Void
+  /// "Type something." was tapped: the prompt box takes the answer
+  let type: () -> Void
   @Environment(\.look) fileprivate var look
+  /// what the last tap sent, said until the next one
+  @State private var sent: String?
+
+  private var question: Bool { panel.state == "question" && panel.model == nil }
+  private var boxes: Bool { panel.options.contains { $0.box == true } }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
+      if question {
+        Label(title, systemImage: panel.review != nil ? "checklist" : panel.tabs != nil ? "questionmark.bubble.fill" : "exclamationmark.bubble.fill")
+          .font(.caption.weight(.bold)).foregroundStyle(look.waiting).textCase(.uppercase)
+          .accessibilityIdentifier("panel-kind")
+      }
+      if let tabs = panel.tabs, tabs.count > 1 { tabRow(tabs) }
       // the list of models says above its rows how Enter saves the pick, which a tap here does not do
       let text = panel.model == nil ? panel.text : Array(panel.text.prefix(1))
       ForEach(Array(text.enumerated()), id: \.offset) { i, line in
-        Text(line).font(i == text.count - 1 ? .subheadline.weight(.semibold) : .footnote).foregroundStyle(i == text.count - 1 ? look.bright : look.dim)
+        Text(line).font(i == text.count - 1 ? (question ? .headline : .subheadline.weight(.semibold)) : .footnote).foregroundStyle(i == text.count - 1 ? look.bright : look.dim)
       }
+      if let review = panel.review { answers(review) }
       // as tall as its rows; a long list scrolls
-      if panel.options.count > 5 { ScrollView { rows }.frame(maxHeight: 280) } else { rows }
-      HStack(spacing: 10) {
+      if answering {
+        EmptyView()
+      } else if panel.options.count > 6 {
+        ScrollView { rows }.frame(maxHeight: 300)
+      } else {
+        rows
+      }
+      if let sent {
+        Label(sent, systemImage: "checkmark.circle.fill").font(.caption.weight(.medium)).foregroundStyle(look.green).accessibilityIdentifier("panel-sent")
+      }
+      HStack(spacing: 8) {
         Text(panel.model == nil ? panel.hint.joined(separator: " ") : "For this session.").font(.caption2).foregroundStyle(look.faint).lineLimit(2)
         Spacer(minLength: 0)
-        Button("esc") { press("\u{1b}") }.font(.footnote.monospaced()).buttonStyle(.bordered).controlSize(.small).accessibilityLabel("Escape")
-        Button("Its terminal", systemImage: "apple.terminal", action: terminal).labelStyle(.iconOnly).buttonStyle(.bordered).controlSize(.small)
+        if let tabs = panel.tabs, tabs.count > 1 {
+          Button("Previous question", systemImage: "chevron.left") { press("\u{1b}[D") }.accessibilityIdentifier("panel-previous")
+          Button("Next question", systemImage: "chevron.right") { press("\u{1b}[C") }.accessibilityIdentifier("panel-next")
+        }
+        Button("esc") { press("\u{1b}") }.font(.footnote.monospaced()).labelStyle(.titleOnly).accessibilityLabel("Escape")
+        Button("Its terminal", systemImage: "apple.terminal", action: terminal)
       }
+      .labelStyle(.iconOnly).buttonStyle(.bordered).controlSize(.small)
     }
     .padding(12)
+    .background(look.waiting.opacity(question ? 0.12 : 0), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     .glassEffect(.regular, in: .rect(cornerRadius: 24))
-    .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(look.waiting.opacity(panel.state == "question" ? 0.55 : 0)))
+    .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(look.waiting.opacity(question ? 0.9 : 0), lineWidth: 1.5))
     .padding(.horizontal, 10)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("panel")
   }
-}
 
-extension PanelCard {
+  private var title: String {
+    if panel.review != nil { return "Check your answers" }
+    if panel.tabs != nil { return boxes ? "It asks you · tick any" : "It asks you" }
+    return "It waits for your answer"
+  }
+
+  /// the questions of a set, answered ones ticked; on the review, Submit is where the screen is
+  private func tabRow(_ tabs: [PanelTab]) -> some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 6) {
+        ForEach(Array(tabs.enumerated()), id: \.offset) { i, tab in
+          let last = i == tabs.count - 1
+          let here = last && panel.review != nil
+          Label(tab.label, systemImage: last ? "paperplane.fill" : tab.done ? "checkmark.circle.fill" : "circle")
+            .font(.caption.weight(.semibold)).lineLimit(1)
+            .foregroundStyle(here ? look.ground : tab.done ? look.green : look.dim)
+            .padding(.horizontal, 9).padding(.vertical, 4)
+            .background(here ? look.accent : look.raised, in: Capsule())
+            .accessibilityIdentifier("panel-tab-\(i + 1)")
+        }
+      }
+    }
+  }
+
+  /// a set's answers before they are sent
+  private func answers(_ review: [PanelAnswer]) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      ForEach(Array(review.enumerated()), id: \.offset) { _, a in
+        VStack(alignment: .leading, spacing: 1) {
+          Text(a.question).font(.footnote).foregroundStyle(look.dim)
+          Text("→ \(a.answer)").font(.subheadline.weight(.semibold)).foregroundStyle(look.green)
+        }
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(10)
+    .background(look.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .accessibilityElement(children: .combine)
+    .accessibilityIdentifier("panel-review")
+  }
+
   private var rows: some View {
     VStack(spacing: 6) {
       ForEach(Array(panel.options.enumerated()), id: \.offset) { i, option in
-        Button { press(option.keys) } label: {
-          VStack(alignment: .leading, spacing: 2) {
-            Text(option.label).font(.subheadline.weight(.medium)).foregroundStyle(look.text).multilineTextAlignment(.leading)
-            if !option.detail.isEmpty { Text(option.detail).font(.caption).foregroundStyle(look.dim).multilineTextAlignment(.leading) }
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.horizontal, 12).padding(.vertical, 9)
-          .background(look.raised.tint(look.accent, option.current ? 0.22 : 0), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("panel-option-\(i + 1)")
+        Button { tap(option) } label: { row(option) }
+          .buttonStyle(.plain)
+          .accessibilityLabel(option.answer != nil && option.label.isEmpty ? "Type something" : option.label)
+          .accessibilityValue(option.box == true ? (option.checked ? "ticked" : "not ticked") : option.current ? "selected" : "")
+          .accessibilityIdentifier("panel-option-\(i + 1)")
       }
     }
+  }
+
+  private func tap(_ option: PanelOption) {
+    if option.answer != nil { return type() }
+    press(option.keys)
+    Haptic.play(.sent)
+    sent = option.send == true ? "Sent" : option.box == true ? "\(option.checked ? "Unticked" : "Ticked") “\(option.label)”" : "Picked “\(option.label)”"
+  }
+
+  private func row(_ option: PanelOption) -> some View {
+    let send = option.send == true
+    let typed = option.answer != nil
+    let ticked = option.box == true && option.checked
+    return HStack(alignment: .firstTextBaseline, spacing: 9) {
+      Group {
+        if option.box == true {
+          Image(systemName: option.checked ? "checkmark.square.fill" : "square").foregroundStyle(option.checked ? look.green : look.dim)
+        } else if send {
+          Image(systemName: "paperplane.fill").foregroundStyle(look.ground)
+        } else if typed {
+          Image(systemName: "pencil").foregroundStyle(look.accent)
+        } else {
+          Image(systemName: "chevron.right").foregroundStyle(look.accent).opacity(option.current ? 1 : 0)
+        }
+      }
+      .font(.subheadline.weight(.semibold)).frame(width: 18)
+      VStack(alignment: .leading, spacing: 2) {
+        if typed && option.label.isEmpty {
+          Text("Type something…").font(.subheadline.weight(.medium)).italic().foregroundStyle(look.dim)
+        } else {
+          Text(option.label).font(.subheadline.weight(send ? .bold : .medium)).foregroundStyle(send ? look.ground : look.text).multilineTextAlignment(.leading)
+        }
+        if typed { Text(option.label.isEmpty ? "Your own answer" : "Your own answer · tap to change it").font(.caption).foregroundStyle(look.dim) }
+        if !option.detail.isEmpty { Text(option.detail).font(.caption).foregroundStyle(look.dim).multilineTextAlignment(.leading) }
+      }
+      Spacer(minLength: 0)
+      if option.checked, option.box != true { Image(systemName: "checkmark").font(.footnote.weight(.bold)).foregroundStyle(look.accent) }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.horizontal, 12).padding(.vertical, 9)
+    .background(send ? look.accent : look.raised.tint(ticked ? look.green : look.accent, ticked ? 0.16 : option.current ? 0.2 : 0), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    // the row the screen's ❯ is on
+    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(look.accent.opacity(option.current && !send ? 0.9 : 0), lineWidth: 1.5))
+    .contentShape(Rectangle())
   }
 }
 
@@ -763,8 +897,13 @@ private struct ChatRow: View {
         Label(item.tool == "Plan" ? "It proposes a plan" : "It asks", systemImage: item.tool == "Plan" ? "list.bullet.clipboard" : "questionmark.bubble")
           .font(.footnote.weight(.semibold)).foregroundStyle(item.state == "running" ? look.waiting : look.dim)
         MarkdownText(item.text)
-        ForEach(Array((item.options ?? []).enumerated()), id: \.offset) { i, option in
-          Text(item.state == "running" ? "\(i + 1). \(option)" : option).font(.subheadline).foregroundStyle(item.state == "running" ? look.text : look.green)
+        // once answered, what the answer was (src/shared/chat.ts keeps only it)
+        if item.state == "error" {
+          Text("Not answered").font(.subheadline).foregroundStyle(look.dim)
+        } else {
+          ForEach(Array((item.options ?? []).enumerated()), id: \.offset) { i, option in
+            Text(item.state == "running" ? "\(i + 1). \(option)" : "→ \(option)").font(.subheadline.weight(item.state == "running" ? .regular : .semibold)).foregroundStyle(item.state == "running" ? look.text : look.green)
+          }
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)

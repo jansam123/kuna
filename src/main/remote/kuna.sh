@@ -563,7 +563,12 @@ snapshot() {
     # older versions: "esc to interrupt"), 0 = neither.
     scr=$(tm capture-pane -p -t "$s" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n 12)
     busy=0
-    if printf '%s\n' "$scr" | grep -qE 'Enter to confirm|Esc to cancel|Do you want to'; then busy=2
+    # Claude Code's input box at the bottom (its prompt line right under a rule, a rule under
+    # it) means no question is open: a question takes its place. "Do you want to" is then a
+    # reply's (one is drawn again above the box after /compact). As screenState in src/shared/input.ts.
+    # (Claude Code puts a no-break space after the ❯, which awk's [[:space:]] is not.)
+    box=$(printf '%s\n' "$scr" | awk '/^[[:space:]]*(│[[:space:]]*)?(❯|>)/ { if (rule) p = 1 } { rule = 0 } /────────────────────/ && !/^[[:space:]]*╰/ { rule = 1; if (p) box = 1 } END { print box + 0 }')
+    if [ "$box" = 0 ] && printf '%s\n' "$scr" | grep -qE 'Enter to confirm|Esc to cancel|Do you want to|Review your answers'; then busy=2
     elif printf '%s\n' "$scr" | grep -qE '… *\([0-9]|to interrupt'; then busy=1
     fi
     printf 'P\t%s\t%s\n' "$busy" "$line"

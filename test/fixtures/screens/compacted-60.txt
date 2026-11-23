@@ -1,0 +1,24 @@
+ ▐▛███▛█   Claude Code v2.1.330
+▝▜██████▀  Haiku 5.5 · Claude Max
+ ▝▝   ▝▝   /private/tmp/kqa/s1
+
+
+✻ Conversation compacted (ctrl+o for the summary)
+  Earlier messages are saved in ~/.claude/projects/-private-
+  tmp-kqa-s1/b0b03749-9349-4efa-896b-504986780216.jsonl
+
+
+⏺ Done. Do you want to keep going with the plots?
+
+✻ Churned for 2s · done 09:37
+
+❯ /compact
+  ⎿  Compacted (ctrl+o to see full summary)
+     PostCompact [command hook] completed successfully: {}
+● full  $0.  last   48    Review  Audit  Board  Details [-]
+        02   $0.01  s
+
+──────────────────────────────────────── Kuna content view ─
+❯ 
+────────────────────────────────────────────────────────────
+  ⏸ manual mode on                                     /rc

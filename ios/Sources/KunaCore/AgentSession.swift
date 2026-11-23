@@ -336,6 +336,24 @@ public final class AgentSession {
     key(Data(keys.utf8))
   }
 
+  /// Type an answer of one's own into the open question's "Type something." row: its keys walk the
+  /// `❯` there and empty it, the text follows, then Enter (none under checkboxes, where typing ticks
+  /// the row and Enter would untick it). Apart, so Claude Code does not take them for a paste.
+  public func answer(_ text: String) async throws {
+    let text = text.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
+    guard !text.isEmpty else { return }
+    guard let row = panel?.options.first(where: { $0.answer != nil }), let after = row.answer else {
+      throw KunaError("The question is no longer open on its screen; nothing was typed.")
+    }
+    try await attach()
+    key(Data(row.keys.utf8))
+    try? await Task.sleep(for: .milliseconds(250))
+    write(text)
+    guard !after.isEmpty else { return }
+    try? await Task.sleep(for: .milliseconds(250))
+    key(Data(after.utf8))
+  }
+
   /// The slash commands to offer for what is typed so far: Claude Code's own, and the host's once it has said them.
   public func slash(_ typed: String) -> [SlashCommand] {
     guard typed.hasPrefix("/") else { return [] }

@@ -269,6 +269,40 @@ describe.skipIf(!hasTmux)("a pane's history for the phone (scrollback)", () => {
   })
 })
 
+describe.skipIf(!hasTmux)('a question on a pane, as the watch reads it (snapshot)', () => {
+  const script = resolve(__dirname, '../src/main/remote/kuna.sh')
+
+  it("tells Claude Code's question from a reply that asks, above its input box", async () => {
+    const home = mkdtempSync(join(tmpdir(), 'kuna-snap-'))
+    const socket = `kuna-snap-${process.pid}`
+    const env = { ...process.env, HOME: home, KUNA_TMUX_SOCKET: socket }
+    const kuna = (...args: string[]): string => execFileSync('sh', [script, ...args], { env }).toString()
+    const screens = resolve(__dirname, 'fixtures/screens')
+    try {
+      kuna('setup')
+      // Claude Code 2.1.330's screens: a permission, a set's review (no hint), and the screen after /compact
+      for (const [id, name] of [['q1', 'permission'], ['q2', 'set-review'], ['q3', 'compacted-60']]) {
+        execFileSync('tmux', ['-L', socket, '-f', join(home, '.kuna/tmux.conf'), 'new-session', '-d', '-s', `kuna_${id}`, '-x', '60', '-y', '40', `cat '${screens}/${name}.txt'; sleep 30`], { env })
+      }
+      await new Promise((r) => setTimeout(r, 600))
+      const busy = Object.fromEntries(
+        kuna('snapshot')
+          .split('\n')
+          .filter((l) => l.startsWith('P\t'))
+          .map((l) => [l.split('\t')[2], l.split('\t')[1]])
+      )
+      expect(busy).toEqual({ kuna_q1: '2', kuna_q2: '2', kuna_q3: '0' })
+    } finally {
+      try {
+        execFileSync('tmux', ['-L', socket, 'kill-server'], { stdio: 'ignore' })
+      } catch {
+        /* already gone */
+      }
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('files for an HTML page in the viewer (pcat)', () => {
   const script = resolve(__dirname, '../src/main/remote/kuna.sh')
   const b64 = (s: string): string => Buffer.from(s, 'utf8').toString('base64')

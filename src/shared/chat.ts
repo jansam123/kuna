@@ -179,11 +179,16 @@ export class ChatLog extends TranscriptParser {
       const state = c.is_error ? 'error' : 'done'
       const tool = this.rows.get(tid)
       if (tool) tool.state = state
-      // a question's rows: its answer closes them
+      // a question's rows: its answer closes them, and each shows what was answered
+      // (Claude Code writes `The user answered: "Which size?"="Large", "Which toppings?"="Cheese, Olives". …`)
+      const answers = c.is_error ? '' : resultText(c.content)
       for (let i = 0; ; i++) {
         const q = this.rows.get(`${tid}:q${i}`)
         if (!q) break
         q.state = state
+        const at = answers.indexOf(`"${q.text}"="`)
+        const answer = at < 0 ? null : /^([\s\S]*?)"(?=,\s"|\.\s|\.?$)/.exec(answers.slice(at + q.text.length + 4))
+        if (answer) q.options = [answer[1]]
       }
       if (tool?.kind === 'question' && !c.is_error) {
         const said = resultText(c.content).trim()

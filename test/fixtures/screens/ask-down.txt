@@ -1,0 +1,28 @@
+ ▐▛███▛█   Claude Code v2.1.330
+▝▜██████▀  Haiku 5.5 · Claude Max
+ ▝▝   ▝▝   /private/tmp/kqa/s1
+
+
+❯ Call the AskUserQuestion tool now with
+  exactly one question: "Which colour do you
+  prefer?" header "Colour", options Red
+  (warm), Green (calm), Blue (cool). Single
+  select. Do nothing else.
+──────────────────────────────────────────────
+ ☐ Colour
+
+Which colour do you prefer?
+
+  1. Red
+     Warm
+❯ 2. Green
+     Calm
+  3. Blue
+     Cool
+  4. Type something.
+──────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to
+cancel
+────────────────────────── Kuna content view ─

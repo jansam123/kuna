@@ -1,0 +1,39 @@
+  of the listed options, so I've recorded it
+  as a custom answer.
+
+✻ Brewed for 5s · done 09:31
+
+❯ Now call AskUserQuestion with two questions
+  at once: 1) "Which size?" header "Size",
+  options Small, Large; 2) "Which toppings?"
+  header "Toppings", multiSelect true,
+  options Cheese, Olives. Do nothing else.
+
+⏺ Answered Claude's questions:
+  ⎿  · Which size? → Large
+     · Which toppings? → Cheese, Olives
+
+⏺ Size: Large. Toppings: Cheese and Olives.
+
+✻ Baked for 4s · done 09:32
+
+❯ Once more: AskUserQuestion with two
+  questions: "Tea or coffee?" header "Drink",
+  options Tea, Coffee; "Milk?" header
+  "Milk", options Yes, No. Nothing else.
+
+──────────────────────────────────────────────
+←  ☐ Drink  ☐ Milk  ✔ Submit  →
+
+Review your answers
+
+⚠ Some questions are unanswered
+
+❯ 1. Submit answers
+  2. Cancel
+
+
+
+
+
+────────────────────────── Kuna content view ─

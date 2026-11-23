@@ -1,0 +1,39 @@
+❯ Call the AskUserQuestion tool now with
+  exactly one question: "Which colour do you
+  prefer?" header "Colour", options Red
+  (warm), Green (calm), Blue (cool). Single
+  select. Do nothing else.
+
+⏺ Answered Claude's questions:
+  ⎿  · Which colour do you prefer? → Purple
+     please
+
+⏺ You picked Purple, which wasn't one of the
+  three options, so I've noted it as your
+  answer.
+
+✻ Churned for 4s · done 08:49
+
+❯ Now call AskUserQuestion with one question
+  "Which fruits do you want?" header
+  "Fruits", multiSelect true, options Apple,
+  Banana, Cherry. Do nothing else.
+
+──────────────────────────────────────────────
+←  ☒ Fruits  ✔ Submit  →
+
+Review your answers
+
+ ● Which fruits do you want?
+   → Apple, Mango
+
+❯ 1. Submit answers
+  2. Cancel
+
+
+
+
+
+
+
+────────────────────────── Kuna content view ─
