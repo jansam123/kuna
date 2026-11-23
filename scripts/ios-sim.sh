@@ -6,6 +6,7 @@
 # Usage: sh scripts/ios-sim.sh   (needs Xcode with an iOS simulator, tmux and git)
 #        KUNA_SIM="iPhone 17" sh scripts/ios-sim.sh   picks a simulator; otherwise the first iPhone Pro in the list
 #        KUNA_KEEP=1 sh scripts/ios-sim.sh   leaves the server and the app running afterwards, to try things by hand
+#        KUNA_ONLY=testQuestions sh scripts/ios-sim.sh   runs one test of ios/App/KunaUITests (Walkthrough) instead of all
 set -eu
 cd "$(dirname "$0")/.."
 app=io.github.jansam123.Kuna
@@ -140,10 +141,12 @@ xcrun simctl terminate "$sim" $app
 
 echo "walking through the app…"
 TEST_RUNNER_KUNA_SHOTS="$shots" TEST_RUNNER_KUNA_IMPORT="$tmp/export.kuna" xcodebuild -quiet -project ios/App/Kuna.xcodeproj -scheme Kuna \
-  -destination "platform=iOS Simulator,name=$sim" -derivedDataPath ios/.build/xcode test-without-building > "$tmp/test.log" 2>&1 && echo "walkthrough: ok" ||
+  -destination "platform=iOS Simulator,name=$sim" -derivedDataPath ios/.build/xcode ${KUNA_ONLY:+-only-testing:KunaUITests/Walkthrough/$KUNA_ONLY} test-without-building > "$tmp/test.log" 2>&1 && echo "walkthrough: ok" ||
   { echo "walkthrough: FAILED (the pictures up to there are kept)"; grep -E "error:|did not show up" "$tmp/test.log" | sed 's/.*Walkthrough.swift/Walkthrough.swift/' | sort -u | head -20; }
 # the drag on the background session's screen reached it as wheel notches up: it starts at line 200
-[ "$(cat "$home/.wheel" 2> /dev/null || echo 200)" -lt 200 ] && echo "wheel: ok" || echo "wheel: FAILED (a drag did not scroll the background session)"
+if [ -z "${KUNA_ONLY:-}" ]; then
+  [ "$(cat "$home/.wheel" 2> /dev/null || echo 200)" -lt 200 ] && echo "wheel: ok" || echo "wheel: FAILED (a drag did not scroll the background session)"
+fi
 echo "pictures: $shots"
 ls "$shots" | sed 's/^/  /'
 [ -z "${KUNA_KEEP:-}" ] || echo "left running: sshd $sshd on port $port, tmux -L $sock, files in $tmp (stop with: kill $sshd; tmux -L $sock kill-server)"
