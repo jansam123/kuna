@@ -54,6 +54,7 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
       ['⌘+ ⌘− ⌘0', 'zoom in, out, fit (or pinch; drag to pan)'],
       ['Enter', 'in the preview: write to the agent · Enter sends, Esc Esc back to the files'],
       ['⇧⌘C', 'in the preview: copy the file’s path'],
+      ['right-click', 'in the preview: copy the PNG or PDF itself (of several pages: the one under the pointer)'],
       ['⌘P', 'in the preview: the file’s path, into your message'],
       ['PgUp PgDn', 'scroll the agent’s conversation a page, as the wheel does'],
       ['⌘O · ⌘S', 'in the preview: open in Preview · save to Downloads'],

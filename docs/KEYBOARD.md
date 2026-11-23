@@ -86,6 +86,7 @@ A single **Esc** goes to the agent, on a pane or while typing, as in a terminal:
 | Esc Esc, *writing to the agent* | back to the files, and what you typed is taken out. A single Esc goes to the agent, as on a pane; while it shows a question, a permission prompt or a panel (`/config`, `/usage`, `/model`) every Esc goes to it |
 | ⌘P | the path of the file that has the keys, into what you are writing (so does dragging a file onto the agent) |
 | ⇧⌘C | copy the file's full path (also: a click on the path in the file's header, a right-click in the list) |
+| *right-click the file* | copy the file itself, to paste into slides, a document or a message: a PNG or JPEG as a picture, a PDF as a PDF (still vector). Of a PDF of several pages (slides, a paper) only the page under the pointer is copied, as a PDF of its own. Other pictures (SVG, GIF, WebP) are not copied: ⌥-drag takes any file out |
 | ⌘V · ⌘. | paste into your message · interrupt the agent (sends it Esc) |
 | ⌘+ ⌘− | zoom in, out (pinch on the trackpad, or ⌘ + wheel, zooms around the pointer) |
 | ⌘0 · ⌘1 | fit to its place · actual pixels (100% for a PDF) |

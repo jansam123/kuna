@@ -133,7 +133,8 @@ function registerIpc(): void {
   ipcMain.handle(IPC.mediaSave, (_e, host: string, path: string, stamp?: string) => media.save(host, path, stamp))
   ipcMain.handle(IPC.mediaRange, (_e, host: string, path: string, stamp: string, begin: number, end: number) => media.range(host, path, stamp, begin, end))
   ipcMain.handle(IPC.mediaDrag, (e, host: string, path: string, stamp?: string) => media.drag(e.sender, host, path, stamp))
-  ipcMain.handle(IPC.mediaPage, (_e, host: string, path: string) => media.page(host, path))
+  ipcMain.handle(IPC.mediaCopy, (_e, host: string, path: string, stamp?: string, page?: number) => media.copy(host, path, stamp, page))
+  ipcMain.handle(IPC.mediaPage,(_e, host: string, path: string) => media.page(host, path))
 
   ipcMain.handle(IPC.claudeList, (_e, host: string, cwds: string[]) => claudeFiles.list(host, cwds))
   ipcMain.handle(IPC.claudeRead, (_e, host: string, path: string) => claudeFiles.read(host, path))

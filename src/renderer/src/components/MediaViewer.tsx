@@ -205,6 +205,18 @@ function PdfPages({ pdf, scale, root }: { pdf: PdfDoc; scale: number; root: HTML
   )
 }
 
+/** The page (from 0) of the PDF shown in `stage` at height `y` of the window: the one there, or the nearest. */
+function pageAt(stage: HTMLElement, y: number): number {
+  let best = 0
+  let least = Infinity
+  stage.querySelectorAll('.pdf-page').forEach((c, i) => {
+    const r = c.getBoundingClientRect()
+    const d = Math.max(r.top - y, y - r.bottom, 0)
+    if (d < least) [least, best] = [d, i]
+  })
+  return best
+}
+
 /**
  * The agent beside its files: its own terminal, moved here from its pane
  * while the viewer is open (the pane takes it back after), or one attached
@@ -787,6 +799,15 @@ function MediaTile({
         // a plot is panned, not selected (Markdown is text to select)
         onMouseDown={(e) => !md && e.preventDefault()}
         onDoubleClick={(e) => !md && (zoom === 1 ? zoomAt(2.5, e.clientX, e.clientY) : setZoom(1))}
+        onContextMenu={(e) => {
+          // a right-click copies the picture or the PDF itself, to paste elsewhere; of a PDF of several pages, the page under the pointer
+          if (!host || !ready || !(file?.url || pdf)) return
+          e.preventDefault()
+          const page = pdf && pdf.sizes.length > 1 ? pageAt(e.currentTarget, e.clientY) : undefined
+          void window.kuna.media
+            .copy(host, current.path, stampOf(current), page)
+            .then((why) => v.note(why ?? (page === undefined ? `Copied ${name}` : `Copied page ${page + 1} of ${name} as a PDF`)))
+        }}
       >
         {ready && file?.error && <div className="media-msg">{file.error}</div>}
         {ready && file?.page && (
@@ -865,6 +886,7 @@ const ALL_KEYS = [
   '⌥ arrows  the file beside, above, below · ⌘W closes it',
   '⌘+ ⌘− ⌘0 ⌘1  zoom in, out, fit, actual size',
   "⇧⌘C  copy the file's path · ⌘P  its path into your message",
+  'right-click  copy the picture or the PDF itself (of several pages: the one under the pointer)',
   '⌘U  Markdown source · ⌘A ⌘C  select all, copy',
   '⌘O open · ⌘S save to Downloads · ⌘R reload · ⌘. interrupt the agent',
   'Space or Esc  close'

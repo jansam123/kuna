@@ -2,11 +2,12 @@ import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, extname, join } from 'node:path'
-import { app, shell, type WebContents } from 'electron'
+import { app, clipboard, ClipboardItem, shell, type WebContents } from 'electron'
 import { mediaKind, mimeFor, pageFile, resolveAgainst, viewerOrder, PAGE_CSP } from '@shared/media'
 import { LOCAL_HOST, type ClaudeFileEntry, type HostId, type MediaItem, type MediaPage } from '@shared/types'
 import type { AgentService } from './agents'
 import { b64 } from './hosts/exec'
+import { pdfPage } from './pdfPage'
 
 const MB = 1024 * 1024
 /** the largest plot or PDF the viewer reads: it is held in memory, here and in the window */
@@ -206,6 +207,25 @@ export class MediaService {
     if (!file) return 'Could not read the file to drag it'
     sender.startDrag({ file, icon: await app.getFileIcon(file) })
     return undefined
+  }
+
+  /**
+   * A right-click on a picture or a PDF in the viewer: onto the clipboard as
+   * what it is, a picture as a picture and a PDF as a PDF (`page`, from 0:
+   * that page alone), to paste into slides or a document. Returns why not, if not.
+   */
+  async copy(hostId: HostId, path: string, stamp = '', page?: number): Promise<string | undefined> {
+    const res = await this.fetch(hostId, path, stamp)
+    if ('error' in res) return res.error
+    const pdf = res.mime === 'application/pdf'
+    if (!pdf && res.mime !== 'image/png' && res.mime !== 'image/jpeg') return 'Only PNG, JPEG and PDF files are copied: ⌥-drag takes any file out of Kuna'
+    const data = pdf && page !== undefined ? await pdfPage(res.data, page) : res.data
+    if (!data) return 'Could not take that page out of the PDF'
+    // the web has no clipboard type for a PDF: macOS's own
+    const type = pdf ? 'electron application/osclipboard;format="com.adobe.pdf"' : res.mime
+    await clipboard.write([new ClipboardItem({ [type]: new Blob([data],{ type: res.mime }) })]).catch(() => undefined)
+    // the clipboard leaves out a file it cannot read without a word
+    return (await clipboard.has(pdf ? type : 'image/png')) ? undefined : 'Could not copy it: the file may be damaged'
   }
 
   /** Save a copy in ~/Downloads (the viewer's cached bytes, so no second read on the host). */

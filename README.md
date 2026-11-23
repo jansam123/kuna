@@ -47,7 +47,7 @@ Arrows move between the sidebar and the panes, typing talks to the focused agent
 ![The shortcut overview](docs/images/doc-help.png)
 
 ### Plots, PDFs, pages and notes on Space
-The figures from the agent's latest reply, PDFs first, sharp and zoomable, the HTML pages it made (artifacts, dashboards, interactive plots), live so you can click around in them, and the Markdown files it wrote, rendered with their pictures, LaTeX and flowcharts. Each pane counts them in its header. Put up to six side by side (slides next to the notes about them) and drag their edges to size them. The agent sits beside the files, under a list of them by kind (slides, diagrams, plots, notes) that marks what lives in `.claude` or a temporary folder: press Enter and type your reply right there; ⌘S saves a file, ⇧⌘C copies its path.
+The figures from the agent's latest reply, PDFs first, sharp and zoomable, the HTML pages it made (artifacts, dashboards, interactive plots), live so you can click around in them, and the Markdown files it wrote, rendered with their pictures, LaTeX and flowcharts. Each pane counts them in its header. Put up to six side by side (slides next to the notes about them) and drag their edges to size them. The agent sits beside the files, under a list of them by kind (slides, diagrams, plots, notes) that marks what lives in `.claude` or a temporary folder: press Enter and type your reply right there; ⌘S saves a file, ⇧⌘C copies its path, and a right-click copies the plot itself (a PNG as a picture, a PDF as a PDF, of slides the page under the pointer) to paste into your own slides.
 
 ![The plot viewer: a PDF from the agent's reply, a comment being written to it, and Save to Downloads](docs/images/doc-viewer.png)
 
