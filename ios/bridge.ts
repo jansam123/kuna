@@ -5,7 +5,7 @@
  * crosses as strings (JSON); nothing here may use Node or DOM globals.
  */
 import { doingText, needsText } from '@shared/activity'
-import { ChatLog } from '@shared/chat'
+import { ChatLog, foldTools } from '@shared/chat'
 import { contextInfo, modelFlag, shortModel } from '@shared/context'
 import { screenPanel, screenState } from '@shared/input'
 import {
@@ -123,7 +123,7 @@ export function chatState(key: string, max: number): string {
   if (!log) return JSON.stringify({ items: [], details: null })
   const d = log.details()
   return JSON.stringify({
-    items: log.items(max),
+    items: foldTools(log.items(max)),
     details: {
       title: d.title,
       model: shortModel(d.model),

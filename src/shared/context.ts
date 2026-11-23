@@ -16,6 +16,8 @@ export interface ContextInfo {
   /** 0–100 */
   pct: number
   level: ContextLevel
+  /** how long it is, for people: `66k / 200k` */
+  length: string
 }
 
 /**
@@ -71,7 +73,18 @@ export function contextLevel(tokens: number, window: number): ContextLevel {
   return 'ok'
 }
 
+/** A count of tokens, short: `800`, `6.5k`, `66k`, `1M`, `1.25M`. */
+export function shortTokens(n: number): string {
+  if (n < 1000) return String(Math.round(n))
+  if (n < 10_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`
+  if (n < 999_500) return `${Math.round(n / 1000)}k`
+  return `${(n / 1_000_000).toFixed(2).replace(/\.?0+$/, '')}M`
+}
+
+/** The context's length out of its window: `66k / 200k`. */
+export const contextLength = (tokens: number, window: number): string => `${shortTokens(tokens)} / ${shortTokens(window)}`
+
 export function contextInfo(tokens: number, model?: string, peak = 0, flag?: string): ContextInfo {
   const window = contextWindowSize(tokens, model, peak, flag)
-  return { tokens, window, pct: Math.min(100, (tokens / window) * 100), level: contextLevel(tokens, window) }
+  return { tokens, window, pct: Math.min(100, (tokens / window) * 100), level: contextLevel(tokens, window), length: contextLength(tokens, window) }
 }

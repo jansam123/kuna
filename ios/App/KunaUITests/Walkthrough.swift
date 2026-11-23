@@ -47,6 +47,43 @@ final class Walkthrough: XCTestCase {
     XCTAssertLessThan(took, 30, "XCUITest waited for the terminal screen to be idle")
   }
 
+  /// Calls in a row as one row that unfolds, and how long the context is, in the conversation and the terminal.
+  func testChatRows() throws {
+    app.launchArguments = ["-lock", "NO", "-opensTerminal", "NO", "-kunaStill", "YES"]
+    if let file = ProcessInfo.processInfo.environment["KUNA_IMPORT"] { app.launchArguments += ["-kunaImport", file] }
+    app.launch()
+    let labelled = { (text: String) in self.app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch }
+    wait(app.buttons["agent-aaaa1111"], 40, "the fixture's agent")
+    app.buttons["agent-aaaa1111"].tap()
+    wait(said("The fit converged."), 30, "the agent's reply")
+    app.swipeDown()
+    sleep(1)
+    // the fixture's three shell commands, the last failed: one row, the failed one still in view
+    let folded = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Ran 3 shell commands · 1 failed")).firstMatch
+    wait(folded, 10, "the three shell commands as one row")
+    XCTAssertTrue(labelled("Run the tests").exists, "the failed command is not shown on the folded row")
+    XCTAssertFalse(labelled("Draw the mass plot").exists, "a command that went well is shown while folded")
+    shot("chat-rows-folded")
+    folded.tap()
+    wait(labelled("Draw the mass plot"), 5, "the commands, unfolded")
+    XCTAssertTrue(labelled("Run the fit in the signal region").exists)
+    shot("chat-rows-unfolded")
+    // how long the context is: tokens out of the window, not a percentage
+    let context = app.descendants(matching: .any)["context"]
+    if wait(context, 10, "the context's length in the conversation") {
+      XCTAssertTrue(context.label.contains("66k / 200k"), "the context reads \(context.label)")
+    }
+    shot("chat-rows-context")
+    app.buttons["open-terminal"].tap()
+    wait(app.buttons["key-Control"], 10, "the terminal")
+    let there = app.descendants(matching: .any)["context"]
+    if wait(there, 10, "the context's length over the terminal's keys") {
+      XCTAssertTrue(there.label.contains("66k / 200k"), "the terminal's context reads \(there.label)")
+    }
+    sleep(1)
+    shot("terminal-context")
+  }
+
   func testWalkthrough() throws {
     let env = ProcessInfo.processInfo.environment
     app.launchArguments = ["-lock", "NO", "-kunaStill", "YES"]

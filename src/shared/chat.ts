@@ -11,16 +11,74 @@ type Json = any
 export interface ChatItem {
   id: string
   /** `limit`, `error`: what Claude Code says in the agent's place (a usage limit reached; a request that failed) */
-  kind: 'user' | 'assistant' | 'thinking' | 'tool' | 'question' | 'note' | 'limit' | 'error'
+  kind: 'user' | 'assistant' | 'thinking' | 'tool' | 'tools' | 'question' | 'note' | 'limit' | 'error'
   text: string
   /** tool: its name */
   tool?: string
-  /** tool: still running, finished, or failed */
+  /** tool: still running, finished, or failed; tools: running if one is, else failed if one did */
   state?: 'running' | 'done' | 'error'
+  /** tools: the calls folded into this row (and the thinking between them), oldest first */
+  items?: ChatItem[]
   /** question: the choices offered */
   options?: string[]
   /** epoch seconds */
   at?: number
+}
+
+/** Claude Code's words for a run of calls of one kind: running, ran, and the thing counted. */
+const KINDS: [RegExp, string, string, string, string][] = [
+  [/^Bash$/, 'running', 'ran', 'shell command', 'shell commands'],
+  [/^Read$/, 'reading', 'read', 'file', 'files'],
+  [/^(Grep|Glob)$/, 'searching for', 'searched for', 'pattern', 'patterns'],
+  [/^(Edit|Write|MultiEdit|NotebookEdit)$/, 'editing', 'edited', 'file', 'files'],
+  [/^(Task|Agent)$/, 'running', 'ran', 'agent', 'agents']
+]
+
+/** `Ran 3 shell commands, read 2 files · 1 failed`, as Claude Code's terminal sums up a run of calls. */
+export function toolsSummary(tools: ChatItem[]): string {
+  const running = tools.some((t) => t.state === 'running')
+  const parts = new Map<string, { words: string[]; n: number }>()
+  for (const t of tools) {
+    const name = t.tool ?? 'tool'
+    const kind = KINDS.find(([re]) => re.test(name))
+    // another tool is named, as Claude Code names an MCP server: `called WebFetch 2 times`
+    const key = kind ? kind[2] + kind[3] : name
+    const words = kind ? [kind[1], kind[2], kind[3], kind[4]] : ['calling', 'called', name, name]
+    const part = parts.get(key) ?? { words, n: 0 }
+    part.n++
+    parts.set(key, part)
+  }
+  const said = [...parts.values()].map(({ words: [now, done, one, many], n }) =>
+    one === many ? `${running ? now : done} ${one}${n > 1 ? ` ${n} times` : ''}` : `${running ? now : done} ${n} ${n === 1 ? one : many}`
+  )
+  const text = said.join(', ')
+  const failed = tools.filter((t) => t.state === 'error').length
+  return `${text[0].toUpperCase()}${text.slice(1)}${running ? '…' : ''}${failed ? ` · ${failed} failed` : ''}`
+}
+
+/**
+ * Runs of two or more tool calls in a row as one `tools` row, as Claude Code's terminal folds
+ * them: thinking between the calls goes in with them, anything else ends the run.
+ */
+export function foldTools(items: ChatItem[]): ChatItem[] {
+  const out: ChatItem[] = []
+  for (let i = 0; i < items.length; ) {
+    let end = i
+    for (let j = i; j < items.length && (items[j].kind === 'tool' || (items[j].kind === 'thinking' && j > i)); j++) {
+      if (items[j].kind === 'tool') end = j + 1
+    }
+    const run = items.slice(i, end)
+    const tools = run.filter((t) => t.kind === 'tool')
+    if (tools.length < 2) {
+      out.push(items[i++])
+      continue
+    }
+    const state = tools.some((t) => t.state === 'running') ? 'running' : tools.some((t) => t.state === 'error') ? 'error' : 'done'
+    // the first call's id: the row stays itself (and unfolded) as calls join it
+    out.push({ id: `${run[0].id}:tools`, kind: 'tools', text: toolsSummary(tools), state, items: run.map((t) => ({ ...t })), at: run[run.length - 1].at })
+    i = end
+  }
+  return out
 }
 
 const KEEP = 600

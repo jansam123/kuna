@@ -295,7 +295,7 @@ function Row({
             <i>
               <b style={{ width: `${ctx.pct}%` }} />
             </i>
-            {ctx.pct.toFixed(0)}%
+            {ctx.length}
           </span>
         )}
         <span className="agent-age">

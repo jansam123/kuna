@@ -112,6 +112,8 @@ public struct ContextInfo: Codable, Hashable, Sendable {
   public var window: Double
   public var pct: Double
   public var level: String
+  /// `66k / 200k`
+  public var length: String?
 }
 
 /// An agent as the host's watch stream reports it (`AgentRuntime`), with the words the shared code made for it.
@@ -175,6 +177,8 @@ public struct ChatItem: Codable, Identifiable, Hashable, Sendable {
   public var state: String?
   public var options: [String]?
   public var at: Double?
+  /// tools: the calls folded into this row, and the thinking between them
+  public var items: [ChatItem]?
 
   public init(id: String, kind: String, text: String) {
     self.id = id

@@ -137,7 +137,7 @@ function PaneHeader({ agentKey, index, unread }: { agentKey: string; index: numb
           <span className="ctx-bar">
             <span style={{ width: `${ctx.pct}%` }} />
           </span>
-          {tokens(ctx.tokens)}
+          {ctx.length}
         </span>
       )}
       {d?.model && (

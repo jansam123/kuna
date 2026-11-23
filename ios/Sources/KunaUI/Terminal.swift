@@ -539,6 +539,10 @@ struct TerminalScreen: View {
             .padding(12).accessibilityIdentifier("terminal-live")
         }
       }
+      // how long its context is, slim over the keys
+      if let context = model.agent(session.key)?.context ?? session.details?.context {
+        HStack { Spacer(); ContextMeter(context: context) }.padding(.horizontal, 10).padding(.top, 4)
+      }
       KeyRow(mods: holder.mods, fontSize: $fontSize) {
         if view.isFirstResponder { _ = view.resignFirstResponder() } else {
           holder.toEnd()

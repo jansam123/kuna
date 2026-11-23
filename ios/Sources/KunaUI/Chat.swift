@@ -231,7 +231,8 @@ struct AgentScreen: View {
       }
       // at the end, stay at the end as rows come; scrolled up to read, stay where the reader is
       .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.containerSize.height >= $0.contentSize.height - 120 } action: { _, now in atEnd = now }
-      .onChange(of: items.last?.id) { if atEnd { proxy.scrollTo("end", anchor: .bottom) } }
+      // a call joining the folded row at the end changes its count, not its id
+      .onChange(of: items.last.map { "\($0.id) \($0.items?.count ?? 0)" }) { if atEnd { proxy.scrollTo("end", anchor: .bottom) } }
       .onChange(of: session.outbox.count) { withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
       .onChange(of: session.panel) { if atEnd { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } }
       .onChange(of: typing) { if typing { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } }
@@ -347,6 +348,25 @@ struct PromptButton: View {
   }
 }
 
+/// How long the agent's context is out of its window (`66k / 200k`), with a meter in the colour
+/// of its level: faint while short, amber when long, red near where Claude Code compacts.
+struct ContextMeter: View {
+  let context: ContextInfo
+  @Environment(\.look) private var look
+
+  var body: some View {
+    let color = context.level == "ok" ? look.faint : context.level == "full" ? look.danger : look.waiting
+    HStack(spacing: 5) {
+      Capsule().fill(color.opacity(0.25)).frame(width: 26, height: 4)
+        .overlay(alignment: .leading) { Capsule().fill(color).frame(width: 26 * min(1, max(0.04, context.pct / 100))) }
+      Text(context.length ?? "\(Int(context.pct))%").font(.caption.monospacedDigit()).foregroundStyle(context.level == "ok" ? look.dim : color).lineLimit(1).fixedSize()
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("Context \(context.length ?? "\(Int(context.pct))%") tokens")
+    .accessibilityIdentifier("context")
+  }
+}
+
 /// What the agent is doing right now, its model (a tap lists the models to change to), and how
 /// full its context is.
 private struct StatusLine: View {
@@ -385,10 +405,7 @@ private struct StatusLine: View {
           if !up, here.session.panel?.model != nil { Task { try? await here.session.press("\u{1b}") } }
         }
       }
-      if let context = agent.context ?? details?.context {
-        Text("\(Int(context.pct))%").font(.caption.monospacedDigit()).foregroundStyle(context.level == "ok" ? look.faint : context.level == "full" ? look.danger : look.waiting)
-          .accessibilityLabel("Context \(Int(context.pct)) percent full")
-      }
+      if let context = agent.context ?? details?.context { ContextMeter(context: context) }
     }
     .padding(.horizontal, 6)
     .padding(.top, 2)
@@ -629,16 +646,32 @@ private struct ChatRow: View {
             .overlay(alignment: .leading) { Rectangle().fill(look.line).frame(width: 2) }
         }
       }
+    case "tools":
+      // several calls in a row: one line that unfolds; a failed or running one stays in view folded
+      VStack(alignment: .leading, spacing: 8) {
+        Button { unfolded.toggle() } label: {
+          HStack(alignment: .firstTextBaseline, spacing: 7) {
+            stateMark
+            Text(item.text).font(.system(size: 12.5, weight: .medium, design: .monospaced)).foregroundStyle(look.text).lineLimit(2).multilineTextAlignment(.leading)
+            Image(systemName: "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(look.faint).rotationEffect(.degrees(unfolded ? 90 : 0))
+          }
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("chat-tools")
+        let shown = (item.items ?? []).filter { unfolded || ($0.kind == "tool" && $0.state != "done") }
+        if !shown.isEmpty {
+          VStack(alignment: .leading, spacing: 8) {
+            ForEach(shown) { ChatRow(item: $0) }
+          }
+          .padding(.leading, 12)
+          .overlay(alignment: .leading) { Rectangle().fill(look.line).frame(width: 2) }
+          .padding(.leading, 5)
+        }
+      }
     case "tool":
       HStack(alignment: .firstTextBaseline, spacing: 7) {
-        Group {
-          switch item.state {
-          case "error": Image(systemName: "xmark").foregroundStyle(look.danger)
-          case "done": Image(systemName: "checkmark").foregroundStyle(look.green)
-          default: Image(systemName: "circle.dotted").foregroundStyle(look.working)
-          }
-        }
-        .font(.caption2.weight(.bold)).frame(width: 12)
+        stateMark
         Text(item.tool ?? "tool").font(.system(size: 12.5, weight: .semibold, design: .monospaced)).foregroundStyle(item.state == "error" ? look.danger : work)
         Text(item.text).font(.system(size: 12.5, design: .monospaced)).foregroundStyle(item.state == "error" ? look.danger.opacity(0.85) : look.dim).lineLimit(1).truncationMode(.middle)
       }
@@ -664,6 +697,18 @@ private struct ChatRow: View {
       }
       .padding(.vertical, 2)
     }
+  }
+
+  /// a call's (or a run of calls') state: a red cross failed, a green tick done, dots running
+  private var stateMark: some View {
+    Group {
+      switch item.state {
+      case "error": Image(systemName: "xmark").foregroundStyle(look.danger)
+      case "done": Image(systemName: "checkmark").foregroundStyle(look.green)
+      default: Image(systemName: "circle.dotted").foregroundStyle(look.working)
+      }
+    }
+    .font(.caption2.weight(.bold)).frame(width: 12)
   }
 
   /// What Claude Code says in the agent's place, in the colour of what it means for you.

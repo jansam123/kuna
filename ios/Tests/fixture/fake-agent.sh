@@ -12,7 +12,7 @@ n=0
 line() { n=$((n + 1)); printf '%s\n' "$1" >> "$t"; }
 hook() { printf '{"hook_event_name":"%s","transcript_path":"%s"}' "$1" "$t" | sh "$HOME/.kuna/bin/kuna" hook; }
 say() { # say <text as a JSON string body>
-  line "{\"type\":\"assistant\",\"effort\":\"high\",\"uuid\":\"a$n\",\"timestamp\":\"$(now)\",\"message\":{\"model\":\"claude-opus-4-5\",\"usage\":{\"input_tokens\":41000,\"output_tokens\":900},\"content\":[{\"type\":\"text\",\"text\":\"$1\"}]}}"
+  line "{\"type\":\"assistant\",\"effort\":\"high\",\"uuid\":\"a$n\",\"timestamp\":\"$(now)\",\"message\":{\"model\":\"claude-opus-4-5\",\"usage\":{\"input_tokens\":6,\"cache_creation_input_tokens\":1400,\"cache_read_input_tokens\":64600,\"output_tokens\":900},\"content\":[{\"type\":\"text\",\"text\":\"$1\"}]}}"
 }
 key() { # one key, as it is pressed
   old=$(stty -g)
@@ -48,10 +48,14 @@ line "{\"type\":\"user\",\"uuid\":\"u$n\",\"timestamp\":\"$(now)\",\"message\":{
 line "{\"type\":\"assistant\",\"uuid\":\"a$n\",\"timestamp\":\"$(now)\",\"message\":{\"model\":\"claude-opus-4-5\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"The user wants the fit redone with the new binning. I should check the config first, then run it and look at the pulls.\"}]}}"
 line "{\"type\":\"assistant\",\"uuid\":\"a$n\",\"timestamp\":\"$(now)\",\"message\":{\"model\":\"claude-opus-4-5\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Read\",\"input\":{\"file_path\":\"$PWD/fit.py\"}}]}}"
 line "{\"type\":\"user\",\"uuid\":\"u$n\",\"timestamp\":\"$(now)\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"t1\",\"content\":\"ok\"}]}}"
-line "{\"type\":\"assistant\",\"uuid\":\"a$n\",\"timestamp\":\"$(now)\",\"message\":{\"model\":\"claude-opus-4-5\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t2\",\"name\":\"Bash\",\"input\":{\"command\":\"python fit.py --region SR\",\"description\":\"Run the fit in the signal region\"}}]}}"
-line "{\"type\":\"user\",\"uuid\":\"u$n\",\"timestamp\":\"$(now)\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"t2\",\"content\":\"Saved figure to plots/mass.png and plots/pulls.pdf\"}]}}"
 line "{\"type\":\"assistant\",\"uuid\":\"a$n\",\"timestamp\":\"$(now)\",\"message\":{\"model\":\"claude-opus-4-5\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t3\",\"name\":\"Edit\",\"input\":{\"file_path\":\"$PWD/fit.py\"}}]}}"
 line "{\"type\":\"user\",\"uuid\":\"u$n\",\"timestamp\":\"$(now)\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"t3\",\"content\":\"ok\"}]}}"
+line "{\"type\":\"assistant\",\"uuid\":\"a$n\",\"timestamp\":\"$(now)\",\"message\":{\"model\":\"claude-opus-4-5\",\"content\":[{\"type\":\"text\",\"text\":\"Binning set to 41. Now the fit, the plot and the tests.\"}]}}"
+# three shell commands in a row, the last one failed: one folded row on the phone
+line "{\"type\":\"assistant\",\"uuid\":\"a$n\",\"timestamp\":\"$(now)\",\"message\":{\"model\":\"claude-opus-4-5\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t2\",\"name\":\"Bash\",\"input\":{\"command\":\"python fit.py --region SR\",\"description\":\"Run the fit in the signal region\"}}]}}"
+line "{\"type\":\"user\",\"uuid\":\"u$n\",\"timestamp\":\"$(now)\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"t2\",\"content\":\"Saved figure to plots/mass.png and plots/pulls.pdf\"}]}}"
+line "{\"type\":\"assistant\",\"uuid\":\"a$n\",\"timestamp\":\"$(now)\",\"message\":{\"model\":\"claude-opus-4-5\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t5\",\"name\":\"Bash\",\"input\":{\"command\":\"python plot.py --log\",\"description\":\"Draw the mass plot\"}}]}}"
+line "{\"type\":\"user\",\"uuid\":\"u$n\",\"timestamp\":\"$(now)\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"t5\",\"content\":\"ok\"}]}}"
 line "{\"type\":\"assistant\",\"uuid\":\"a$n\",\"timestamp\":\"$(now)\",\"message\":{\"model\":\"claude-opus-4-5\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t4\",\"name\":\"Bash\",\"input\":{\"command\":\"pytest\",\"description\":\"Run the tests\"}}]}}"
 line "{\"type\":\"user\",\"uuid\":\"u$n\",\"timestamp\":\"$(now)\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"t4\",\"content\":\"1 failed\",\"is_error\":true}]}}"
 say "The fit converged.\\n\\n## Result\\n\\n- **mu** = 1.04 ± 0.21, for \$m_{\\\\gamma\\\\gamma}\$ in [105, 160] GeV\\n- chi2/ndf = 38.2 / 41\\n  1. the pulls are flat\\n  2. see [the note](https://example.org/note)\\n- [x] signal region\\n- [ ] control region\\n\\n> One test fails: it still expects 40 bins.\\n\\n| region | events | expected |\\n|:---|---:|---:|\\n| SR | 412 | 398.6 |\\n| CR | 9120 | 9087.2 |\\n\\nThe plot is in \`plots/mass.png\`, the pulls in \`plots/pulls.pdf\`, my notes in \`notes.md\` and an interactive page in \`report/index.html\`. The slides are \`talk.pdf\`, the workflow is \`diagrams/flow.png\` and the plan is \`.claude/plan.md\`.\\n\\n\`\`\`python\\nresult = fit(region='SR', bins=41)\\n\`\`\`"

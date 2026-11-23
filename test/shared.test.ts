@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { describeActivity, shortActivity } from '@shared/activity'
-import { baseModelId, contextInfo, contextLevel, contextWindowSize, modelFlag, shortModel } from '@shared/context'
-import { ChatLog } from '@shared/chat'
+import { baseModelId, contextInfo, contextLength, contextLevel, contextWindowSize, modelFlag, shortModel, shortTokens } from '@shared/context'
+import { ChatLog, foldTools, toolsSummary, type ChatItem } from '@shared/chat'
 import { compactBlocker, enterWatch, hasInputBox, screenPanel, screenState, slashTyped } from '@shared/input'
 import { Scrollback } from '@shared/scrollback'
 import { slashFromFiles, slashMatches } from '@shared/slash'
@@ -277,6 +277,17 @@ describe('context fullness', () => {
     expect(contextLevel(250_000, 1_000_000)).toBe('ok')
     expect(contextLevel(300_000, 1_000_000)).toBe('long')
     expect(contextInfo(820_000)).toMatchObject({ window: 1_000_000, pct: 82, level: 'full' })
+  })
+
+  it('says how long the context is', () => {
+    expect(contextLength(66_400, 200_000)).toBe('66k / 200k')
+    expect(contextLength(420_000, 1_000_000)).toBe('420k / 1M')
+    expect(shortTokens(800)).toBe('800')
+    expect(shortTokens(6_500)).toBe('6.5k')
+    expect(shortTokens(2_000)).toBe('2k')
+    expect(shortTokens(999_700)).toBe('1M')
+    expect(shortTokens(1_250_000)).toBe('1.25M')
+    expect(contextInfo(66_400, 'claude-sonnet-4-5').length).toBe('66k / 200k')
   })
 
   it('knows provider model ids and the --model a session was started with', () => {
@@ -1284,6 +1295,30 @@ describe('the conversation the iPhone shows', () => {
     log.feed(said('a', [{ type: 'tool_use', id: 't', name: 'AskUserQuestion', input: { questions: [{ question: 'Go?', options: ['Yes', 'No'] }] } }]))
     log.feed(line({ type: 'user', uuid: 'u', message: { content: [{ type: 'tool_result', tool_use_id: 't', content: 'Yes' }] } }))
     expect(log.items()[0]).toMatchObject({ kind: 'question', state: 'done' })
+  })
+})
+
+describe('tool calls in a row, as one row', () => {
+  const tool = (id: string, name: string, state: ChatItem['state'] = 'done'): ChatItem => ({ id, kind: 'tool', tool: name, text: id, state })
+  const row = (id: string, kind: ChatItem['kind']): ChatItem => ({ id, kind, text: id })
+
+  it('folds a run of calls, with the thinking between them', () => {
+    const folded = foldTools([row('u', 'user'), tool('a', 'Bash'), row('t', 'thinking'), tool('b', 'Bash'), tool('c', 'Bash', 'error'), row('t2', 'thinking'), row('r', 'assistant')])
+    expect(folded.map((i) => i.kind)).toEqual(['user', 'tools', 'thinking', 'assistant'])
+    expect(folded[1]).toMatchObject({ id: 'a:tools', text: 'Ran 3 shell commands · 1 failed', state: 'error' })
+    expect(folded[1].items?.map((i) => i.id)).toEqual(['a', 't', 'b', 'c'])
+  })
+
+  it('leaves a single call, and calls apart, as they are', () => {
+    const items = [tool('a', 'Bash'), row('r', 'assistant'), tool('b', 'Read'), row('t', 'thinking')]
+    expect(foldTools(items)).toEqual(items)
+  })
+
+  it("uses Claude Code's words, running while one runs", () => {
+    expect(toolsSummary([tool('a', 'Read'), tool('b', 'Read'), tool('c', 'Grep'), tool('d', 'Glob')])).toBe('Read 2 files, searched for 2 patterns')
+    expect(toolsSummary([tool('a', 'Bash'), tool('b', 'Bash', 'running')])).toBe('Running 2 shell commands…')
+    expect(toolsSummary([tool('a', 'Edit'), tool('b', 'Write'), tool('c', 'WebFetch'), tool('d', 'WebFetch'), tool('e', 'Task')])).toBe('Edited 2 files, called WebFetch 2 times, ran 1 agent')
+    expect(foldTools([tool('a', 'Bash'), tool('b', 'Bash', 'running')])[0].state).toBe('running')
   })
 })
 

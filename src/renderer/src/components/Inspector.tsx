@@ -92,10 +92,8 @@ export function Inspector(): React.JSX.Element {
           <span style={{ width: `${ctx.pct}%` }} />
         </div>
         <div className="kv">
-          <span>
-            {tokens(ctx.tokens)} of {tokens(ctx.window)}
-          </span>
-          <span>{ctx.pct.toFixed(0)}%</span>
+          <span>{ctx.length}</span>
+          <span>tokens</span>
         </div>
         {ctx.level === 'long' && <p className="ctx-note">Getting long: replies slow down and early details fade. Compacting keeps a summary.</p>}
         {ctx.level === 'full' && <p className="ctx-note">Almost full: Claude Code will compact on its own soon.</p>}
