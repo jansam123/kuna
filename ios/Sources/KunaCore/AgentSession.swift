@@ -1,5 +1,9 @@
 import Foundation
 import Observation
+import os
+
+/// How long the list of models takes, step by step (`log stream --level debug --predicate 'category == "models"'`).
+public let modelsLog = Logger(subsystem: "io.github.jansam123.Kuna", category: "models")
 
 /// One agent while its screen is open: its conversation as the transcript grows, and its
 /// terminal once that is asked for.
@@ -44,6 +48,8 @@ public final class AgentSession {
   @ObservationIgnored private var replay = Data()
   @ObservationIgnored private var lastOutput = Date.distantPast
   @ObservationIgnored private var gotOutput = false
+  /// output that came, counted, for reading the screen only when it changed
+  @ObservationIgnored private var outputs = 0
   /// the host's own commands and skills, asked for once
   @ObservationIgnored private var found: String?
 
@@ -177,31 +183,40 @@ public final class AgentSession {
   public func command(_ text: String) async throws {
     guard let agent = model.agent(key) else { throw KunaError("The agent is no longer on the host.") }
     if agent.status == "waiting" { throw KunaError("It is waiting for you. Answer it first.") }
+    modelsLog.debug("command \(text, privacy: .public): typing")
+    defer { modelsLog.debug("command \(text, privacy: .public): typed") }
     if agent.isBackground {
-      try await type(text, agent)
+      try await type(text, agent, quick: true)
     } else {
       async let opened: Void = attach()
-      try await type(text, agent)
+      try await type(text, agent, quick: true)
       try await opened
     }
   }
 
-  private func type(_ text: String, _ agent: Agent) async throws {
+  /// `quick`: a command such as `/model` (no free text), which Claude Code takes typed in one go with
+  /// its Enter (a message may be long enough to be taken as a paste, and is sent as text)
+  private func type(_ text: String, _ agent: Agent, quick: Bool = false) async throws {
     if agent.isBackground {
       try await attach()
       if let why = await waitForInput(seconds: agent.alive ? 25 : 60) { throw KunaError(why) }
       guard let terminal else { throw KunaError("Its screen closed; nothing was typed.") }
       terminal.write(Self.clearInput)
-      try? await Task.sleep(for: .milliseconds(120))
+      try? await Task.sleep(for: .milliseconds(quick ? 30 : 120))
       terminal.write(text)
       // Enter on its own, so Claude Code takes it as a key and not as part of a paste
-      try? await Task.sleep(for: .milliseconds(200))
+      try? await Task.sleep(for: .milliseconds(quick ? 30 : 200))
       terminal.write("\r")
     } else {
       guard agent.alive else { throw KunaError("The agent has exited. Start a new one in its folder.") }
       // scrolled back on the Mac: tmux would take the message's keys as its own
       if agent.inCopyMode == true { _ = try? await model.run(agent.host, ["key", agent.agentId, "-X", "cancel"], timeout: 10) }
-      try await model.type(agent, text)
+      if quick {
+        // the input box emptied as `kuna send` does, then the command and Enter, in one tmux call and without its pause
+        try await model.done(agent.host, ["key", agent.agentId, "C-e"] + Array(repeating: ["C-u", "BSpace"], count: 6).flatMap { $0 } + [text, "Enter"], timeout: 15, or: "Could not type into the agent.")
+      } else {
+        try await model.type(agent, text)
+      }
     }
   }
 
@@ -211,12 +226,16 @@ public final class AgentSession {
     var seen = "unknown"
     while Date().timeIntervalSince(start) < seconds {
       if terminalEnded { return "Its screen closed; nothing was typed." }
-      if gotOutput, Date().timeIntervalSince(lastOutput) > 0.7, let lines = screen?() {
+      // Claude Code starting draws in bursts at most 0.3 s apart, then stops
+      if gotOutput, Date().timeIntervalSince(lastOutput) > 0.4, let lines = screen?() {
         seen = (try? shared.call("screen", [lines])) ?? "unknown"
         // in the middle of a turn Claude Code takes what is typed and reads it when it can
-        if seen == "input" || seen == "busy" { return nil }
+        if seen == "input" || seen == "busy" {
+          modelsLog.debug("input box after \(Date().timeIntervalSince(start), format: .fixed(precision: 2)) s")
+          return nil
+        }
       }
-      try? await Task.sleep(for: .milliseconds(250))
+      try? await Task.sleep(for: .milliseconds(50))
     }
     switch seen {
     case "question": return "It is waiting for an answer. Open its terminal and answer there first."
@@ -228,20 +247,28 @@ public final class AgentSession {
   // ------------------------------------------------- panels and commands ----
 
   /// Keep `panel` as the agent's screen shows it, for as long as this runs (the conversation is on screen).
+  /// The screen is read when output came and has paused for a moment (one frame drawn in
+  /// pieces is read once it is whole), or every 0.3 s while it keeps coming.
   public func watchScreen() async {
-    var last = ""
+    var read = -1
+    var waited = 0
     while !Task.isCancelled {
-      try? await Task.sleep(for: .milliseconds(350))
+      try? await Task.sleep(for: .milliseconds(30))
       guard terminal != nil, let lines = screen?() else {
         if panel != nil { panel = nil }
-        last = ""
+        read = -1
         continue
       }
-      let text = lines.joined(separator: "\n")
-      guard text != last else { continue }
-      last = text
+      guard outputs != read else { continue }
+      waited += 1
+      guard Date().timeIntervalSince(lastOutput) > 0.025 || waited >= 10 else { continue }
+      read = outputs
+      waited = 0
       let now = (try? shared.decode(Panel?.self, "panel", [lines])) ?? nil
-      if now != panel { panel = now }
+      if now != panel {
+        if (now?.model != nil) != (panel?.model != nil) { modelsLog.debug("list of models \(now?.model != nil ? "on" : "off", privacy: .public) the screen") }
+        panel = now
+      }
     }
   }
 
@@ -278,7 +305,9 @@ public final class AgentSession {
     attaching = true
     defer { attaching = false }
     reader?.cancel()
+    modelsLog.debug("terminal: opening")
     let session = try await model.terminal(agent, cols: size.cols, rows: size.rows)
+    modelsLog.debug("terminal: open")
     terminal = session
     terminalEnded = false
     gotOutput = false
@@ -291,8 +320,10 @@ public final class AgentSession {
   }
 
   private func received(_ data: Data) {
+    if !gotOutput { modelsLog.debug("terminal: first output") }
     lastOutput = Date()
     gotOutput = true
+    outputs += 1
     replay.append(data)
     if replay.count > 600_000 { replay = Data(replay.suffix(300_000)) }
     onOutput?(data)

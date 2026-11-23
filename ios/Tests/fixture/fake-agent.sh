@@ -42,6 +42,35 @@ ask() { # ask <header> <question> <option> <about> <option> <about>: draws it, w
   key
   printf '\033[2J\033[H'
 }
+pick() { # the list of models, drawn at once as Claude Code draws it (within 50 ms of the Enter), steered by keys; what it ended with in $said
+  at=1
+  effort=High
+  said='Kept the model'
+  while :; do
+    models "$at" "$effort"
+    key
+    case $picked in
+      s) said="Set model to choice $at for this session only with $effort effort"; break ;;
+      "$(printf '\033')")
+        # an arrow is Esc and two more; Esc alone closes the list
+        soon
+        [ -n "$picked" ] || break
+        soon
+        case $picked in
+          A) [ "$at" -le 1 ] || at=$((at - 1)) ;;
+          B) [ "$at" -ge 3 ] || at=$((at + 1)) ;;
+          C) effort=Max ;;
+          D) effort=High ;;
+        esac
+        ;;
+      *) break ;;
+    esac
+  done
+  # what the list ended with, for the fixture to show
+  printf '%s\n' "$said" >> "$HOME/.models"
+}
+# `fake-agent.sh models`: only the list of models (the fixture's background session opens it so)
+[ "${1:-}" != models ] || { pick; exit 0; }
 : > "$t"
 line "{\"type\":\"ai-title\",\"aiTitle\":\"Fit the signal region\"}"
 line "{\"type\":\"user\",\"uuid\":\"u$n\",\"timestamp\":\"$(now)\",\"message\":{\"content\":\"$(printf '%s' "$task" | sed 's/\\/\\\\/g; s/"/\\"/g')\"}}"
@@ -91,29 +120,7 @@ while IFS= read -r typed; do
   [ -n "$typed" ] || continue
   if [ "$typed" = /model ]; then
     # a panel of Claude Code's own: nothing goes into the conversation
-    at=1
-    effort=High
-    said='Kept the model'
-    while :; do
-      models "$at" "$effort"
-      key
-      case $picked in
-        s) said="Set model to choice $at for this session only with $effort effort"; break ;;
-        "$(printf '\033')")
-          # an arrow is Esc and two more; Esc alone closes the list
-          soon
-          [ -n "$picked" ] || break
-          soon
-          case $picked in
-            A) [ "$at" -le 1 ] || at=$((at - 1)) ;;
-            B) [ "$at" -ge 3 ] || at=$((at + 1)) ;;
-            C) effort=Max ;;
-            D) effort=High ;;
-          esac
-          ;;
-        *) break ;;
-      esac
-    done
+    pick
     printf '\033[2J\033[H  ⎿  %s\n──────────────────────────────\n❯ \n──────────────────────────────\n' "$said"
     continue
   fi

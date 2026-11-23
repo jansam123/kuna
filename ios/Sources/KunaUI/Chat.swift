@@ -386,7 +386,10 @@ private struct StatusLine: View {
         Button("Terminal", action: terminal).font(.footnote.weight(.semibold)).buttonStyle(.bordered).controlSize(.small).tint(look.waiting).accessibilityIdentifier("answer-terminal")
       }
       if let model = agent.modelName ?? details?.model {
-        Button { draft.picking = true } label: {
+        Button {
+          modelsLog.debug("model tapped")
+          draft.picking = true
+        } label: {
           HStack(spacing: 3) {
             // the model and how hard it thinks (the effort of its last reply), as the Mac's chip
             Text([model, details?.effort].compactMap { $0 }.joined(separator: " · ")).lineLimit(1)
@@ -397,7 +400,7 @@ private struct StatusLine: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("model-menu")
         .popover(isPresented: $draft.picking) {
-          ModelList(session: here.session, mode: details?.permissionMode ?? agent.permissionMode, terminal: terminal) { draft.picking = false }
+          ModelList(session: here.session, host: agent.host, mode: details?.permissionMode ?? agent.permissionMode, terminal: terminal) { draft.picking = false }
             .environment(\.look, look).presentationCompactAdaptation(.popover)
         }
         // put away with the list still on the agent's screen: Esc closes it there
@@ -421,10 +424,13 @@ private struct StatusLine: View {
 }
 
 /// The models to change to, by name: Claude Code's own list, which /model draws on the agent's
-/// screen and the app reads off it. A tap changes the model of this session; the effort is changed
-/// with the two arrows; the list unfolds as Claude Code's does.
+/// screen and the app reads off it. Until it is read, the list last read on the same host is shown:
+/// a model tapped there is picked once the screen has its row, with the screen's own keys. A tap
+/// changes the model of this session; the effort is changed with the two arrows; the list unfolds
+/// as Claude Code's does.
 private struct ModelList: View {
   let session: AgentSession
+  let host: String
   let mode: String?
   var terminal: (() -> Void)?
   let close: () -> Void
@@ -432,23 +438,40 @@ private struct ModelList: View {
   @State private var problem: String?
   /// the list was on the screen: gone again, a model was picked
   @State private var seen = false
+  /// the list last read on this host, shown until the screen's is there
+  @State private var remembered: Panel?
+  /// a row of the remembered list was tapped: picked once the screen shows it
+  @State private var pending: String?
+  /// /model was typed
+  @State private var typed = false
 
   var body: some View {
-    let panel = session.panel.flatMap { $0.model == nil ? nil : $0 }
+    let live = session.panel.flatMap { $0.model == nil ? nil : $0 }
     VStack(alignment: .leading, spacing: 10) {
-      Text("Model").font(.headline).foregroundStyle(look.bright)
-      if let panel {
+      HStack {
+        Text("Model").font(.headline).foregroundStyle(look.bright)
+        Spacer(minLength: 0)
+        if live == nil, remembered != nil, problem == nil { ProgressView().controlSize(.mini) }
+      }
+      if let panel = live ?? (problem == nil ? remembered : nil) {
         ScrollView {
           VStack(spacing: 2) {
             ForEach(Array(panel.options.enumerated()), id: \.offset) { i, option in
-              Button { press(option.keys) } label: {
+              Button {
+                // only keys read off the screen are pressed: a remembered row waits for it
+                if live != nil { press(option.keys) } else { pending = option.label }
+              } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                   VStack(alignment: .leading, spacing: 2) {
                     Text(option.label).font(.subheadline.weight(.medium)).foregroundStyle(look.text)
                     if !option.detail.isEmpty { Text(option.detail).font(.caption).foregroundStyle(look.dim).multilineTextAlignment(.leading) }
                   }
                   Spacer(minLength: 0)
-                  if option.checked { Image(systemName: "checkmark").font(.footnote.weight(.bold)).foregroundStyle(look.accent) }
+                  if pending == option.label {
+                    ProgressView().controlSize(.mini)
+                  } else if option.checked {
+                    Image(systemName: "checkmark").font(.footnote.weight(.bold)).foregroundStyle(look.accent)
+                  }
                 }
                 .padding(.vertical, 7).padding(.horizontal, 8).contentShape(Rectangle())
               }
@@ -458,7 +481,7 @@ private struct ModelList: View {
           }
         }
         .frame(maxHeight: 340)
-        if let effort = panel.model?.effort {
+        if let effort = live?.model?.effort {
           HStack(spacing: 10) {
             Text(effort).font(.subheadline).foregroundStyle(look.text)
             Spacer(minLength: 0)
@@ -468,7 +491,8 @@ private struct ModelList: View {
           .labelStyle(.iconOnly).buttonStyle(.bordered).controlSize(.small).padding(.horizontal, 8)
         }
         Text("For this session.").font(.caption2).foregroundStyle(look.faint).padding(.horizontal, 8)
-      } else if let problem {
+      }
+      if let problem {
         Text(problem).font(.subheadline).foregroundStyle(look.dim)
         if let terminal {
           Button("Its terminal", systemImage: "apple.terminal") {
@@ -477,7 +501,7 @@ private struct ModelList: View {
           }
           .buttonStyle(.bordered)
         }
-      } else {
+      } else if live == nil, remembered == nil {
         ProgressView("Reading its models…").frame(maxWidth: .infinity).padding(.vertical, 18)
       }
       if let mode {
@@ -501,22 +525,62 @@ private struct ModelList: View {
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("model-list")
     .task {
+      modelsLog.debug("list up")
+      remembered = Self.remembered(on: host)
       // a list left on the screen is the one to show; otherwise it is asked for
       if session.panel?.model == nil {
         do { try await session.command("/model") } catch { problem = error.localizedDescription }
+        typed = problem == nil
+        if Task.isCancelled { return closeWhenDrawn() }
       }
       try? await Task.sleep(for: .seconds(10))
       if !seen, problem == nil { problem = "Its list of models did not show up. Its terminal shows why." }
     }
     // over the plots or the review nothing else reads the agent's screen
     .task { await session.watchScreen() }
-    .onChange(of: panel != nil, initial: true) { _, up in
-      if up { seen = true } else if seen { close() }
+    .onDisappear { if typed, !seen { closeWhenDrawn() } }
+    .onChange(of: live, initial: true) { _, now in
+      guard let now else {
+        // gone for good, not only between two frames: a model was picked
+        if seen { Task { try? await Task.sleep(for: .milliseconds(300)); if session.panel?.model == nil { close() } } }
+        return
+      }
+      if !seen { modelsLog.debug("list read off the screen") }
+      seen = true
+      Self.remember(now, on: host)
+      if let label = pending {
+        pending = nil
+        if let row = now.options.first(where: { $0.label == label }) { press(row.keys) }
+      }
     }
   }
 
   private func press(_ keys: String) {
     Task { try? await session.press(keys) }
+  }
+
+  /// Put away with /model typed and its list not read yet: Esc closes it on the screen once it is there.
+  private func closeWhenDrawn() {
+    let session = session
+    Task {
+      for _ in 0..<60 where session.panel?.model == nil { try? await Task.sleep(for: .milliseconds(50)) }
+      if session.panel?.model != nil { try? await session.press("\u{1b}") }
+    }
+  }
+
+  /// The list of models last read on a host, without what was only its session's (the `❯`, the tick, the keys).
+  static func remembered(on host: String) -> Panel? {
+    UserDefaults.standard.data(forKey: "models.\(host)").flatMap { try? JSONDecoder().decode(Panel.self, from: $0) }
+  }
+
+  static func remember(_ panel: Panel, on host: String) {
+    var kept = panel
+    kept.options = panel.options.map { option in
+      var row = option
+      (row.keys, row.current, row.checked) = ("", false, false)
+      return row
+    }
+    if let data = try? JSONEncoder().encode(kept) { UserDefaults.standard.set(data, forKey: "models.\(host)") }
   }
 }
 

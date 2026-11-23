@@ -18,6 +18,13 @@ final class Walkthrough: XCTestCase {
     try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: file))
   }
 
+  /// A line for `timings.txt` beside the pictures, which `scripts/ios-sim.sh` prints.
+  func note(_ line: String) {
+    let file = URL(fileURLWithPath: "\(shots)/timings.txt")
+    let had = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+    try? (had + line + "\n").write(to: file, atomically: true, encoding: .utf8)
+  }
+
   @discardableResult
   func wait(_ element: XCUIElement, _ seconds: TimeInterval = 20, _ what: String = "") -> Bool {
     let there = element.waitForExistence(timeout: seconds)
@@ -82,6 +89,103 @@ final class Walkthrough: XCTestCase {
     }
     sleep(1)
     shot("terminal-context")
+  }
+
+  /// The list of models: how long from the tap to rows to tap, and to the list read off the agent's
+  /// screen (its effort row comes with that), cold, warm, and back on the agent's screen; a model and
+  /// an effort picked, and a model tapped before the screen's list was there.
+  func testModels() throws {
+    app.launchArguments = ["-lock", "NO", "-opensTerminal", "NO", "-kunaStill", "YES"]
+    if let file = ProcessInfo.processInfo.environment["KUNA_IMPORT"] { app.launchArguments += ["-kunaImport", file] }
+    app.launch()
+    let agent = app.buttons["agent-aaaa1111"]
+    wait(agent, 40, "the fixture's agent")
+    func open() {
+      agent.tap()
+      wait(said("The fit converged."), 30, "the agent's reply")
+      wait(app.buttons["model-menu"], 20, "the model in the status line")
+    }
+    /// tap the model; seconds to the first row and to the screen's list
+    func round(_ name: String) -> (rows: Double, live: Double) {
+      let start = Date()
+      app.buttons["model-menu"].tap()
+      wait(app.buttons["model-option-1"], 30, "a model to tap (\(name))")
+      let rows = Date().timeIntervalSince(start)
+      shot("models-\(name)-rows")
+      wait(app.buttons["effort-more"], 30, "the list read off the screen (\(name))")
+      let live = Date().timeIntervalSince(start)
+      shot("models-\(name)-live")
+      note(String(format: "models %@: rows after %.2f s, the screen's list after %.2f s", name, rows, live))
+      return (rows, live)
+    }
+    func dismiss() {
+      app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+      sleep(1)
+    }
+    open()
+    // the first time: the terminal is opened and /model typed
+    _ = round("cold")
+    app.buttons["effort-more"].tap()
+    sleep(1)
+    shot("models-effort")
+    app.buttons["model-option-2"].tap()
+    sleep(2)
+    if app.buttons["model-option-2"].exists { XCTFail("the list of models stayed up after a model was picked") }
+    shot("models-picked")
+    // again with the terminal open; put away with Esc
+    let warm = round("warm")
+    dismiss()
+    if app.buttons["effort-more"].exists { XCTFail("the list of models stayed up after it was put away") }
+    // back on the agent's screen: its terminal was closed; a model tapped at once is picked once the screen has the list
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    sleep(1)
+    open()
+    let start = Date()
+    app.buttons["model-menu"].tap()
+    wait(app.buttons["model-option-3"], 30, "a model to tap (again)")
+    let rows = Date().timeIntervalSince(start)
+    shot("models-again-rows")
+    app.buttons["model-option-3"].tap()
+    let gone = NSPredicate(format: "exists == false")
+    expectation(for: gone, evaluatedWith: app.buttons["model-option-3"])
+    waitForExpectations(timeout: 30)
+    note(String(format: "models again: rows after %.2f s, picked and closed after %.2f s", rows, Date().timeIntervalSince(start)))
+    sleep(1)
+    shot("models-again-picked")
+    // a Claude Code background session: its screen is `claude attach` (the fixture's takes 3 s to
+    // start), /model typed into it; meanwhile the list read before on this host is there to tap
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    let background = app.buttons["agent-cc-ffff6666"]
+    if wait(background, 20, "the background session") {
+      background.tap()
+      wait(said("The scan is done"), 30, "the background session's conversation")
+      if wait(app.buttons["model-menu"], 20, "the background session's model") {
+        let start = Date()
+        app.buttons["model-menu"].tap()
+        wait(app.buttons["model-option-2"], 30, "the remembered list (background)")
+        let remembered = Date().timeIntervalSince(start)
+        shot("models-background-remembered")
+        if app.buttons["effort-more"].exists { XCTFail("the screen's list was there already: the remembered one was not tried") }
+        app.buttons["model-option-2"].tap()
+        sleep(1)
+        shot("models-background-waiting")
+        expectation(for: gone, evaluatedWith: app.buttons["model-option-2"])
+        waitForExpectations(timeout: 30)
+        note(String(format: "models background: remembered rows after %.2f s, a remembered row picked and the list closed after %.2f s", remembered, Date().timeIntervalSince(start)))
+        XCTAssertLessThan(remembered, 3, "no rows to tap at once in the background session")
+        // its screen open now: the effort, and a model
+        _ = round("background-warm")
+        app.buttons["effort-more"].tap()
+        sleep(1)
+        app.buttons["model-option-3"].tap()
+        sleep(2)
+        if app.buttons["model-option-3"].exists { XCTFail("the background session's list stayed up after a model was picked") }
+        shot("models-background-picked")
+      }
+    }
+    // (XCUITest's own steps take about a second each: the app's log has the times without them)
+    XCTAssertLessThan(rows, 3, "no rows to tap at once, with the list read before on this host")
+    XCTAssertLessThan(warm.live, 5, "the list took long with the terminal open")
   }
 
   func testWalkthrough() throws {

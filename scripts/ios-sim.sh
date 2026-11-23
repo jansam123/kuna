@@ -46,7 +46,10 @@ cp ios/Tests/fixture/fake-agent.sh "$home/fake-agent.sh"
 mkdir -p "$home/bin" "$home/.claude/jobs/ffff6666" "$home/.claude/daemon"
 cp ios/Tests/fixture/fake-claude.sh "$home/bin/claude"
 chmod +x "$home/bin/claude"
-printf '{"state":"idle","tempo":"idle","updatedAt":"%s","createdAt":"%s","cwd":"%s","name":"Scan the nuisance parameters"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$work" > "$home/.claude/jobs/ffff6666/state.json"
+printf '{"state":"idle","tempo":"idle","updatedAt":"%s","createdAt":"%s","cwd":"%s","name":"Scan the nuisance parameters","linkScanPath":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$work" "$home/.claude/projects/work/ffff6666.jsonl" > "$home/.claude/jobs/ffff6666/state.json"
+# its conversation, which says its model
+mkdir -p "$home/.claude/projects/work"
+printf '{"type":"user","uuid":"u1","timestamp":"%s","message":{"content":"Scan the nuisance parameters"}}\n{"type":"assistant","uuid":"a1","timestamp":"%s","message":{"model":"claude-opus-4-5","content":[{"type":"text","text":"The scan is done: no nuisance parameter is pulled by more than one sigma."}]}}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$home/.claude/projects/work/ffff6666.jsonl"
 cp build/icon.png "$work/plots/mass.png"
 cp build/icon.png "$work/diagrams/flow.png"
 printf '# Plan\n\n1. Rebin\n2. Refit\n' > "$work/.claude/plan.md"
@@ -147,6 +150,9 @@ TEST_RUNNER_KUNA_SHOTS="$shots" TEST_RUNNER_KUNA_IMPORT="$tmp/export.kuna" xcode
 if [ -z "${KUNA_ONLY:-}" ]; then
   [ "$(cat "$home/.wheel" 2> /dev/null || echo 200)" -lt 200 ] && echo "wheel: ok" || echo "wheel: FAILED (a drag did not scroll the background session)"
 fi
+# what each list of models the fake agent drew ended with
+[ ! -f "$home/.models" ] || sed 's/^/models: /' "$home/.models"
+[ ! -f "$shots/timings.txt" ] || cat "$shots/timings.txt"
 echo "pictures: $shots"
 ls "$shots" | sed 's/^/  /'
 [ -z "${KUNA_KEEP:-}" ] || echo "left running: sshd $sshd on port $port, tmux -L $sock, files in $tmp (stop with: kill $sshd; tmux -L $sock kill-server)"
