@@ -9,10 +9,16 @@ public enum Keychain {
     [kSecClass: kSecClassGenericPassword, kSecAttrService: "kuna", kSecAttrAccount: account]
   }
 
-  public static func get(_ account: String) -> Data? {
+  public static func get(_ account: String) -> Data? { try? read(account) }
+
+  /// What is kept, nil when nothing is. Throws when the keychain cannot say: a locked phone
+  /// answers so, and that is not "nothing kept".
+  public static func read(_ account: String) throws -> Data? {
     var found: AnyObject?
     let status = SecItemCopyMatching(query(account).merging([kSecReturnData: true]) { $1 } as CFDictionary, &found)
-    return status == errSecSuccess ? found as? Data : nil
+    if status == errSecItemNotFound { return nil }
+    guard status == errSecSuccess else { throw KunaError("This phone's keychain could not be read (\(status)); it cannot while the phone is locked.") }
+    return found as? Data
   }
 
   /// `nil` or empty removes it.
@@ -28,7 +34,8 @@ public enum Keychain {
 /// The keychain holds only the enclave's handle to it, useless on any other device.
 public enum DeviceKey {
   public static func load() throws -> NIOSSHPrivateKey {
-    let saved = Keychain.get("device-key")
+    // a keychain that cannot be read is no reason for a new key: the one the hosts know would be lost
+    let saved = try Keychain.read("device-key")
     guard SecureEnclave.isAvailable else {
       // the simulator has no enclave: an ordinary key in its keychain
       let key = try saved.map { try P256.Signing.PrivateKey(rawRepresentation: $0) } ?? P256.Signing.PrivateKey()

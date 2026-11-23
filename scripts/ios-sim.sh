@@ -41,6 +41,11 @@ xcodebuild -quiet -project ios/App/Kuna.xcodeproj -scheme Kuna -configuration De
 # ---- what the agents work on: a folder with a fit, its plots, notes, a page, and git history
 mkdir -p "$work/plots" "$work/report" "$work/diagrams" "$work/.claude" "$home/tagger" "$home/notes" "$home/thesis" "$shots"
 cp ios/Tests/fixture/fake-agent.sh "$home/fake-agent.sh"
+# a Claude Code background session, and the `claude` that attaches to it
+mkdir -p "$home/bin" "$home/.claude/jobs/ffff6666" "$home/.claude/daemon"
+cp ios/Tests/fixture/fake-claude.sh "$home/bin/claude"
+chmod +x "$home/bin/claude"
+printf '{"state":"idle","tempo":"idle","updatedAt":"%s","createdAt":"%s","cwd":"%s","name":"Scan the nuisance parameters"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$work" > "$home/.claude/jobs/ffff6666/state.json"
 cp build/icon.png "$work/plots/mass.png"
 cp build/icon.png "$work/diagrams/flow.png"
 printf '# Plan\n\n1. Rebin\n2. Refit\n' > "$work/.claude/plan.md"
@@ -80,13 +85,15 @@ PasswordAuthentication no
 KbdInteractiveAuthentication no
 PerSourcePenalties no
 LogLevel DEBUG2
-SetEnv HOME=$home SHELL=/bin/sh KUNA_TMUX_SOCKET=$sock "PATH=$PATH" GIT_CONFIG_GLOBAL=/dev/null
+SetEnv HOME=$home SHELL=/bin/sh KUNA_TMUX_SOCKET=$sock "PATH=$home/bin:$PATH" GIT_CONFIG_GLOBAL=/dev/null
 ForceCommand cd "\$HOME" && exec sh -c "\$SSH_ORIGINAL_COMMAND"
 EOF
 /usr/sbin/sshd -D -e -f "$tmp/sshd_config" 2> "$tmp/sshd.log" &
 sshd=$!
 [ -n "${KUNA_KEEP:-}" ] || trap cleanup EXIT
 waitfor 10 grep -q listening "$tmp/sshd.log" || { echo "sshd did not start, see $tmp/sshd.log"; exit 1; }
+# the background session counts as running while its worker's pid is alive: sshd's will do
+printf '{"workers":{"ffff6666":{"pid":%s}}}\n' "$sshd" > "$home/.claude/daemon/roster.json"
 
 # ---- what the Mac would export: the project, and the host behind a jump host (the same sshd)
 me=$(id -un)
@@ -135,6 +142,8 @@ echo "walking through the app…"
 TEST_RUNNER_KUNA_SHOTS="$shots" TEST_RUNNER_KUNA_IMPORT="$tmp/export.kuna" xcodebuild -quiet -project ios/App/Kuna.xcodeproj -scheme Kuna \
   -destination "platform=iOS Simulator,name=$sim" -derivedDataPath ios/.build/xcode test-without-building > "$tmp/test.log" 2>&1 && echo "walkthrough: ok" ||
   { echo "walkthrough: FAILED (the pictures up to there are kept)"; grep -E "error:|did not show up" "$tmp/test.log" | sed 's/.*Walkthrough.swift/Walkthrough.swift/' | sort -u | head -20; }
+# the drag on the background session's screen reached it as wheel notches up: it starts at line 200
+[ "$(cat "$home/.wheel" 2> /dev/null || echo 200)" -lt 200 ] && echo "wheel: ok" || echo "wheel: FAILED (a drag did not scroll the background session)"
 echo "pictures: $shots"
 ls "$shots" | sed 's/^/  /'
 [ -z "${KUNA_KEEP:-}" ] || echo "left running: sshd $sshd on port $port, tmux -L $sock, files in $tmp (stop with: kill $sshd; tmux -L $sock kill-server)"

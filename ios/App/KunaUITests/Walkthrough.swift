@@ -343,6 +343,24 @@ final class Walkthrough: XCTestCase {
     }
     sleep(2)
     shot("home-after")
+    // a Claude Code background session keeps its history to itself: a drag on its terminal is its mouse wheel
+    let background = app.buttons["agent-cc-ffff6666"]
+    if wait(background, 20, "the background session on the home screen") {
+      background.tap()
+      if wait(app.buttons["open-terminal"], 10, "the background session's screen") {
+        app.buttons["open-terminal"].tap()
+        wait(app.buttons["key-Control"], 10, "the background session's terminal")
+        sleep(4)
+        shot("background-terminal")
+        let window = app.windows.firstMatch
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)))
+        sleep(3)
+        shot("background-terminal-scrolled")
+        app.buttons["open-terminal"].tap()
+      }
+      app.navigationBars.buttons.element(boundBy: 0).tap()
+      sleep(1)
+    }
 
     // a project's form, with the Mac's icons to pick from
     let edit = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Edit '")).firstMatch

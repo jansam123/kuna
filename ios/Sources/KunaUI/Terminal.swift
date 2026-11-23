@@ -186,7 +186,7 @@ final class TerminalStack: UIView, UITextViewDelegate {
 /// An agent's terminal for as long as the agent's screen is open: fed even while it is not
 /// shown, so the app can tell what the agent's own screen says.
 @MainActor
-final class TerminalHolder: NSObject, TerminalViewDelegate {
+final class TerminalHolder: NSObject, TerminalViewDelegate, UIGestureRecognizerDelegate {
   private(set) var view: LiveTerminal?
   private(set) var stack: TerminalStack?
   let mods = KeyModifiers()
@@ -203,6 +203,9 @@ final class TerminalHolder: NSObject, TerminalViewDelegate {
   /// the screen at the last look, as text
   private var shown = NSAttributedString()
   private var palette = "{}"
+  /// wheel notches are on their way to the agent; those that follow a flick
+  private var wheeling = false
+  private var glide: Task<Void, Never>?
 
   init(session: AgentSession) {
     self.session = session
@@ -253,6 +256,11 @@ final class TerminalHolder: NSObject, TerminalViewDelegate {
       // its own long press and double tap select in a way of their own: the screen is held as text instead
       for old in view.gestureRecognizers ?? [] where type(of: old) == UILongPressGestureRecognizer.self || (old as? UITapGestureRecognizer).map({ $0.numberOfTapsRequired > 1 }) == true { old.isEnabled = false }
       view.addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(hold(_:))))
+    } else {
+      // a background session is drawn by `claude attach`, which keeps the history to itself and scrolls it by the wheel
+      let pan = UIPanGestureRecognizer(target: self, action: #selector(wheel(_:)))
+      pan.delegate = self
+      view.addGestureRecognizer(pan)
     }
     stack = made
     return made
@@ -375,6 +383,53 @@ final class TerminalHolder: NSObject, TerminalViewDelegate {
     }
   }
 
+  // ------------------------------------------------------------ wheel ----
+
+  /// The wheel is for a screen whose program has the mouse; any other scrolls in the terminal view's own way.
+  func gestureRecognizerShouldBegin(_ pan: UIGestureRecognizer) -> Bool {
+    guard let view else { return false }
+    return view.getTerminal().mouseMode != .off && !view.selectionActive
+  }
+
+  func gestureRecognizer(_ pan: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
+  /// A drag as the mouse wheel: a notch for every line dragged, and after a flick some more, ever slower.
+  @objc private func wheel(_ pan: UIPanGestureRecognizer) {
+    guard let view else { return }
+    let line = ceil(view.font.lineHeight)
+    glide?.cancel()
+    switch pan.state {
+    case .changed:
+      let lines = Int(pan.translation(in: view).y / line)
+      pan.setTranslation(CGPoint(x: 0, y: pan.translation(in: view).y - CGFloat(lines) * line), in: view)
+      notch(lines)
+    case .ended:
+      // lines a step, thirty steps a second
+      var speed = pan.velocity(in: view).y / line / 30
+      var rest: CGFloat = 0
+      glide = Task {
+        while abs(speed) > 0.1, !Task.isCancelled {
+          rest += speed
+          let lines = Int(rest)
+          rest -= CGFloat(lines)
+          notch(lines)
+          speed *= 0.92
+          try? await Task.sleep(for: .milliseconds(33))
+        }
+      }
+    default: break
+    }
+  }
+
+  /// Wheel notches to the screen's program, in the mouse protocol it asked for: up (earlier lines) for a drag down.
+  private func notch(_ lines: Int) {
+    guard lines != 0, let terminal = view?.getTerminal(), terminal.mouseMode != .off else { return }
+    let button = terminal.encodeButton(button: lines > 0 ? 4 : 5, release: false, shift: false, meta: false, control: false)
+    wheeling = true
+    for _ in 0..<abs(lines) { terminal.sendEvent(buttonFlags: button, x: terminal.cols / 2, y: terminal.rows / 2) }
+    wheeling = false
+  }
+
   /// Back at the live screen.
   func toEnd() {
     stack?.toEnd()
@@ -412,7 +467,8 @@ final class TerminalHolder: NSObject, TerminalViewDelegate {
     dirty = true
   }
   func send(source: TerminalView, data: ArraySlice<UInt8>) {
-    if !replaying { key(Data(data)) }
+    // the wheel is no key: it leaves an armed Ctrl or ⌘ for the key that comes
+    if wheeling { session.key(Data(data)) } else if !replaying { key(Data(data)) }
   }
   func setTerminalTitle(source: TerminalView, title: String) {}
   func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}

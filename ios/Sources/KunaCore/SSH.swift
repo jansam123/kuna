@@ -74,6 +74,13 @@ public final class SSHConnection: @unchecked Sendable {
         channel = try await ClientBootstrap(group: group)
           .connectTimeout(.seconds(20))
           .channelOption(ChannelOptions.socketOption(.tcp_nodelay), value: 1)
+          // a connection that died without a word (another network, a router that forgot it) is closed
+          // within half a minute, idle or not: what waits on it fails, and the next try opens a new one
+          .channelOption(ChannelOptions.socketOption(.so_keepalive), value: 1)
+          .channelOption(ChannelOptions.tcpOption(.init(rawValue: TCP_KEEPALIVE)), value: 15)
+          .channelOption(ChannelOptions.tcpOption(.init(rawValue: TCP_KEEPINTVL)), value: 5)
+          .channelOption(ChannelOptions.tcpOption(.init(rawValue: TCP_KEEPCNT)), value: 3)
+          .channelOption(ChannelOptions.tcpOption(.init(rawValue: TCP_RXT_CONNDROPTIME)), value: 30)
           .channelInitializer { channel in channel.eventLoop.makeCompletedFuture { try handlers(channel) } }
           .connect(host: target.host, port: target.port).get()
       }
