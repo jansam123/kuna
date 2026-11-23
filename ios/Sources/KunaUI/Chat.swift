@@ -65,8 +65,9 @@ struct AgentScreen: View {
   @Binding var path: [Route]
   let open: OpenAgents
   @Environment(\.look) private var look
-  /// its terminal in place of its conversation
-  @State private var terminal = false
+  /// its terminal in place of its conversation: first, unless Settings say the conversation
+  // (bool(forKey:) also reads a launch argument's `NO`, which comes as text)
+  @State private var terminal = UserDefaults.standard.object(forKey: "opensTerminal") == nil || UserDefaults.standard.bool(forKey: "opensTerminal")
   @State private var failure: Notice?
   @State private var renaming = false
   @State private var name = ""
@@ -243,7 +244,7 @@ struct AgentScreen: View {
 /// The box a message to the agent is written in, on glass: what the agent is doing and its model
 /// above the text, the keyboard's button at its left, send at its right. Typing a slash offers
 /// Claude Code's commands. A stopped session is started again by what is sent to it, and a
-/// message sent in the middle of a turn is read when the turn is over.
+/// message sent in the middle of a turn waits here, queued, until the turn is over.
 struct PromptBox: View {
   let model: AppModel
   let here: OpenAgents.Open
@@ -278,6 +279,22 @@ struct PromptBox: View {
         }
         .padding(.horizontal, 4)
       }
+      ForEach(here.session.queued) { out in
+        // written in the middle of a turn: typed into the agent once the turn is over, until then taken back by the cross
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+          Image(systemName: "clock.arrow.circlepath").font(.caption).foregroundStyle(look.accent)
+          Text(out.text).font(.footnote).foregroundStyle(look.text).lineLimit(2)
+          Spacer(minLength: 4)
+          Button("Take it back", systemImage: "xmark.circle.fill") { here.session.unqueue(out.id) }
+            .labelStyle(.iconOnly).foregroundStyle(look.dim).accessibilityIdentifier("unqueue")
+        }
+        .padding(.horizontal, 6)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("queued")
+      }
+      if !here.session.queued.isEmpty {
+        Text(here.session.queueProblem.map { "Not sent yet: \($0)" } ?? "Sent when its turn is over.").font(.caption2).foregroundStyle(here.session.queueProblem == nil ? look.faint : look.danger).padding(.horizontal, 6)
+      }
       if let agent {
         StatusLine(agent: agent, here: here, terminal: terminal)
       }
@@ -307,10 +324,11 @@ struct PromptBox: View {
     sending = true
     Task {
       do {
-        try await here.session.send(text)
+        let now = try await here.session.send(text)
         Haptic.play(.sent)
         if here.prompt.text == text { here.prompt.text = "" }
-        sent()
+        // queued, the box stays to show it (and take it back)
+        if now { sent() }
       } catch {
         failure = Notice(title: "Not sent", text: error.localizedDescription)
       }
@@ -329,7 +347,7 @@ struct PromptDrawer: View {
 
   var body: some View {
     if here.prompt.shown {
-      PromptBox(model: model, here: here, typing: $typing) { here.prompt.shown = false }
+      PromptBox(model: model, here: here, typing: $typing, terminal: nil, sent: { here.prompt.shown = false })
     }
   }
 }

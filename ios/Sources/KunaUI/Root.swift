@@ -119,7 +119,7 @@ public struct RootView: View {
   /// As a terminal app's tabs: what is open in one stays open while another is looked at.
   private var tabs: some View {
     TabView(selection: $tab) {
-      Tab("Agents", systemImage: "square.stack.3d.up", value: "agents") { agents }
+      Tab("Projects", systemImage: "square.stack.3d.up", value: "agents") { agents }
       Tab("Folders", systemImage: "folder", value: "folders") { folders }
       Tab("Settings", systemImage: "gearshape", value: "settings") { SettingsView(model: model, importing: $importing) }
     }

@@ -49,6 +49,23 @@ struct HomeView: View {
     .navigationTitle("Projects")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
+      if !model.state.projects.isEmpty {
+        // as the Mac's button above its sidebar (`rollAll`): everything in, or, all in already, everything out
+        let allIn = model.state.projects.allSatisfy { $0.collapsed == true }
+        ToolbarItem(placement: .topBarLeading) {
+          Button(allIn ? "Roll all projects out" : "Roll all projects in", systemImage: allIn ? "rectangle.expand.vertical" : "rectangle.compress.vertical") {
+            let folded: Bool? = allIn ? nil : true
+            model.update { state in
+              for p in state.projects.indices {
+                state.projects[p].collapsed = folded
+                state.projects[p].otherCollapsed = folded
+                for f in state.projects[p].folders.indices { state.projects[p].folders[f].collapsed = folded }
+              }
+            }
+          }
+          .accessibilityIdentifier("roll-all")
+        }
+      }
       ToolbarItem(placement: .primaryAction) {
         Menu("Add", systemImage: "plus") {
           Button("New project", systemImage: "folder.badge.plus") { sheets.editing = ProjectDraft(model: model) }

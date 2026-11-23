@@ -16,6 +16,11 @@ public final class AgentSession {
     let had: Int
   }
 
+  public struct Queued: Identifiable, Hashable {
+    public let id = UUID()
+    public let text: String
+  }
+
   public nonisolated let key: String
   public private(set) var items: [ChatItem] = []
   public private(set) var details: ChatDetails?
@@ -23,6 +28,10 @@ public final class AgentSession {
   public private(set) var loaded = false
   /// messages sent from here that the transcript does not show yet
   public private(set) var outbox: [Outgoing] = []
+  /// messages written while the agent was at work: typed into it, together, once its turn is over
+  public private(set) var queued: [Queued] = []
+  /// why the queued messages could not be typed when the turn was over
+  public private(set) var queueProblem: String?
   public private(set) var terminal: TerminalSession?
   public private(set) var attaching = false
   /// the terminal closed by itself (the agent ended, or the connection did)
@@ -50,6 +59,7 @@ public final class AgentSession {
   @ObservationIgnored private var gotOutput = false
   /// output that came, counted, for reading the screen only when it changed
   @ObservationIgnored private var outputs = 0
+  @ObservationIgnored private var draining: Task<Void, Never>?
   /// the host's own commands and skills, asked for once
   @ObservationIgnored private var found: String?
 
@@ -162,11 +172,59 @@ public final class AgentSession {
 
   /// Send a message to the agent as if typed into it and sent. Kuna's own agents get it through
   /// tmux; a Claude Code background session only takes input on its own screen, so that is opened
-  /// (which also starts a stopped session again).
-  public func send(_ text: String) async throws {
+  /// (which also starts a stopped session again). In the middle of a turn it is queued here
+  /// instead (`queued`) and typed once the turn is over; it returns false then.
+  @discardableResult
+  public func send(_ text: String) async throws -> Bool {
     let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !text.isEmpty else { return }
+    guard !text.isEmpty else { return true }
     guard let agent = model.agent(key) else { throw KunaError("The agent is no longer on the host.") }
+    // typed now it would land wherever the turn goes on: a question, a permission, a panel
+    if agent.status == "working" || !queued.isEmpty {
+      queued.append(Queued(text: text))
+      queueProblem = nil
+      drain()
+      return false
+    }
+    try await deliver(text, agent)
+    return true
+  }
+
+  /// Take a queued message back before it is typed.
+  public func unqueue(_ id: UUID) {
+    queued.removeAll { $0.id == id }
+    if queued.isEmpty { queueProblem = nil }
+  }
+
+  /// Type the queued messages, as one, once the agent has been out of its turn for two seconds;
+  /// not while it waits for an answer, which they would give.
+  private func drain() {
+    guard draining == nil else { return }
+    draining = Task { [weak self] in
+      var calm = 0
+      while !Task.isCancelled, let self, !self.queued.isEmpty {
+        let status = self.model.agent(self.key)?.status ?? "working"
+        calm = ["working", "starting", "waiting"].contains(status) ? 0 : calm + 1
+        if calm >= 2, let agent = self.model.agent(self.key) {
+          let now = self.queued
+          do {
+            try await self.deliver(now.map(\.text).joined(separator: "\n\n"), agent)
+            self.queued.removeAll { out in now.contains { $0.id == out.id } }
+          } catch {
+            // kept, to be taken back, or typed once the agent can be typed into
+            self.queueProblem = error.localizedDescription
+            try? await Task.sleep(for: .seconds(10))
+          }
+          calm = 0
+          continue
+        }
+        try? await Task.sleep(for: .seconds(1))
+      }
+      self?.draining = nil
+    }
+  }
+
+  private func deliver(_ text: String, _ agent: Agent) async throws {
     let had = items.filter { $0.kind == "user" }.count
     try await type(text, agent)
     // a command of Claude Code's own may open a panel: its screen is opened to show it

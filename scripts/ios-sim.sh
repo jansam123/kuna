@@ -58,6 +58,8 @@ printf '%%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pa
 printf '# Fit notes\n\nThe signal region fit **converged**.\n\n- mu = 1.04 ± 0.21\n- 41 bins\n\n```python\nresult = fit(region="SR")\n```\n\n| region | events |\n|---|---|\n| SR | 412 |\n' > "$work/notes.md"
 printf '<!doctype html><meta name=viewport content="width=device-width"><title>Report</title><style>body{font:16px system-ui;background:#0b1020;color:#dfe6f5;padding:24px}</style><h1>Fit report</h1><p id=o>loading…</p><script src="data.js"></script>' > "$work/report/index.html"
 printf 'document.getElementById("o").textContent = "mu = 1.04 ± 0.21, from a script in the page folder"' > "$work/report/data.js"
+# the slides and plots the tagger's agent (at work all along) mentions
+cp -R "$work/talk.pdf" "$work/plots" "$home/tagger/"
 printf 'import numpy as np\n\n\ndef fit(region, bins=40):\n    """Fit the given region."""\n    data = load(region)\n    return minimise(data, bins)\n' > "$work/fit.py"
 printf 'region: SR\nbins: 40\n' > "$work/config.yaml"
 (
@@ -143,7 +145,7 @@ sleep 3
 xcrun simctl terminate "$sim" $app
 
 echo "walking through the app…"
-TEST_RUNNER_KUNA_SHOTS="$shots" TEST_RUNNER_KUNA_IMPORT="$tmp/export.kuna" xcodebuild -quiet -project ios/App/Kuna.xcodeproj -scheme Kuna \
+TEST_RUNNER_KUNA_SHOTS="$shots" TEST_RUNNER_KUNA_HOME="$home" TEST_RUNNER_KUNA_IMPORT="$tmp/export.kuna" xcodebuild -quiet -project ios/App/Kuna.xcodeproj -scheme Kuna \
   -destination "platform=iOS Simulator,name=$sim" -derivedDataPath ios/.build/xcode ${KUNA_ONLY:+-only-testing:KunaUITests/Walkthrough/$KUNA_ONLY} test-without-building > "$tmp/test.log" 2>&1 && echo "walkthrough: ok" ||
   { echo "walkthrough: FAILED (the pictures up to there are kept)"; grep -E "error:|did not show up" "$tmp/test.log" | sed 's/.*Walkthrough.swift/Walkthrough.swift/' | sort -u | head -20; }
 # the drag on the background session's screen reached it as wheel notches up: it starts at line 200

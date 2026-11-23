@@ -37,9 +37,158 @@ final class Walkthrough: XCTestCase {
     app.textViews.matching(NSPredicate(format: "value CONTAINS %@", text)).firstMatch
   }
 
+  /// The box that can be typed into, of the ones on top of each other (conversation, list, viewer).
+  func topMessageBox() -> XCUIElement {
+    let boxes = app.textFields.matching(identifier: "message").allElementsBoundByIndex + app.textViews.matching(identifier: "message").allElementsBoundByIndex
+    return boxes.last(where: \.isHittable) ?? app.textFields["message"].firstMatch
+  }
+
+  /// Settings ▸ An agent opens in: `Terminal` or `Conversation`; back on the Projects tab after.
+  func opensIn(_ which: String, _ name: String? = nil) {
+    app.tabBars.buttons["Settings"].tap()
+    let segment = app.segmentedControls.buttons[which]
+    for _ in 0..<5 where !(segment.exists && segment.isHittable) { app.swipeUp() }
+    if wait(segment, 5, "the setting for what an agent opens in") { segment.tap() }
+    sleep(1)
+    if let name { shot(name) }
+    // (scrolling down a list folds the tab bar into the tab in front; a tap on that unfolds it)
+    if !app.tabBars.buttons["Projects"].exists { app.tabBars.buttons["Settings"].tap() }
+    app.tabBars.buttons["Projects"].tap()
+  }
+
+  /// An agent opens on its terminal (or, by the setting, its conversation); the key row starts with
+  /// the arrows; one button rolls every project in and out; the first tab is Projects; the
+  /// viewer's prompt stays put while the agent works, and what is sent then waits for the turn's end.
+  func testDefaultsAndPrompt() throws {
+    let env = ProcessInfo.processInfo.environment
+    // no -opensTerminal here: the setting itself is what is tried
+    app.launchArguments = ["-lock", "NO", "-kunaStill", "YES"]
+    if let file = env["KUNA_IMPORT"] { app.launchArguments += ["-kunaImport", file] }
+    app.launch()
+    let agent = app.buttons["agent-aaaa1111"]
+    wait(agent, 40, "the fixture's agent on the home screen")
+    XCTAssertTrue(app.tabBars.buttons["Projects"].exists, "the first tab is called Projects")
+    XCTAssertFalse(app.tabBars.buttons["Agents"].exists, "no tab is called Agents any more")
+    // from the default, whatever an earlier run left
+    opensIn("Terminal")
+    sleep(1)
+    shot("defaults-home")
+
+    // everything rolled in with one button, and out again
+    app.buttons["roll-all"].tap()
+    sleep(1)
+    shot("defaults-rolled-in")
+    XCTAssertFalse(agent.exists, "an agent still shows with every project rolled in")
+    XCTAssertFalse(app.buttons["agent-cccc3333"].exists, "an agent of the second project still shows with every project rolled in")
+    app.buttons["roll-all"].tap()
+    wait(agent, 10, "the agent, with every project rolled out again")
+    wait(app.buttons["agent-cccc3333"], 5, "the second project's agent, rolled out again")
+    shot("defaults-rolled-out")
+
+    // its terminal first, the arrows first in the key row
+    agent.tap()
+    if wait(app.buttons["key-Control"], 20, "the agent's terminal, shown first") {
+      sleep(2)
+      shot("defaults-terminal-first")
+      let x = { (name: String) in self.app.buttons["key-\(name)"].frame.minX }
+      XCTAssertLessThan(x("Keyboard"), x("Up"), "the keyboard's button before the arrows")
+      XCTAssertLessThan(x("Up"), x("Down"))
+      XCTAssertLessThan(x("Left"), x("Right"))
+      XCTAssertLessThan(x("Right"), x("Control"), "the arrows before ctrl")
+      XCTAssertLessThan(x("Command"), x("Escape"), "ctrl and ⌘ before esc")
+      XCTAssertLessThan(x("Escape"), x("Tab"))
+    }
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+
+    // the setting: its conversation first
+    opensIn("Conversation", "defaults-setting")
+    agent.tap()
+    wait(said("The fit converged."), 30, "the agent's conversation, shown first by the setting")
+    XCTAssertFalse(app.buttons["key-Control"].exists, "the terminal shown, though the setting says the conversation")
+    shot("defaults-conversation-first")
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+
+    // the slides of an agent at work, with the prompt over them
+    let working = app.buttons["agent-cccc3333"]
+    if wait(working, 10, "the agent at work") {
+      working.tap()
+      wait(app.buttons["send"], 20, "the working agent's conversation")
+      app.buttons["agent-more"].tap()
+      app.buttons["Plots and files"].tap()
+      // (under Slides once the PDF has been read; a group's tap before that would be undone)
+      let group = app.buttons["group-slides"]
+      _ = group.waitForExistence(timeout: 30)
+      shot("working-plots")
+      if wait(group, 1, "the Slides group") { group.tap() }
+      let slides = app.buttons["media-talk.pdf"]
+      if wait(slides, 20, "the working agent's slides") {
+        slides.tap()
+        sleep(3)
+        let toggle = app.buttons.matching(identifier: "prompt-toggle").allElementsBoundByIndex.last(where: \.isHittable) ?? app.buttons["prompt-toggle"].firstMatch
+        toggle.tap()
+        sleep(1)
+        let prompt = topMessageBox()
+        if wait(prompt, 10, "the prompt over the slides") {
+          prompt.tap()
+          prompt.typeText("Make the title")
+          sleep(1)
+          // written into while the agent works: the box stays where it is
+          let start = prompt.frame
+          var moved: [CGRect] = []
+          // (a letter typed and taken back: the text stays on one line, so the box has no reason to grow)
+          for i in 0..<12 where app.keyboards.count > 0 {
+            prompt.typeText(i.isMultiple(of: 2) ? "x" : XCUIKeyboardKey.delete.rawValue)
+            usleep(500_000)
+            let now = prompt.frame
+            if abs(now.minY - start.minY) > 0.5 || abs(now.maxY - start.maxY) > 0.5 { moved.append(now) }
+            if i == 5 { shot("viewer-prompt-working") }
+          }
+          XCTAssertTrue(app.keyboards.count > 0, "the keyboard went down while the agent worked")
+          print("kuna: the box at \(start), moved to \(moved)")
+          XCTAssertTrue(moved.isEmpty, "the prompt moved while the agent worked: from \(start) to \(moved)")
+          shot("viewer-prompt-still")
+
+          // sent in the middle of the turn: queued, and taken back
+          app.buttons.matching(identifier: "send").allElementsBoundByIndex.last(where: \.isHittable)?.tap()
+          let queued = app.descendants(matching: .any).matching(identifier: "queued").firstMatch
+          if wait(queued, 10, "the message, queued while the agent works") {
+            shot("viewer-queued")
+            app.buttons.matching(identifier: "unqueue").allElementsBoundByIndex.last(where: \.isHittable)?.tap()
+            sleep(1)
+            XCTAssertFalse(queued.exists, "the message taken back is still queued")
+            shot("viewer-unqueued")
+          }
+          // queued again, and typed into the agent once its turn is over
+          prompt.typeText("Make the title bigger")
+          app.buttons.matching(identifier: "send").allElementsBoundByIndex.last(where: \.isHittable)?.tap()
+          if wait(queued, 10, "the message, queued again") {
+            sleep(4)
+            XCTAssertTrue(queued.exists, "the queued message went before the turn was over")
+            shot("viewer-queued-again")
+            if let home = env["KUNA_HOME"] { FileManager.default.createFile(atPath: "\(home)/.turn-over-cccc3333", contents: Data()) }
+            let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: queued)
+            wait(for: [gone], timeout: 40)
+            sleep(1)
+            shot("viewer-queue-sent")
+          }
+        }
+        if app.buttons["viewer-done"].exists { app.buttons["viewer-done"].tap() }
+      }
+      app.navigationBars.buttons.element(boundBy: 0).tap()
+      wait(said("You said: Make the title bigger"), 30, "the queued message, answered after the turn")
+      wait(said("The tagger is trained"), 5, "the turn that the message waited for")
+      sleep(1)
+      shot("queued-answered")
+      app.navigationBars.buttons.element(boundBy: 0).tap()
+    }
+
+    // the default again, for whatever runs next
+    opensIn("Terminal")
+  }
+
   /// A terminal on screen leaves the app idle for XCUITest: every step there is quick.
   func testTerminalIsQuick() throws {
-    app.launchArguments = ["-lock", "NO", "-kunaStill", "YES"]
+    app.launchArguments = ["-lock", "NO", "-kunaStill", "YES", "-opensTerminal", "NO"]
     if let file = ProcessInfo.processInfo.environment["KUNA_IMPORT"] { app.launchArguments += ["-kunaImport", file] }
     app.launch()
     wait(app.buttons["agent-aaaa1111"], 40, "the fixture's agent")
@@ -190,7 +339,7 @@ final class Walkthrough: XCTestCase {
 
   func testWalkthrough() throws {
     let env = ProcessInfo.processInfo.environment
-    app.launchArguments = ["-lock", "NO", "-kunaStill", "YES"]
+    app.launchArguments = ["-lock", "NO", "-kunaStill", "YES", "-opensTerminal", "NO"]
     if let file = env["KUNA_IMPORT"] { app.launchArguments += ["-kunaImport", file] }
     app.launch()
 
@@ -542,10 +691,10 @@ final class Walkthrough: XCTestCase {
     sleep(1)
     shot("settings-haptics")
     // (scrolling down a list folds the tab bar into the tab in front; a tap on that unfolds it)
-    if !app.tabBars.buttons["Agents"].exists { app.tabBars.buttons["Settings"].tap() }
+    if !app.tabBars.buttons["Projects"].exists { app.tabBars.buttons["Settings"].tap() }
     sleep(1)
-    // what was open under Agents is still there
-    app.tabBars.buttons["Agents"].tap()
+    // what was open under Projects is still there
+    app.tabBars.buttons["Projects"].tap()
     sleep(1)
     shot("home-again")
   }

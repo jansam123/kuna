@@ -431,6 +431,7 @@ private struct MediaPage: View {
   let share: (URL?) -> Void
   @Environment(\.look) private var look
   @State private var data: Data?
+  @State private var pdf: PDFDocument?
   @State private var problem: String?
   @State private var asking = false
 
@@ -471,6 +472,9 @@ private struct MediaPage: View {
     problem = nil
     do {
       let got = try await store.data(for: item, host: host, model: model)
+      // read once: a document made anew each time the screen is drawn (as often as a working agent
+      // changes) is set anew in its view, which takes the keyboard from the prompt over it
+      if item.kind == "pdf" { pdf = PDFDocument(data: got) }
       data = got
       if front {
         // a copy with the file's own name, for the share sheet
@@ -490,7 +494,7 @@ private struct MediaPage: View {
     let dir = String(item.path.dropLast(item.name.count + 1))
     switch item.kind {
     case "pdf":
-      if let document = PDFDocument(data: data) { PDFPane(document: document, ground: UIColor(look.ground)) } else { Text("This PDF could not be opened.").foregroundStyle(look.dim) }
+      if let pdf { PDFPane(document: pdf, ground: UIColor(look.ground)) } else { Text("This PDF could not be opened.").foregroundStyle(look.dim) }
     case "md": WebPane(model: model, host: host, dir: dir, content: .markdown(String(decoding: data, as: UTF8.self)))
     case "svg": WebPane(model: model, host: host, dir: dir, content: .svg(data))
     case "html": WebPane(model: model, host: host, dir: dir, content: .page(item.name))

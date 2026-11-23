@@ -572,7 +572,7 @@ struct TerminalScreen: View {
   }
 }
 
-/// The keyboard's button, Ctrl and ⌘ for the next key, then Esc, Tab, the arrows, Ctrl+C and
+/// The keyboard's button, the arrows, Ctrl and ⌘ for the next key, then Esc, Tab, Ctrl+C and
 /// friends: what Claude Code is steered with. The text's size is at the row's end.
 private struct KeyRow: View {
   @Bindable var mods: KeyModifiers
@@ -581,10 +581,11 @@ private struct KeyRow: View {
   let send: (String) -> Void
   @Environment(\.look) private var look
 
+  /// the arrows come first, before ctrl and ⌘; the other keys after those two
+  private static let arrows: [(String, String, String)] = [("↑", "\u{1b}[A", "Up"), ("↓", "\u{1b}[B", "Down"), ("←", "\u{1b}[D", "Left"), ("→", "\u{1b}[C", "Right")]
   private static let keys: [(String, String, String)] = [
-    ("esc", "\u{1b}", "Escape"), ("tab", "\t", "Tab"), ("⇧tab", "\u{1b}[Z", "Shift Tab"), ("↑", "\u{1b}[A", "Up"), ("↓", "\u{1b}[B", "Down"), ("←", "\u{1b}[D", "Left"),
-    ("→", "\u{1b}[C", "Right"), ("⏎", "\r", "Enter"), ("^C", "\u{03}", "Control C"), ("^D", "\u{04}", "Control D"), ("^R", "\u{12}", "Control R"),
-    ("^O", "\u{0f}", "Control O"), ("1", "1", "1"), ("2", "2", "2"), ("3", "3", "3"), ("/", "/", "Slash"),
+    ("esc", "\u{1b}", "Escape"), ("tab", "\t", "Tab"), ("⇧tab", "\u{1b}[Z", "Shift Tab"), ("⏎", "\r", "Enter"), ("^C", "\u{03}", "Control C"), ("^D", "\u{04}", "Control D"),
+    ("^R", "\u{12}", "Control R"), ("^O", "\u{0f}", "Control O"), ("1", "1", "1"), ("2", "2", "2"), ("3", "3", "3"), ("/", "/", "Slash"),
   ]
 
   var body: some View {
@@ -592,6 +593,7 @@ private struct KeyRow: View {
       cap(Image(systemName: "keyboard"), "Keyboard", action: keyboard).padding(.leading, 10)
       ScrollView(.horizontal, showsIndicators: false) {
         HStack(spacing: 7) {
+          ForEach(Self.arrows, id: \.0) { key in cap(Text(key.0), key.2) { send(key.1) } }
           cap(Text("ctrl"), "Control", on: mods.ctrl) {
             mods.ctrl.toggle()
             mods.cmd = false

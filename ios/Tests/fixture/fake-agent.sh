@@ -90,7 +90,30 @@ line "{\"type\":\"user\",\"uuid\":\"u$n\",\"timestamp\":\"$(now)\",\"message\":{
 say "The fit converged.\\n\\n## Result\\n\\n- **mu** = 1.04 ± 0.21, for \$m_{\\\\gamma\\\\gamma}\$ in [105, 160] GeV\\n- chi2/ndf = 38.2 / 41\\n  1. the pulls are flat\\n  2. see [the note](https://example.org/note)\\n- [x] signal region\\n- [ ] control region\\n\\n> One test fails: it still expects 40 bins.\\n\\n| region | events | expected |\\n|:---|---:|---:|\\n| SR | 412 | 398.6 |\\n| CR | 9120 | 9087.2 |\\n\\nThe plot is in \`plots/mass.png\`, the pulls in \`plots/pulls.pdf\`, my notes in \`notes.md\` and an interactive page in \`report/index.html\`. The slides are \`talk.pdf\`, the workflow is \`diagrams/flow.png\` and the plan is \`.claude/plan.md\`.\\n\\n\`\`\`python\\nresult = fit(region='SR', bins=41)\\n\`\`\`"
 hook Stop
 case ${2:-} in
-  working) hook UserPromptSubmit ;;
+  working)
+    hook UserPromptSubmit
+    # at work, a tool every few seconds as Claude Code's hooks tell them, until the walkthrough
+    # says the turn is over: the file ~/.turn-over-<agent id>
+    (
+      n=1000
+      k=0
+      until [ -e "$HOME/.turn-over-$KUNA_AGENT_ID" ]; do
+        k=$((k + 1))
+        case $((k % 3)) in
+          0) tool=Bash what='{"command":"python train.py --epochs 40 --samples new","description":"Train on the new samples"}' ;;
+          1) tool=Read what="{\"file_path\":\"$PWD/config.yaml\"}" ;;
+          2) tool=Edit what="{\"file_path\":\"$PWD/train.py\"}" ;;
+        esac
+        line "{\"type\":\"assistant\",\"uuid\":\"w$k\",\"timestamp\":\"$(now)\",\"message\":{\"model\":\"claude-opus-4-5\",\"content\":[{\"type\":\"tool_use\",\"id\":\"w$k\",\"name\":\"$tool\",\"input\":$what}]}}"
+        printf '{"hook_event_name":"PreToolUse","tool_name":"%s","transcript_path":"%s"}' "$tool" "$t" | sh "$HOME/.kuna/bin/kuna" hook
+        sleep 3
+        line "{\"type\":\"user\",\"uuid\":\"r$k\",\"timestamp\":\"$(now)\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"w$k\",\"content\":\"ok\"}]}}"
+      done
+      rm -f "$HOME/.turn-over-$KUNA_AGENT_ID"
+      say "The tagger is trained: AUC 0.94 on the new samples."
+      hook Stop
+    ) &
+    ;;
   waiting)
     # two questions of its own, each a panel on its screen as Claude Code draws one
     line "{\"type\":\"assistant\",\"uuid\":\"a$n\",\"timestamp\":\"$(now)\",\"message\":{\"model\":\"claude-opus-4-5\",\"content\":[{\"type\":\"tool_use\",\"id\":\"q1\",\"name\":\"AskUserQuestion\",\"input\":{\"questions\":[{\"question\":\"Which curves should be compared?\",\"header\":\"Curves\",\"options\":[{\"label\":\"All taggers\"},{\"label\":\"Only the new one\"}]},{\"question\":\"Log scale on the background axis?\",\"header\":\"Scale\",\"options\":[{\"label\":\"Yes\"},{\"label\":\"No\"}]}]}}]}}"

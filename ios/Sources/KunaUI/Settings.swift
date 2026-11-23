@@ -9,6 +9,7 @@ struct SettingsView: View {
   @AppStorage("lock") private var lock = true
   @AppStorage("homeLook") private var homeLook = HomeLook.blocks.rawValue
   @AppStorage("termFont") private var termFont = 11.0
+  @AppStorage("opensTerminal") private var opensTerminal = true
   @AppStorage("haptics") private var haptics = true
   @AppStorage(Haptic.Moment.opened.rawValue) private var hapticOpen = Haptic.Moment.opened.usual.rawValue
   @AppStorage(Haptic.Moment.sent.rawValue) private var hapticSend = Haptic.Moment.sent.usual.rawValue
@@ -73,6 +74,19 @@ struct SettingsView: View {
             Text("Home screen")
           } footer: {
             Text("Three ways to lay the projects out, to compare. The others go once you have chosen.")
+          }
+
+          Section {
+            Picker("An agent opens in", selection: $opensTerminal) {
+              Text("Terminal").tag(true)
+              Text("Conversation").tag(false)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("opens-terminal")
+          } header: {
+            Text("An agent opens in")
+          } footer: {
+            Text("What an agent's screen shows first; the button at its top swaps to the other.")
           }
 
           Section {
