@@ -30,9 +30,26 @@ final class Walkthrough: XCTestCase {
     app.textViews.matching(NSPredicate(format: "value CONTAINS %@", text)).firstMatch
   }
 
+  /// A terminal on screen leaves the app idle for XCUITest: every step there is quick.
+  func testTerminalIsQuick() throws {
+    app.launchArguments = ["-lock", "NO", "-kunaStill", "YES"]
+    if let file = ProcessInfo.processInfo.environment["KUNA_IMPORT"] { app.launchArguments += ["-kunaImport", file] }
+    app.launch()
+    wait(app.buttons["agent-aaaa1111"], 40, "the fixture's agent")
+    app.buttons["agent-aaaa1111"].tap()
+    wait(app.buttons["open-terminal"], 20, "the agent's screen")
+    app.buttons["open-terminal"].tap()
+    wait(app.buttons["key-Control"], 10, "the terminal")
+    let start = Date()
+    for _ in 0..<2 { app.buttons["key-Control"].tap() }
+    let took = Date().timeIntervalSince(start)
+    print("kuna: two taps on a terminal screen took \(Int(took)) s")
+    XCTAssertLessThan(took, 30, "XCUITest waited for the terminal screen to be idle")
+  }
+
   func testWalkthrough() throws {
     let env = ProcessInfo.processInfo.environment
-    app.launchArguments = ["-lock", "NO"]
+    app.launchArguments = ["-lock", "NO", "-kunaStill", "YES"]
     if let file = env["KUNA_IMPORT"] { app.launchArguments += ["-kunaImport", file] }
     app.launch()
 

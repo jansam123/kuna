@@ -28,6 +28,17 @@ final class TerminalPlace {
 /// its own pans (the mouse, its selection) never begin.
 final class LiveTerminal: TerminalView {
   var still = false
+  /// the walkthrough (`-kunaStill YES`): a blinking caret is an animation without end, and XCUITest waits for every animation to end before each step
+  static let still = UserDefaults.standard.bool(forKey: "kunaStill")
+
+  override func cursorStyleChanged(source: Terminal, newStyle: CursorStyle) {
+    guard Self.still else { return super.cursorStyleChanged(source: source, newStyle: newStyle) }
+    switch newStyle {
+    case .blinkBlock, .steadyBlock: super.cursorStyleChanged(source: source, newStyle: .steadyBlock)
+    case .blinkUnderline, .steadyUnderline: super.cursorStyleChanged(source: source, newStyle: .steadyUnderline)
+    case .blinkBar, .steadyBar: super.cursorStyleChanged(source: source, newStyle: .steadyBar)
+    }
+  }
 
   override func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
     // asked about the pans of the views above it too (the history's): only its own are refused
@@ -275,6 +286,7 @@ final class TerminalHolder: NSObject, TerminalViewDelegate, UIGestureRecognizerD
     view.terminalDelegate = self
     view.inputAccessoryView = nil
     view.optionAsMetaKey = true
+    if LiveTerminal.still { view.cursorStyleChanged(source: view.getTerminal(), newStyle: .steadyBlock) }
     // where the screen's program has the mouse (tmux), a tap is not a click sent to it
     view.allowMouseReporting = false
     apply(theme, fontSize, to: view)
