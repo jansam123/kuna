@@ -4,6 +4,14 @@
 # with the mouse, its lines scrolled by the wheel and by nothing else, and its input box under
 # them, where `/model` opens the fake agent's list of models. The first line shown is kept in
 # ~/.wheel, for the fixture to check that a drag on the phone arrived as the wheel.
+# `claude stop` and `claude rm` are noted in ~/.claude-calls; rm takes the session off the list
+case "${1:-}" in
+  stop | rm)
+    printf '%s %s\n' "$1" "$2" >> "$HOME/.claude-calls"
+    [ "$1" = stop ] || rm -rf "$HOME/.claude/jobs/$2"
+    exit 0
+    ;;
+esac
 [ "${1:-}" = attach ] || exit 0
 # it starts as slowly as `claude attach` on a busy login node: the app shows what it knows meanwhile
 sleep 3

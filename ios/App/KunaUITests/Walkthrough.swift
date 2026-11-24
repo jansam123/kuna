@@ -186,6 +186,34 @@ final class Walkthrough: XCTestCase {
     opensIn("Terminal")
   }
 
+  /// A swipe to the left removes an agent, as Ctrl+X Ctrl+X on the Mac: half way it shows the
+  /// button, all the way it goes. `scripts/ios-sim.sh` checks the host after: the
+  /// tmux agent ended, the background session `claude rm`-ed.
+  func testSwipeRemoves() throws {
+    app.launchArguments = ["-lock", "NO", "-kunaStill", "YES"]
+    if let file = ProcessInfo.processInfo.environment["KUNA_IMPORT"] { app.launchArguments += ["-kunaImport", file] }
+    app.launch()
+    let tmux = app.buttons["agent-hhhh8888"], background = app.buttons["agent-cc-ffff9999"]
+    wait(tmux, 40, "the agent to swipe away")
+    wait(background, 20, "the stopped background session to swipe away")
+    for _ in 0..<6 where !(background.isHittable && tmux.isHittable) { app.swipeUp() }
+    // half way: the button, and a tap on it
+    let from = tmux.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
+    from.press(forDuration: 0.05, thenDragTo: tmux.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.5)), withVelocity: .slow, thenHoldForDuration: 0.1)
+    let button = app.buttons["agent-delete-hhhh8888"]
+    if wait(button, 5, "the delete button half way through a swipe") {
+      shot("swipe-half-way")
+      button.tap()
+    }
+    // all the way across
+    background.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).press(forDuration: 0.05, thenDragTo: background.coordinate(withNormalizedOffset: CGVector(dx: 0.0, dy: 0.5)))
+    for (row, what) in [(tmux, "the swiped agent"), (background, "the swiped background session")] {
+      let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: row)
+      if XCTWaiter().wait(for: [gone], timeout: 20) != .completed { XCTFail("\(what) is still on the list") }
+    }
+    shot("swiped-away")
+  }
+
   /// A terminal on screen leaves the app idle for XCUITest: every step there is quick.
   func testTerminalIsQuick() throws {
     app.launchArguments = ["-lock", "NO", "-kunaStill", "YES", "-opensTerminal", "NO"]

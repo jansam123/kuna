@@ -514,9 +514,17 @@ public final class AppModel {
     }
   }
 
-  /// Take a stopped background session off the list (its conversation stays on the host), or bring it back.
-  public func hide(_ key: String, _ hidden: Bool = true) {
-    update { $0.hidden[key] = hidden ? Date().timeIntervalSince1970 : nil }
+  /// Remove an agent, as Ctrl+X Ctrl+X on the Mac: one of Kuna's own is ended; a background
+  /// session is stopped and `claude rm`-ed, gone from `claude agents` too (its conversation is
+  /// kept, `claude --resume` lists it). Off the list at once; back if the host refuses.
+  public func remove(_ agent: Agent) async throws {
+    guard agent.isBackground else { return try await stop(agent) }
+    links[agent.host]?.agents.removeAll { $0.key == agent.key }
+    retree()
+    let id = String(agent.agentId.dropFirst(3))
+    if agent.alive { try await stop(agent) }
+    let result = try await run(agent.host, ["cc", "rm", id], timeout: 60)
+    guard result.code == 0 else { throw KunaError(firstWords(result.text, result.stderr, or: "claude rm failed.")) }
   }
 
   /// Type a line into one of Kuna's own agents and press Enter. Background sessions take input

@@ -232,8 +232,50 @@ struct AgentRow: View {
   let open: () -> Void
   @Environment(\.look) private var look
   @State private var failure: Notice?
+  /// how far the row is swiped to the left (negative), its width, and whether it rests open
+  @State private var shift: CGFloat = 0
+  @State private var width: CGFloat = 400
+  @State private var opened = false
+  private let reveal: CGFloat = 84
 
   var body: some View {
+    ZStack(alignment: .trailing) {
+      if shift < 0 {
+        Button(action: remove) {
+          Image(systemName: "trash").font(.body.weight(.semibold)).foregroundStyle(.white).frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .buttonStyle(.plain)
+        .frame(width: -shift)
+        .background(look.danger)
+        .accessibilityLabel("Delete")
+        .accessibilityIdentifier("agent-delete-\(agent.agentId)")
+      }
+      row.offset(x: shift)
+    }
+    .clipped()
+    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+    .gesture(SideSwipe(moved: { x in shift = min(0, x - (opened ? reveal : 0)) }, ended: settle))
+    .alert(item: $failure) { Alert(title: Text($0.title), message: Text($0.text)) }
+  }
+
+  /// Let go: far enough (or flicked) deletes, half way rests open on the button, else closes.
+  private func settle(_ x: CGFloat, _ speed: CGFloat) {
+    if shift < -width * 0.55 || (speed < -1500 && shift < -reveal) { return remove() }
+    opened = shift < -reveal / 2 && speed < 300
+    withAnimation(.snappy) { shift = opened ? -reveal : 0 }
+  }
+
+  /// As Ctrl+X Ctrl+X on the Mac: stopped and removed, no question.
+  private func remove() {
+    withAnimation(.snappy) { shift = -width }
+    Task {
+      do { try await model.remove(agent) } catch { failure = Notice(title: "Could not remove it", text: error.localizedDescription) }
+      opened = false
+      shift = 0
+    }
+  }
+
+  private var row: some View {
     Button(action: open) {
       HStack(alignment: .firstTextBaseline, spacing: 12) {
         StatusDot(status: agent.status).padding(.leading, 2)
@@ -251,13 +293,45 @@ struct AgentRow: View {
     }
     .buttonStyle(.plain)
     .accessibilityIdentifier("agent-\(agent.agentId)")
+    .accessibilityAction(named: "Delete", remove)
     .contextMenu { AgentActions(model: model, agent: agent, failure: $failure) }
-    .alert(item: $failure) { Alert(title: Text($0.title), message: Text($0.text)) }
   }
 
   private var line: String {
     if agent.status == "waiting" { return agent.needs ?? "waiting for you" }
     return agent.doing == agent.status ? statusWord(agent) : agent.doing
+  }
+}
+
+/// A pan that starts only when it goes sideways, so the list around it keeps scrolling.
+struct SideSwipe: UIGestureRecognizerRepresentable {
+  var moved: (CGFloat) -> Void
+  /// how far it went and how fast it was going, in points (per second)
+  var ended: (CGFloat, CGFloat) -> Void
+
+  func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+    let pan = UIPanGestureRecognizer()
+    pan.delegate = context.coordinator
+    return pan
+  }
+
+  func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+  func handleUIGestureRecognizerAction(_ pan: UIPanGestureRecognizer, context: Context) {
+    switch pan.state {
+    case .changed: moved(pan.translation(in: nil).x)
+    case .ended: ended(pan.translation(in: nil).x, pan.velocity(in: nil).x)
+    case .cancelled, .failed: ended(0, 0)
+    default: break
+    }
+  }
+
+  final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+    func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+      guard let pan = gesture as? UIPanGestureRecognizer else { return false }
+      let v = pan.velocity(in: nil)
+      return abs(v.x) > abs(v.y) * 1.5
+    }
   }
 }
 
@@ -269,21 +343,13 @@ struct AgentActions: View {
   var gone: () -> Void = {}
 
   var body: some View {
-    if agent.isBackground {
-      if agent.alive {
-        Button("Stop", systemImage: "stop.circle") { act { try await model.stop(agent) } }
-      } else {
-        Button("Remove from the list", systemImage: "eye.slash") {
-          model.hide(agent.key)
-          gone()
-        }
-      }
-    } else {
-      Button(agent.alive ? "Stop and remove" : "Remove", systemImage: "trash", role: .destructive) {
-        act {
-          try await model.stop(agent)
-          gone()
-        }
+    if agent.isBackground, agent.alive {
+      Button("Stop", systemImage: "stop.circle") { act { try await model.stop(agent) } }
+    }
+    Button(agent.alive ? "Stop and remove" : "Remove", systemImage: "trash", role: .destructive) {
+      act {
+        try await model.remove(agent)
+        gone()
       }
     }
   }

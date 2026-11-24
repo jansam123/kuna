@@ -72,7 +72,7 @@ export interface KunaApi {
   agents: {
     spawn(req: SpawnRequest): Promise<{ key: string } | { error: string }>
     /** Kill a Kuna agent; stop (or, once stopped, remove) a Claude background session. */
-    kill(key: string): Promise<{ error?: string; stopped?: boolean }>
+    kill(key: string): Promise<{ error?: string }>
     respawn(key: string): Promise<{ error?: string }>
     /** Agents currently in view; only their transcripts are followed. */
     interest(keys: string[]): void

@@ -23,7 +23,6 @@ import {
   openTab,
   nudgeSelection,
   renameSelection,
-  restoreHidden,
   resumeAgent,
   selectedNode,
   sendEsc,
@@ -139,11 +138,6 @@ function globalShortcut(ev: KeyboardEvent): boolean {
     const hidden = !(s.sidebarHidden && !s.sidebarPeek)
     set({ sidebarHidden: hidden, sidebarPeek: false })
     if (hidden && s.zone !== 'pane' && s.tabs.length) focusPane(s.paneIndex)
-    return true
-  }
-  if (k === 'z' && !ev.shiftKey && s.mode === 'nav' && s.zone !== 'prompt') {
-    // bring back the session Ctrl+X Ctrl+X took off the list last
-    restoreHidden()
     return true
   }
   if (k === 'e' && ev.shiftKey) {

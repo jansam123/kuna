@@ -5,7 +5,7 @@ import { gridRows, neighbor, type Direction } from '@shared/layout'
 import type { AgentRuntime } from '@shared/types'
 import { OTHER_FOLDER_ID, assignAgents, buildTree, folderOfAgent, type TreeNode } from '@shared/tree'
 import { agentTitle } from './format'
-import { arrange, get, hideAgent, markSeen, moveProject, set, toast, toggleCollapsed, toggleFolder, undoHide, unhideAgent } from './store'
+import { arrange, get, hideAgent, markSeen, moveProject, set, toast, toggleCollapsed, toggleFolder, unhideAgent } from './store'
 import { disposeTerminal, reattach, screenLines, terminalEntry, writeToAgent, type TermEntry } from './terminals'
 
 // ------------------------------------------------------------------ tree --
@@ -388,14 +388,6 @@ export function killRequest(): void {
   }, KILL_ARM_MS + 20)
 }
 
-/** ⌘Z: bring back the session taken off the list last. */
-export function restoreHidden(): void {
-  const key = undoHide()
-  if (!key) return toast('Nothing to bring back.', 'info')
-  set({ sel: `a:${key}`, zone: 'sidebar', mode: 'nav' })
-  toast('Back on the list (stopped: Enter opens it again).')
-}
-
 export async function killAgent(key: string): Promise<void> {
   const s = get()
   const agent = s.agents[key]
@@ -423,9 +415,9 @@ export async function killAgent(key: string): Promise<void> {
 }
 
 /**
- * Claude background sessions: stop it (`claude stop`, the conversation is
- * kept) and take it off the list, no questions. ⌘Z brings it back, and so does
- * reviving it from `claude agents`; Kuna never deletes one (`claude rm`).
+ * Claude background sessions: stop it and remove it (`claude stop`, `claude
+ * rm`: off `claude agents` too, its worktree deleted if that is safe), no
+ * questions. The conversation is kept: `claude --resume` lists it.
  */
 async function stopOrRemoveSession(key: string): Promise<void> {
   const s = get()
@@ -444,13 +436,13 @@ async function stopOrRemoveSession(key: string): Promise<void> {
   const agents = { ...get().agents }
   delete agents[key]
   set({ agents })
-  const res = a.alive ? await window.kuna.agents.kill(key) : {}
+  const res = await window.kuna.agents.kill(key)
   if (res.error) {
     unhideAgent(key)
-    toast(`Could not stop “${label}”: ${res.error}`, 'error')
+    toast(`Could not remove “${label}”: ${res.error}`, 'error')
     return
   }
-  toast(`${a.alive ? 'Stopped' : 'Removed'} “${label}” from the list. Its conversation is kept: ⌘Z brings it back.`)
+  toast(`Removed “${label}”. Its conversation is kept: \`claude --resume\` lists it.`)
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))

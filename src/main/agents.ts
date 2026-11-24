@@ -5,7 +5,7 @@ import { TranscriptParser } from '@shared/transcript'
 import type { AgentDetails, AgentRuntime, HostId, PlanUsage, Project, SpawnRequest } from '@shared/types'
 import { agentKey, SHELL_COMMAND } from '@shared/types'
 import { isHostId, isTmuxKeys, splitAgentKey } from '@shared/validate'
-import { b64 } from './hosts/exec'
+import { b64, type ExecResult } from './hosts/exec'
 import { Host } from './hosts/host'
 
 const FIRST_READ_MAX = 3 * 1024 * 1024
@@ -271,19 +271,22 @@ export class AgentService extends EventEmitter {
 
   /**
    * Kuna agents: kill the tmux session. Claude background sessions: `claude
-   * stop` while running (the conversation is kept), `claude rm` once stopped.
+   * stop` while running, then `claude rm`, which takes it off `claude agents`
+   * and deletes its worktree if that is safe (the conversation is kept:
+   * `claude --resume` lists it).
    */
-  async kill(key: string): Promise<{ error?: string; stopped?: boolean }> {
+  async kill(key: string): Promise<{ error?: string }> {
     if (!key) return {}
     const { host, id } = this.locate(key)
     if (id.startsWith('cc-')) {
-      // `claude stop`: the conversation is kept and the session can come back
-      // (Kuna never runs `claude rm`, which deletes it)
-      if (!this.agent(key)?.alive) return {}
-      const res = await host.exec(['cc', 'stop', id.slice(3)], { timeoutMs: 60_000 })
-      const out = res.stdout.toString('utf8').trim()
-      if (res.code !== 0) return { error: out || res.stderr.trim() || 'claude stop failed' }
-      return { stopped: true }
+      const said = (res: ExecResult, or: string): string => res.stdout.toString('utf8').trim() || res.stderr.trim() || or
+      if (this.agent(key)?.alive) {
+        const res = await host.exec(['cc', 'stop', id.slice(3)], { timeoutMs: 60_000 })
+        if (res.code !== 0) return { error: said(res, 'claude stop failed') }
+      }
+      const res = await host.exec(['cc', 'rm', id.slice(3)], { timeoutMs: 60_000 })
+      if (res.code !== 0) return { error: said(res, 'claude rm failed') }
+      return {}
     }
     this.pendingSpawns.delete(key)
     host.agents = host.agents.filter((a) => a.key !== key)

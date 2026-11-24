@@ -22,7 +22,7 @@ If a host runs Claude Code's background agents (`claude --bg`, `claude agents`),
 
 - **Enter** opens a session with `claude attach <id>`; closing the pane only detaches.
 - A session waiting on you shows its question or permission request in amber under its row, in a strip on its pane and in the inspector. Press the number of your answer on the pane.
-- **Ctrl+X Ctrl+X** runs `claude stop` and takes the session off the list, without asking. The conversation is kept: **⌘Z** brings it back, and reviving it from `claude agents` shows it again by itself. Kuna never runs `claude rm`. **⇧⌘R** runs `claude respawn`.
+- **Ctrl+X Ctrl+X** runs `claude stop` and then `claude rm`, without asking, so the session is gone from `claude agents` too and its worktree is deleted if that is safe (`claude rm` refuses a worktree with unpushed work and says so; the session then stays on the list, stopped). The conversation is kept: `claude --resume` lists it. On the phone a swipe to the left does the same. **⇧⌘R** runs `claude respawn`.
 - New agents launched from Kuna are background sessions by default (project setting), so they show up in `claude agents` and Claude's mobile view as well.
 
 ## Being gentle with shared nodes

@@ -143,6 +143,10 @@ spawn dddd4444 "$fake 'Compare the ROC curves' waiting" 'Compare the ROC curves'
 spawn eeee5555 "$fake 'Summarise the alignment note' limit" 'Summarise the alignment note' notes p-notes f-notes
 # asked questions by what is typed to it (ask one, ask many, ask set, run it, /compact): testQuestions
 spawn gggg7777 "$fake 'Write the thesis outline'" 'Write the thesis outline' thesis p-thesis f-thesis
+# swiped away by testSwipeRemoves: one of Kuna's own, and a stopped background session
+spawn hhhh8888 "$fake 'Draft the acknowledgements'" 'Draft the acknowledgements' thesis p-thesis f-thesis
+mkdir -p "$home/.claude/jobs/ffff9999"
+printf '{"state":"idle","tempo":"idle","updatedAt":"%s","createdAt":"%s","cwd":"%s","name":"Old bibliography check"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$home/thesis" > "$home/.claude/jobs/ffff9999/state.json"
 sleep 3
 xcrun simctl terminate "$sim" $app
 
@@ -153,6 +157,10 @@ TEST_RUNNER_KUNA_SHOTS="$shots" TEST_RUNNER_KUNA_HOME="$home" TEST_RUNNER_KUNA_I
 # the drag on the background session's screen reached it as wheel notches up: it starts at line 200
 if [ -z "${KUNA_ONLY:-}" ]; then
   [ "$(cat "$home/.wheel" 2> /dev/null || echo 200)" -lt 200 ] && echo "wheel: ok" || echo "wheel: FAILED (a drag did not scroll the background session)"
+fi
+# the swipes reached the host: the tmux agent ended, the background session `claude rm`-ed
+if [ -z "${KUNA_ONLY:-}" ] || [ "$KUNA_ONLY" = testSwipeRemoves ]; then
+  { ! tmux -L $sock has-session -t kuna_hhhh8888 2> /dev/null && grep -q '^rm ffff9999$' "$home/.claude-calls" 2> /dev/null; } && echo "swipe: ok" || echo "swipe: FAILED (an agent swiped away is still on the host)"
 fi
 # what each list of models the fake agent drew ended with
 [ ! -f "$home/.models" ] || sed 's/^/models: /' "$home/.models"

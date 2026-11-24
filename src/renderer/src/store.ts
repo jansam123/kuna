@@ -358,14 +358,6 @@ export function renameAgent(key: string, name: string): void {
   persist()
 }
 
-/** ⌘Z: the session taken off the list last comes back (still stopped; Enter opens it). */
-export function undoHide(): string | undefined {
-  const last = Object.entries(get().hidden).sort((a, b) => b[1] - a[1])[0]
-  if (!last) return undefined
-  unhideAgent(last[0])
-  return last[0]
-}
-
 /** Apply a rearrangement of the sidebar (see @shared/arrange) and save it. */
 export function arrange(next: Project[]): void {
   if (next === get().projects) return
