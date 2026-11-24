@@ -113,7 +113,7 @@ function PaneHeader({ agentKey, index, unread }: { agentKey: string; index: numb
     >
       <span className="ph-index">{index + 1}</span>
       {where && (
-        <span className="ph-repo" style={{ color: where.folder.color }}>
+        <span className="ph-repo" style={{ color: where.project.color }}>
           <TexText text={where.folder.name} />
         </span>
       )}
@@ -199,7 +199,7 @@ function AgentPane({ agentKey, index, zen }: { agentKey: string; index: number; 
   const hosts = useKuna((s) => s.hosts)
   const [dropping, setDropping] = useState(false)
   const color = useMemo(
-    () => folderOfAgent(projects, Object.values(agents), hosts).get(agentKey)?.folder.color ?? 'var(--faint)',
+    () => folderOfAgent(projects, Object.values(agents), hosts).get(agentKey)?.project.color ?? 'var(--faint)',
     [projects, agents, hosts, agentKey]
   )
 

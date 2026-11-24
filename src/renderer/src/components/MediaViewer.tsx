@@ -297,10 +297,10 @@ export function AgentChat({
   }, [agentKey, live])
 
   return (
-    <section className={`pane media-chat ${focused ? 'typing' : ''}`} style={{ '--repo': where?.folder.color ?? 'var(--faint)' } as React.CSSProperties}>
+    <section className={`pane media-chat ${focused ? 'typing' : ''}`} style={{ '--repo': where?.project.color ?? 'var(--faint)' } as React.CSSProperties}>
       <div className="pane-head">
         {where && (
-          <span className="ph-repo" style={{ color: where.folder.color }}>
+          <span className="ph-repo" style={{ color: where.project.color }}>
             <TexText text={where.folder.name} />
           </span>
         )}

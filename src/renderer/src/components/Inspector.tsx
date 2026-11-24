@@ -50,7 +50,7 @@ export function Inspector(): React.JSX.Element {
 
   return (
     <aside className="inspector">
-      <header className="insp-head" style={{ '--repo': where?.folder.color ?? 'var(--faint)' } as React.CSSProperties}>
+      <header className="insp-head" style={{ '--repo': where?.project.color ?? 'var(--faint)' } as React.CSSProperties}>
         <div className="insp-where">
           <span className="swatch" />
           {where ? <TexText text={where.folder.name} /> : a.cwd} <span className="dim">on {a.host === 'local' ? 'this mac' : a.host}</span>
