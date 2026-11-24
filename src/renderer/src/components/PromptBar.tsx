@@ -47,7 +47,6 @@ export function PromptBar(): React.JSX.Element {
       <div className="prompt-target">
         {target ? (
           <>
-            <span className="swatch" style={{ background: target.folder.color }} />
             <span className="pt-folder">
               <TexText text={target.folder.name} />
             </span>

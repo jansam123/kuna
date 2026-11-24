@@ -243,7 +243,6 @@ function Row({
     return (
       <div ref={ref} className={cls} style={tint} onClick={onClick} title={node.folder.path} {...dnd}>
         <Chevron open={!node.folder.collapsed} small hidden={!count} />
-        <span className="swatch" style={{ background: node.folder.color }} />
         <span className="folder-name">
           <TexText text={node.folder.name} />
         </span>

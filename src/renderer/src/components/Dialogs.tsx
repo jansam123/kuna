@@ -332,11 +332,10 @@ function TexPreview({ text }: { text: string }): React.JSX.Element | null {
   )
 }
 
-/** Rename a folder (the path stays), recolour it, or remove it from the sidebar. */
+/** Rename a folder (the path stays), or remove it from the sidebar. */
 export function FolderEditDialog({ projectId, folderId }: { projectId: string; folderId: string }): React.JSX.Element | null {
   const folder = useKuna((s) => s.projects.find((p) => p.id === projectId)?.folders.find((f) => f.id === folderId))
   const [name, setName] = useState(folder?.name ?? '')
-  const [color, setColor] = useState(folder?.color ?? '')
   const input = useRef<HTMLInputElement>(null)
 
   // the name is selected, so typing replaces it
@@ -346,7 +345,7 @@ export function FolderEditDialog({ projectId, folderId }: { projectId: string; f
   }, [])
 
   const save = (): void => {
-    if (folder) updateFolder(projectId, folderId, { name: name.trim() || folder.path.split('/').pop() || folder.path, color: color || folder.color })
+    if (folder) updateFolder(projectId, folderId, { name: name.trim() || folder.path.split('/').pop() || folder.path })
     closeOverlay()
   }
 
@@ -369,17 +368,6 @@ export function FolderEditDialog({ projectId, folderId }: { projectId: string; f
           <input ref={input} value={name} onChange={(e) => setName(e.target.value)} />
         </label>
         <TexPreview text={name} />
-        <div className="swatches">
-          {REPO_COLORS.map((c) => (
-            <button
-              key={c}
-              className={`swatch-btn ${(color || folder.color) === c ? 'on' : ''}`}
-              style={{ background: c }}
-              onClick={() => setColor(c)}
-              aria-label={`Colour ${c}`}
-            />
-          ))}
-        </div>
         <div className="dialog-actions">
           <button
             className="danger-text"

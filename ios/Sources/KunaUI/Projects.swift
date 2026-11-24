@@ -210,7 +210,7 @@ private struct FolderRows: View {
       HStack(spacing: 10) {
         Button(action: toggle) {
           HStack(spacing: 8) {
-            Image(systemName: folder.other ? "tray" : "folder.fill").font(.footnote).foregroundStyle(Color(hex: folder.folder.color))
+            Image(systemName: folder.other ? "tray" : "folder.fill").font(.footnote).foregroundStyle(look.dim)
             Text(name).font(.subheadline.weight(.semibold)).foregroundStyle(look.text).lineLimit(1)
             if folded, !folder.agents.isEmpty { Text("\(folder.agents.count)").font(.caption.monospacedDigit()).foregroundStyle(look.dim) }
             Spacer(minLength: 0)
