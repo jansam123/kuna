@@ -23,7 +23,7 @@ import {
   validRef,
   type ReviewComment
 } from '@shared/git'
-import { markdownBlocks } from '@shared/mdblocks'
+import { linkFiles, markdownBlocks } from '@shared/mdblocks'
 import { MEDIA_GROUPS, PAGE_CSP, figureClass, fileGroups, mediaKind, mediaPlace, mimeFor, pageFile as pageFileOf, resolveAgainst, viewerOrder, type FigureClass } from '@shared/media'
 import { emptyPhoneState, hostKeyVerdict, knownHostsName, mergeImport, parseExport, type PhoneHost, type PhoneState } from '@shared/phone'
 import { Scrollback, type BackPalette } from '@shared/scrollback'
@@ -102,8 +102,8 @@ export const repoColors = (): string => JSON.stringify(REPO_COLORS)
 
 // ------------------------------------------------------------------ chat ----
 
-/** A reply's Markdown as flat blocks the app draws with its own views (`markdownBlocks`). */
-export const markdown = (text: string): string => JSON.stringify(markdownBlocks(text))
+/** A reply's Markdown as flat blocks the app draws with its own views (`markdownBlocks`), the files it names as links. */
+export const markdown = (text: string): string => JSON.stringify(linkFiles(markdownBlocks(text)))
 
 
 const chats = new Map<string, ChatLog>()
@@ -176,6 +176,9 @@ export function mediaPaths(key: string, base: string, limit: number): string {
   }
   return JSON.stringify(out.slice(0, limit))
 }
+
+/** A path a reply names, as a full path on the host, as `mediaPaths` gives it. */
+export const resolvePath = (base: string, path: string): string => resolveAgainst(base, path)
 
 /** `kuna stat` / `kuna media` output (`mtime\tsize\tpath` lines) → the viewer's list; `order`: the paths in the order to keep, else newest first. */
 export function mediaItems(stat: string, order: string): string {

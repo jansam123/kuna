@@ -43,6 +43,16 @@ final class Walkthrough: XCTestCase {
     return boxes.last(where: \.isHittable) ?? app.textFields["message"].firstMatch
   }
 
+  /// The viewer's back arrow, its bar brought back first if a tap or a swipe hid it.
+  func closeViewer() {
+    let back = app.buttons["viewer-done"]
+    if !back.exists {
+      app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+      _ = back.waitForExistence(timeout: 3)
+    }
+    if back.exists { back.tap() }
+  }
+
   /// Settings ▸ An agent opens in: `Terminal` or `Conversation`; back on the Projects tab after.
   func opensIn(_ which: String, _ name: String? = nil) {
     app.tabBars.buttons["Settings"].tap()
@@ -172,7 +182,7 @@ final class Walkthrough: XCTestCase {
             shot("viewer-queue-sent")
           }
         }
-        if app.buttons["viewer-done"].exists { app.buttons["viewer-done"].tap() }
+        closeViewer()
       }
       app.navigationBars.buttons.element(boundBy: 0).tap()
       wait(said("You said: Make the title bigger"), 30, "the queued message, answered after the turn")
@@ -184,6 +194,47 @@ final class Walkthrough: XCTestCase {
 
     // the default again, for whatever runs next
     opensIn("Terminal")
+  }
+
+  /// A file a reply names opens in the viewer from the conversation; its bar goes on a tap and on
+  /// scrolling, and on its side the file has the whole screen; the back arrow goes back to the conversation.
+  func testFileFromChat() throws {
+    app.launchArguments = ["-lock", "NO", "-opensTerminal", "NO", "-kunaStill", "YES"]
+    if let file = ProcessInfo.processInfo.environment["KUNA_IMPORT"] { app.launchArguments += ["-kunaImport", file] }
+    app.launch()
+    wait(app.buttons["agent-aaaa1111"], 40, "the fixture's agent")
+    app.buttons["agent-aaaa1111"].tap()
+    wait(said("The fit converged."), 30, "the agent's reply")
+    let link = app.links["plots/pulls.pdf"].firstMatch
+    guard wait(link, 10, "the PDF the reply names, as a link") else { return }
+    shot("chat-file-link")
+    link.tap()
+    let back = app.buttons["viewer-done"]
+    guard wait(back, 20, "the viewer, opened on the file") else { return }
+    wait(app.staticTexts["pulls.pdf"], 5, "the file the reply named, in view")
+    sleep(3)
+    shot("chat-file-viewer")
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+    sleep(1)
+    XCTAssertFalse(back.exists, "a tap on the file left its bar")
+    shot("chat-file-bare")
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+    wait(back, 3, "the bar, back after a second tap")
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)).press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)))
+    sleep(1)
+    XCTAssertFalse(back.exists, "scrolling the file left its bar")
+    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+    wait(back, 3, "the bar, back after a tap")
+    XCUIDevice.shared.orientation = .landscapeLeft
+    sleep(3)
+    XCTAssertFalse(back.exists, "on its side the file shares the screen with its bar")
+    shot("chat-file-landscape")
+    XCUIDevice.shared.orientation = .portrait
+    sleep(2)
+    wait(back, 3, "the bar, back upright")
+    back.tap()
+    wait(said("The fit converged."), 10, "the conversation, back from the file")
+    shot("chat-file-back")
   }
 
   /// A swipe to the left removes an agent, as Ctrl+X Ctrl+X on the Mac: half way it shows the
@@ -624,7 +675,7 @@ final class Walkthrough: XCTestCase {
           sleep(4)
           shot("viewer-\(i)")
         }
-        if app.buttons["viewer-done"].exists { app.buttons["viewer-done"].tap() }
+        closeViewer()
       }
       app.navigationBars.buttons.element(boundBy: 0).tap()
     }

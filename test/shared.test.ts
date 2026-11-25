@@ -12,7 +12,7 @@ import { diffLines, foldUnchanged, splitLines, type DiffRow } from '@shared/line
 import { cleanTypedPath, pastePath } from '@shared/paths'
 import { emptyPhoneState, hostKeyVerdict, knownHostsName, makeExport, mergeImport, parseExport, parseJumpSpec, parseKnownHosts, parseSshG, type PhoneState } from '@shared/phone'
 import { gridRows, neighbor } from '@shared/layout'
-import { markdownBlocks } from '@shared/mdblocks'
+import { linkFiles, markdownBlocks } from '@shared/mdblocks'
 import { extractMediaPaths, figureClass, fileGroups, linksIn, mediaGroup, mediaKind, mediaPlace, normalizePosix, pageFile, resolveAgainst, viewerOrder } from '@shared/media'
 import { parseSshConfig } from '@shared/sshConfig'
 import { applyPatch, diffShared, mergePatch } from '@shared/sync'
@@ -1485,6 +1485,20 @@ describe('markdown as blocks, for the phone', () => {
     expect(b[8]).toMatchObject({ align: ['left', 'right'], head: [[{ t: 'a' }], [{ t: 'b' }]], rows: [[[{ t: 'c', s: true }], [{ t: 'd', i: true }]]] })
     expect(b[9]).toMatchObject({ text: 'x = 1', lang: 'py' })
     expect(b[10].text).toBe('a → b')
+  })
+
+  it('makes the files a reply names links, in text, code and tables', () => {
+    const b = linkFiles(markdownBlocks('The plot is in `plots/mass.png`, the pulls in plots/pulls.pdf.\n\n| f |\n|--|\n| ~/talk.pdf |\n\nsee [x.pdf](https://x.org/x.pdf)'))
+    expect(b[0].spans).toEqual([
+      { t: 'The plot is in ' },
+      { t: 'plots/mass.png', c: true, href: 'kuna-file:plots%2Fmass.png' },
+      { t: ', the pulls in ' },
+      { t: 'plots/pulls.pdf', href: 'kuna-file:plots%2Fpulls.pdf' },
+      { t: '.' }
+    ])
+    expect(b[1].rows?.[0][0]).toEqual([{ t: '~/talk.pdf', href: 'kuna-file:~%2Ftalk.pdf' }])
+    expect(b[2].spans).toEqual([{ t: 'see ' }, { t: 'x.pdf', href: 'https://x.org/x.pdf' }])
+    expect(linkFiles([{ kind: 'p', depth: 0, quote: 0, spans: [{ t: 'nothing here' }] }])[0].spans).toEqual([{ t: 'nothing here' }])
   })
 
   it('keeps what it does not know as text', () => {

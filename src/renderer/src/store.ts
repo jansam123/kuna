@@ -21,7 +21,7 @@ export type Zone = 'sidebar' | 'prompt' | 'pane'
 
 export type Overlay =
   /** the viewer; `url`: a web page to show in it (⌘click on an address in the agent's terminal) */
-  | { kind: 'media'; key: string; url?: string }
+  | { kind: 'media'; key: string; url?: string; file?: string }
   /** the review view (⌘G): a folder's git changes, with its agent beside them when there is one; `browse` (⇧⌘E): only its files */
   | { kind: 'review'; host: string; dir: string; key?: string; browse?: boolean }
   | { kind: 'claude'; host?: string }

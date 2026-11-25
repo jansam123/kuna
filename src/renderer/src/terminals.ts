@@ -2,7 +2,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { Terminal } from '@xterm/xterm'
 import { screenState } from '@shared/input'
-import { linksIn } from '@shared/media'
+import { linksIn, mediaRanges } from '@shared/media'
 import { get, set, toast } from './store'
 import { TERMINAL_FACE } from './fonts'
 import { themeById } from './themes'
@@ -263,7 +263,7 @@ export function getTerminal(key: string): TermEntry {
    * The web addresses on line `y` of the buffer (from 1), each with its first and last cell (from 1).
    * shortcut: an address broken over two rows is only known up to the end of its row; passing OSC 8 through tmux would carry it whole
    */
-  const linksOn = (y: number): { url: string; from: number; to: number }[] => {
+  const linksOn = (y: number): { url: string; from: number; to: number; file?: true }[] => {
     const line = term.buffer.active.getLine(y - 1)
     // the cell each character is in: a wide one takes two
     const cells: number[] = []
@@ -275,7 +275,12 @@ export function getTerminal(key: string): TermEntry {
       text += chars
       for (let i = 0; i < chars.length; i++) cells.push(x + 1)
     }
-    return linksIn(text).map(({ at, url }) => ({ url, from: cells[at], to: cells[at + url.length - 1] }))
+    const urls = linksIn(text).map(({ at, url }) => ({ url, at, from: cells[at], to: cells[at + url.length - 1] }))
+    // and the files it names (a plot, a PDF, notes, a page), outside the addresses
+    const files = mediaRanges(text)
+      .filter(({ at, path }) => !urls.some((u) => at < u.at + u.url.length && u.at < at + path.length))
+      .map(({ at, path }) => ({ url: path, from: cells[at], to: cells[at + path.length - 1], file: true as const }))
+    return [...urls.map(({ url, from, to }) => ({ url, from, to })), ...files]
   }
   // an address is underlined under the pointer; the ⌘click on it is taken at the press, below (xterm's own comes at the release, after tmux has redrawn)
   term.registerLinkProvider({
@@ -306,7 +311,7 @@ export function getTerminal(key: string): TermEntry {
   el.addEventListener(
     'mousedown',
     (ev) => {
-      // ⌘click on a web address: the page, in the viewer beside the agent; tmux never sees the click
+      // ⌘click on a web address: the page, in the viewer beside the agent; on a file it names: that file there; tmux never sees the click
       const screen = ev.metaKey && ev.button === 0 ? el.querySelector('.xterm-screen')?.getBoundingClientRect() : undefined
       if (screen) {
         const x = Math.floor(((ev.clientX - screen.left) / screen.width) * term.cols) + 1
@@ -315,7 +320,7 @@ export function getTerminal(key: string): TermEntry {
         if (hit) {
           ev.preventDefault()
           ev.stopPropagation()
-          return set({ overlay: { kind: 'media', key, url: hit.url } })
+          return set({ overlay: hit.file ? { kind: 'media', key, file: hit.url } : { kind: 'media', key, url: hit.url } })
         }
       }
       const up = (): void => {

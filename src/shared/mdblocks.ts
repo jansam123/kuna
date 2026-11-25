@@ -1,4 +1,5 @@
 import { Marked, type Token, type TokenizerAndRendererExtension, type Tokens } from 'marked'
+import { mediaRanges } from './media'
 import { texToText } from './tex'
 
 /**
@@ -179,4 +180,31 @@ export function markdownBlocks(text: string): MdBlock[] {
   const out: MdBlock[] = []
   walk(md.lexer(text), 0, 0, out)
   return out
+}
+
+/** A file a reply names (a plot, a PDF, notes, a page) as a link: `kuna-file:` and its path, as written. */
+export const FILE_LINK = 'kuna-file:'
+
+/** The files the blocks name, as links (FILE_LINK), for the phone to open in its viewer. */
+export function linkFiles(blocks: MdBlock[]): MdBlock[] {
+  const split = (spans: MdSpan[]): MdSpan[] =>
+    spans.flatMap((s) => {
+      if (s.href || s.m) return [s]
+      const out: MdSpan[] = []
+      let at = 0
+      for (const r of mediaRanges(s.t)) {
+        if (r.at > at) out.push({ ...s, t: s.t.slice(at, r.at) })
+        out.push({ ...s, t: r.path, href: FILE_LINK + encodeURIComponent(r.path) })
+        at = r.at + r.path.length
+      }
+      if (!out.length) return [s]
+      if (at < s.t.length) out.push({ ...s, t: s.t.slice(at) })
+      return out
+    })
+  return blocks.map((b) => ({
+    ...b,
+    ...(b.spans && { spans: split(b.spans) }),
+    ...(b.head && { head: b.head.map(split) }),
+    ...(b.rows && { rows: b.rows.map((r) => r.map(split)) })
+  }))
 }

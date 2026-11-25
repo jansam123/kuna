@@ -92,6 +92,13 @@ struct AgentScreen: View {
       }
     }
     .background(look.ground)
+    // a file a reply names opens in the viewer, among the agent's other files
+    .environment(\.openURL, OpenURLAction { url in
+      guard url.scheme == "kuna-file" else { return .systemAction }
+      hideKeyboard()
+      path.append(.plots(key, String(url.absoluteString.dropFirst("kuna-file:".count)).removingPercentEncoding))
+      return .handled
+    })
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       if let agent {

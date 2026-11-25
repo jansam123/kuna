@@ -5,7 +5,8 @@ import SwiftUI
 
 enum Route: Hashable {
   case agent(String)
-  case plots(String)
+  /// an agent's plots and files; with a path (as a reply names it), that file in the viewer
+  case plots(String, String? = nil)
   case review(String)
   /// a project's page, by its id
   case project(String)
@@ -70,7 +71,7 @@ public struct RootView: View {
     .onChange(of: path + places) { _, now in
       open.keep(only: Set(now.compactMap { route in
         switch route {
-        case .agent(let key), .plots(let key), .review(let key): key
+        case .agent(let key), .plots(let key, _), .review(let key): key
         case .project, .files: nil
         }
       }))
@@ -148,7 +149,7 @@ public struct RootView: View {
   private func inside(_ route: Route, _ path: Binding<[Route]>) -> some View {
     switch route {
     case .agent(let key): AgentScreen(model: model, key: key, path: path, open: open)
-    case .plots(let key): PlotsScreen(model: model, key: key, open: open)
+    case .plots(let key, let file): PlotsScreen(model: model, key: key, open: open, file: file)
     case .review(let key): ReviewScreen(model: model, key: key, path: path, open: open)
     case .project(let id): ProjectScreen(model: model, id: id, path: path, notice: $notice)
     case .files(let host, let dir): FolderScreen(model: model, host: host, dir: dir, path: path)

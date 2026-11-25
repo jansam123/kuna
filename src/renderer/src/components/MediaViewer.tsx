@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { gridRows, neighbor, type Direction } from '@shared/layout'
-import { MEDIA_GROUPS, WEB_PARTITION, figureClass, fileGroups, mediaGroup, mediaPlace, viewerOrder, type FigureClass, type MediaPlace } from '@shared/media'
+import { MEDIA_GROUPS, WEB_PARTITION, figureClass, fileGroups, mediaGroup, mediaKind, mediaPlace, resolveAgainst, viewerOrder, type FigureClass, type MediaPlace } from '@shared/media'
 import type { MediaItem, MediaPage } from '@shared/types'
 import { discardTyped, leaveScroll, sendEsc } from '../actions'
 import { agentTitle, ago, bytes, doingText } from '../format'
@@ -1061,6 +1061,19 @@ export function MediaViewer({ agentKey }: { agentKey: string }): React.JSX.Eleme
     webPages.set(agentKey, [it, ...mine.filter((w) => w !== it)])
     // still loading: the list takes it from `webPages` when it comes
     setItems((have) => (have && !have.includes(it) ? viewerOrder([...have, it]) : have))
+    show(it)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentKey, overlay])
+
+  // ⌘click on a file the agent names in its terminal: that file, the list's own once it has it
+  useEffect(() => {
+    const file = overlay?.kind === 'media' ? overlay.file : undefined
+    const a = get().agents[agentKey]
+    const kind = file && mediaKind(file)
+    if (!file || !a || !kind) return
+    const path = resolveAgainst(a.worktree ?? a.cwd, file)
+    const it: MediaItem = items?.find((x) => x.path === path) ?? { path, kind, mtime: 0, size: 0 }
+    setItems((have) => (have && !have.some((x) => x.path === path) ? viewerOrder([...have, it]) : have))
     show(it)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentKey, overlay])

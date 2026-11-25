@@ -130,6 +130,7 @@ struct TextArea: UIViewRepresentable {
 struct SelectableText: UIViewRepresentable {
   let text: NSAttributedString
   @Environment(\.look) private var look
+  @Environment(\.openURL) private var openURL
 
   init(_ text: NSAttributedString) { self.text = text }
 
@@ -146,10 +147,23 @@ struct SelectableText: UIViewRepresentable {
     view.textContainerInset = .zero
     view.textContainer.lineFragmentPadding = 0
     view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    view.delegate = context.coordinator
     return view
   }
 
+  func makeCoordinator() -> Links { Links() }
+
+  /// A tap on a link goes where SwiftUI's links go (`openURL`): a file a reply names opens in the viewer.
+  final class Links: NSObject, UITextViewDelegate {
+    var open: OpenURLAction?
+    func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
+      guard case .link(let url) = textItem.content, let open else { return defaultAction }
+      return UIAction { _ in open(url) }
+    }
+  }
+
   func updateUIView(_ view: UITextView, context: Context) {
+    context.coordinator.open = openURL
     view.tintColor = UIColor(look.accent)
     view.linkTextAttributes = [.foregroundColor: UIColor(look.accent), .underlineStyle: NSUnderlineStyle.single.rawValue]
     if !view.attributedText.isEqual(to: text) { view.attributedText = text }
@@ -189,12 +203,14 @@ struct CopyButton: View {
 
 extension View {
   /// A viewer in place of the screen it was opened from, not over the whole app: the tabs stay
-  /// within reach, and it is still open on coming back from another tab.
-  func inPlace<Item: Identifiable>(_ item: Binding<Item?>, @ViewBuilder content: @escaping (Item) -> some View) -> some View {
+  /// within reach, and it is still open on coming back from another tab. It comes in from the
+  /// right and goes back out there, as a screen opened in a list does (`animated`: or it is just there).
+  func inPlace<Item: Identifiable>(_ item: Binding<Item?>, animated: Bool = true, @ViewBuilder content: @escaping (Item) -> some View) -> some View {
     ZStack {
       self.accessibilityHidden(item.wrappedValue != nil)
-      if let shown = item.wrappedValue { content(shown).id(shown.id) }
+      if let shown = item.wrappedValue { content(shown).id(shown.id).transition(.move(edge: .trailing)).zIndex(1) }
     }
+    .animation(animated ? .snappy(duration: 0.3) : nil, value: item.wrappedValue?.id)
     .toolbar(item.wrappedValue == nil ? .automatic : .hidden, for: .navigationBar)
   }
 

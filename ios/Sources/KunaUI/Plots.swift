@@ -3,6 +3,7 @@ import KunaCore
 import Network
 import PDFKit
 import SwiftUI
+import UIKit.UIGestureRecognizerSubclass
 
 /// Whether the phone is on a connection that costs (mobile data, a hotspot).
 @MainActor
@@ -168,7 +169,10 @@ struct PlotsScreen: View {
   let model: AppModel
   let key: String
   let open: OpenAgents
+  /// a file a reply named, opened from the conversation: shown in the viewer at once, and its back arrow goes back there
+  var file: String?
   @Environment(\.look) private var look
+  @Environment(\.dismiss) private var dismiss
   @State private var store = MediaStore()
   @State private var showing: MediaItem?
   /// the groups rolled out: each starts rolled up
@@ -178,17 +182,33 @@ struct PlotsScreen: View {
     let agent = model.agent(key)
     let here = open.get(key, model)
     VStack(spacing: 0) {
-      list(agent)
+      if file != nil {
+        // the file is on its way: no list in between
+        ZStack {
+          if store.loading || showing != nil { ProgressView() } else { ContentUnavailableView("\(file ?? "") is not there", systemImage: "doc.questionmark", description: Text(store.problem ?? "The agent named it, but its host does not have it (any more).")) }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else {
+        list(agent)
+      }
       PromptDrawer(model: model, here: here)
     }
     .background(look.ground)
     .navigationTitle("Plots and files")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar { PromptButton(here: here) }
-    .task { await reload() }
-    .inPlace($showing) { item in
+    .task {
+      await reload()
+      if let file, let agent, showing == nil {
+        let path = (try? Shared.main.call("resolvePath", [agent.base, file])) ?? file
+        showing = store.items.first { $0.path == path }
+      }
+    }
+    .inPlace($showing, animated: file == nil) { item in
       if let agent {
-        ViewerScreen(model: model, store: store, host: agent.host, items: store.groups.flatMap(\.items), start: item, agent: here) { showing = nil }
+        ViewerScreen(model: model, store: store, host: agent.host, items: store.groups.flatMap(\.items), start: item, agent: here) {
+          if file != nil { dismiss() } else { showing = nil }
+        }
       }
     }
   }
@@ -310,6 +330,10 @@ struct ViewerScreen: View {
   @State private var editing: String?
   @State private var busy = false
   @State private var area = TextArea.Handle()
+  /// the bar at the top: a tap on the file hides it and brings it back, scrolling hides it, and
+  /// on its side the file has the whole screen
+  @State private var bar = true
+  @Environment(\.verticalSizeClass) private var height
 
   init(model: AppModel, store: MediaStore, host: String, items: [MediaItem], start: MediaItem, agent: OpenAgents.Open? = nil, close: @escaping () -> Void) {
     self.agent = agent
@@ -325,11 +349,40 @@ struct ViewerScreen: View {
     let index = items.firstIndex { $0.id == current } ?? 0
     let item = items[index]
     VStack(spacing: 0) {
+      if bar || editing != nil { header(item, index).transition(.move(edge: .top).combined(with: .opacity)) }
+      if editing != nil {
+        TextArea(text: Binding(get: { editing ?? "" }, set: { editing = $0 }), editable: true, handle: area).background(look.ground).accessibilityIdentifier("editor")
+      } else {
+        TabView(selection: $current) {
+          ForEach(items) { item in
+            MediaPage(model: model, store: store, host: host, item: item, front: item.id == current) { shared = $0 }.tag(item.id)
+          }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .background(look.ground)
+        .gesture(Touches { tapped in
+          withAnimation(.easeInOut(duration: 0.2)) { bar = tapped ? !bar : false }
+        })
+        .ignoresSafeArea(.container, edges: bar ? [] : .all)
+        .accessibilityIdentifier("viewer-content")
+      }
+      if let agent { PromptDrawer(model: model, here: agent) }
+    }
+    .background((bar ? look.panel : look.ground).ignoresSafeArea())
+    .statusBarHidden(!bar)
+    .onAppear { bar = height != .compact }
+    .onChange(of: height) { withAnimation(.easeInOut(duration: 0.2)) { bar = height != .compact } }
+    .onChange(of: current) { shared = nil }
+    .fileMover(isPresented: Binding(get: { saving != nil }, set: { if !$0 { saving = nil } }), file: saving) { _ in saving = nil }
+    .alert(item: $failure) { Alert(title: Text($0.title), message: Text($0.text)) }
+  }
+
+  private func header(_ item: MediaItem, _ index: Int) -> some View {
       HStack(spacing: 12) {
         if editing != nil {
           Button("Cancel") { editing = nil }.accessibilityIdentifier("edit-cancel")
         } else {
-          Button("Done", action: close).fontWeight(.semibold).accessibilityIdentifier("viewer-done")
+          Button("Back", systemImage: "chevron.left", action: close).labelStyle(.iconOnly).font(.title3.weight(.semibold)).accessibilityIdentifier("viewer-done")
           if let group = store.group(of: item) {
             Image(systemName: group.symbol).foregroundStyle(group.color.map { Color(hex: $0) } ?? look.dim).accessibilityLabel(group.label)
           }
@@ -362,23 +415,6 @@ struct ViewerScreen: View {
       .padding(.horizontal, 14)
       .padding(.vertical, 8)
       .background(look.panel)
-      if editing != nil {
-        TextArea(text: Binding(get: { editing ?? "" }, set: { editing = $0 }), editable: true, handle: area).background(look.ground).accessibilityIdentifier("editor")
-      } else {
-        TabView(selection: $current) {
-          ForEach(items) { item in
-            MediaPage(model: model, store: store, host: host, item: item, front: item.id == current) { shared = $0 }.tag(item.id)
-          }
-        }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        .background(look.ground)
-      }
-      if let agent { PromptDrawer(model: model, here: agent) }
-    }
-    .background(look.panel.ignoresSafeArea())
-    .onChange(of: current) { shared = nil }
-    .fileMover(isPresented: Binding(get: { saving != nil }, set: { if !$0 { saving = nil } }), file: saving) { _ in saving = nil }
-    .alert(item: $failure) { Alert(title: Text($0.title), message: Text($0.text)) }
   }
 
   /// Open the file's text to edit: only text, and not more of it than a phone edits well.
@@ -418,6 +454,59 @@ struct ViewerScreen: View {
       }
       busy = false
     }
+  }
+}
+
+/// Touches on a file that leave it its own: a tap (true), or the start of a scroll or a swipe
+/// (false). The file's views still get every touch.
+private struct Touches: UIGestureRecognizerRepresentable {
+  let touched: (Bool) -> Void
+
+  func makeUIGestureRecognizer(context: Context) -> Recognizer { Recognizer(target: nil, action: nil) }
+
+  func handleUIGestureRecognizerAction(_ recognizer: Recognizer, context: Context) {
+    switch recognizer.state {
+    case .began: touched(false)
+    case .ended where recognizer.tapped: touched(true)
+    default: break
+    }
+  }
+
+  /// A tap ends it (`.ended`); moving the finger begins it (`.began`) and it then just watches.
+  final class Recognizer: UIGestureRecognizer, UIGestureRecognizerDelegate {
+    private var start: CGPoint?
+    /// it ended without the finger moving
+    private(set) var tapped = false
+
+    override init(target: Any?, action: Selector?) {
+      super.init(target: target, action: action)
+      cancelsTouchesInView = false
+      delaysTouchesEnded = false
+      delegate = self
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+      if touches.count == 1, event.allTouches?.count == 1 { start = touches.first?.location(in: view) } else if state == .possible { state = .failed }
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+      guard state == .possible, let start, let at = touches.first?.location(in: view) else { return }
+      if hypot(at.x - start.x, at.y - start.y) > 12 { state = .began }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+      tapped = state == .possible
+      state = state == .possible || state == .began || state == .changed ? .ended : .failed
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { state = state == .possible ? .failed : .cancelled }
+
+    override func reset() {
+      start = nil
+      tapped = false
+    }
+
+    func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
   }
 }
 

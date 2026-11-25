@@ -50,12 +50,18 @@ export function mimeFor(path: string): string {
 
 /** Every media path mentioned in a piece of text, in order of appearance. */
 export function extractMediaPaths(text: string): string[] {
-  const out: string[] = []
+  return mediaRanges(text).map((r) => r.path)
+}
+
+/** The media paths mentioned in a piece of text, and where each starts. */
+export function mediaRanges(text: string): { at: number; path: string }[] {
+  const out: { at: number; path: string }[] = []
   if (!text || text.length > 400_000) return out
   MEDIA_RE.lastIndex = 0
   let m: RegExpExecArray | null
   while ((m = MEDIA_RE.exec(text))) {
-    out.push(m[1])
+    // the match may start with the one character before the path
+    out.push({ at: m.index + m[0].length - m[1].length, path: m[1] })
     // allow back-to-back matches separated by a single delimiter
     MEDIA_RE.lastIndex = m.index + m[0].length
   }
